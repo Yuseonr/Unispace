@@ -23,5 +23,27 @@ services:
       timeout: 5s
       retries: 5
 
+  minio:
+    image: quay.io/minio/aistor/minio:RELEASE.2026-08-07T18-34-35Z
+    container_name: unispace-minio
+    profiles: [minio]
+
+    restart: unless-stopped
+
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER wajib diisi}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD wajib diisi}
+
+    command: server /data --console-address ":9001" --license /minio.license
+
+    ports:
+      - "${MINIO_API_PORT}:9000"
+      - "${MINIO_CONSOLE_PORT}:9001"
+
+    volumes:
+      - minio_data:/data
+      - ./minio.license:/minio.license:ro
+
 volumes:
   postgres_data:
+  minio_data:

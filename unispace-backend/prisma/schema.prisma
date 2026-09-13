@@ -1,0 +1,322 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  USER
+  STAFF
+  ADMIN
+
+  @@map("user_role")
+}
+
+enum AccountStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  REJECTED
+  NONACTIVE
+
+  @@map("account_status")
+}
+
+enum ReservationMode {
+  EXCLUSIVE
+  QUANTITY
+
+  @@map("reservation_mode")
+}
+
+enum FacilityStatus {
+  ACTIVE
+  NONACTIVE
+
+  @@map("facility_status")
+}
+
+enum ReservationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED_BY_USER
+  CANCELLED_BY_STAFF
+  CANCELLED_BY_SYSTEM
+  COMPLETED
+
+  @@map("reservation_status")
+}
+
+enum ReportCategory {
+  PHYSICAL_DAMAGE
+  ELECTRICAL_ELECTRONICS
+  CLEANLINESS
+  FURNITURE_EQUIPMENT
+  SECURITY
+  OTHER
+
+  @@map("report_category")
+}
+
+enum ReportStatus {
+  NEW
+  IN_PROGRESS
+  RESOLVED
+  REJECTED
+
+  @@map("report_status")
+}
+
+enum StorageProvider {
+  MINIO
+  S3
+
+  @@map("storage_provider")
+}
+
+model User {
+  id                 String        @id @default(uuid()) @db.Uuid
+  name               String        @db.VarChar(120)
+  identityNumber     String        @unique @map("identity_number") @db.VarChar(50)
+  email              String        @unique @db.VarChar(320)
+  passwordHash       String        @map("password_hash") @db.Text
+  refreshTokenHash   String?       @map("refresh_token_hash") @db.Text
+  role               UserRole      @default(USER)
+  accountStatus      AccountStatus @default(PENDING_VERIFICATION) @map("account_status")
+  verificationReason String?       @map("verification_reason") @db.Text
+  verifiedById       String?       @map("verified_by") @db.Uuid
+  verifiedAt         DateTime?     @map("verified_at") @db.Timestamptz(3)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  verifiedBy            User?                   @relation("UserVerification", fields: [verifiedById], references: [id], onDelete: Restrict)
+  verifiedUsers         User[]                  @relation("UserVerification")
+  reservations          Reservation[]           @relation("ReservationOwner")
+  processedReservations Reservation[]           @relation("ReservationProcessor")
+  reports               FacilityReport[]        @relation("ReportReporter")
+  acceptedReports       FacilityReport[]        @relation("ReportAcceptor")
+  resolvedReports       FacilityReport[]        @relation("ReportResolver")
+  processedReports      FacilityReport[]        @relation("ReportProcessor")
+  facilityStatusChanges FacilityStatusHistory[] @relation("FacilityStatusChanger")
+  auditLogs             AuditLog[]              @relation("AuditActor")
+
+  @@index([accountStatus, role])
+  @@map("users")
+}
+
+model FacilityType {
+  id   String @id @default(uuid()) @db.Uuid
+  name String @unique @db.VarChar(100)
+
+  facilityGroups FacilityGroup[]
+
+  @@map("facility_types")
+}
+
+model Location {
+  id     String  @id @default(uuid()) @db.Uuid
+  name   String  @db.VarChar(120)
+  detail String? @db.Text
+
+  facilityGroups FacilityGroup[]
+  facilities     Facility[]
+
+  @@index([name])
+  @@map("locations")
+}
+
+model FacilityGroup {
+  id              String          @id @default(uuid()) @db.Uuid
+  name            String          @db.VarChar(150)
+  facilityTypeId  String          @map("facility_type_id") @db.Uuid
+  reservationMode ReservationMode @map("reservation_mode")
+  locationId      String?         @map("location_id") @db.Uuid
+  capacity        Int?
+  description     String?         @db.Text
+  primaryImageUrl String?         @map("primary_image_url") @db.Text
+
+  facilityType FacilityType  @relation(fields: [facilityTypeId], references: [id], onDelete: Restrict)
+  location     Location?     @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  facilities   Facility[]
+  reservations Reservation[]
+
+  @@index([facilityTypeId, reservationMode])
+  @@index([locationId])
+  @@map("facility_groups")
+}
+
+model Facility {
+  id              String         @id @default(uuid()) @db.Uuid
+  facilityGroupId String         @map("facility_group_id") @db.Uuid
+  assetCode       String         @unique @map("asset_code") @db.VarChar(64)
+  name            String?        @db.VarChar(150)
+  locationId      String?        @map("location_id") @db.Uuid
+  capacity        Int?
+  description     String?        @db.Text
+  primaryImageUrl String?        @map("primary_image_url") @db.Text
+  status          FacilityStatus @default(ACTIVE)
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  facilityGroup      FacilityGroup           @relation(fields: [facilityGroupId], references: [id], onDelete: Restrict)
+  location           Location?               @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  reservations       Reservation[]
+  reservationItems   ReservationItem[]
+  reports            FacilityReport[]
+  statusHistory      FacilityStatusHistory[]
+  maintenancePeriods MaintenancePeriod[]
+
+  @@index([facilityGroupId, status])
+  @@index([locationId])
+  @@map("facilities")
+}
+
+model FacilityStatusHistory {
+  id          String         @id @default(uuid()) @db.Uuid
+  facilityId  String         @map("facility_id") @db.Uuid
+  status      FacilityStatus
+  changedById String         @map("changed_by") @db.Uuid
+  effectiveAt DateTime       @map("effective_at") @db.Timestamptz(3)
+
+  facility  Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  changedBy User     @relation("FacilityStatusChanger", fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([facilityId, effectiveAt])
+  @@index([changedById])
+  @@map("facility_status_history")
+}
+
+model Reservation {
+  id                String            @id @default(uuid()) @db.Uuid
+  userId            String            @map("user_id") @db.Uuid
+  facilityId        String?           @map("facility_id") @db.Uuid
+  facilityGroupId   String?           @map("facility_group_id") @db.Uuid
+  requestedQuantity Int               @default(1) @map("requested_quantity")
+  usageDate         DateTime          @map("usage_date") @db.Date
+  startTime         DateTime          @map("start_time") @db.Time(0)
+  endTime           DateTime          @map("end_time") @db.Time(0)
+  purpose           String            @default("NULL") @db.Text
+  status            ReservationStatus @default(PENDING)
+  decisionDeadline  DateTime          @map("decision_deadline") @db.Timestamptz(3)
+  decisionReason    String?           @map("decision_reason") @db.Text
+  processedById     String?           @map("processed_by") @db.Uuid
+  decidedAt         DateTime?         @map("decided_at") @db.Timestamptz(3)
+  cancelledAt       DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user          User              @relation("ReservationOwner", fields: [userId], references: [id], onDelete: Restrict)
+  facility      Facility?         @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  facilityGroup FacilityGroup?    @relation(fields: [facilityGroupId], references: [id], onDelete: Restrict)
+  processedBy   User?             @relation("ReservationProcessor", fields: [processedById], references: [id], onDelete: Restrict)
+  items         ReservationItem[]
+
+  @@index([userId, status, usageDate])
+  @@index([facilityId, usageDate, startTime, endTime, status])
+  @@index([facilityGroupId, usageDate, startTime, endTime, status])
+  @@index([status, decisionDeadline])
+  @@index([processedById])
+  @@map("reservations")
+}
+
+model ReservationItem {
+  id            String   @id @default(uuid()) @db.Uuid
+  reservationId String   @map("reservation_id") @db.Uuid
+  facilityId    String   @map("facility_id") @db.Uuid
+  allocatedAt   DateTime @default(now()) @map("allocated_at") @db.Timestamptz(3)
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  facility    Facility    @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+
+  @@unique([reservationId, facilityId])
+  @@index([facilityId])
+  @@map("reservation_items")
+}
+
+model FacilityReport {
+  id             String         @id @default(uuid()) @db.Uuid
+  reporterId     String         @map("reporter_id") @db.Uuid
+  facilityId     String         @map("facility_id") @db.Uuid
+  category       ReportCategory
+  description    String         @db.Text
+  status         ReportStatus   @default(NEW)
+  decisionReason String?        @map("decision_reason") @db.Text
+  resolutionNote String?        @map("resolution_note") @db.Text
+  acceptedById   String?        @map("accepted_by") @db.Uuid
+  acceptedAt     DateTime?      @map("accepted_at") @db.Timestamptz(3)
+  resolvedById   String?        @map("resolved_by") @db.Uuid
+  resolvedAt     DateTime?      @map("resolved_at") @db.Timestamptz(3)
+  processedById  String?        @map("processed_by") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  reporter           User                @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  facility           Facility            @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  acceptedBy         User?               @relation("ReportAcceptor", fields: [acceptedById], references: [id], onDelete: Restrict)
+  resolvedBy         User?               @relation("ReportResolver", fields: [resolvedById], references: [id], onDelete: Restrict)
+  processedBy        User?               @relation("ReportProcessor", fields: [processedById], references: [id], onDelete: Restrict)
+  attachments        ReportAttachment[]
+  maintenancePeriods MaintenancePeriod[]
+
+  @@index([reporterId, status, createdAt])
+  @@index([facilityId, status, createdAt])
+  @@index([status, createdAt])
+  @@index([acceptedById])
+  @@index([resolvedById])
+  @@index([processedById])
+  @@map("facility_reports")
+}
+
+model ReportAttachment {
+  id               String          @id @default(uuid()) @db.Uuid
+  reportId         String          @map("report_id") @db.Uuid
+  storageProvider  StorageProvider @map("storage_provider")
+  objectKey        String          @map("object_key") @db.Text
+  objectUrl        String          @map("object_url") @db.Text
+  originalFilename String          @map("original_filename") @db.VarChar(255)
+  mimeType         String          @map("mime_type") @db.VarChar(50)
+  sizeBytes        Int             @map("size_bytes")
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  report FacilityReport @relation(fields: [reportId], references: [id], onDelete: Restrict)
+
+  @@unique([storageProvider, objectKey])
+  @@index([reportId])
+  @@map("report_attachments")
+}
+
+model MaintenancePeriod {
+  id         String   @id @default(uuid()) @db.Uuid
+  facilityId String   @map("facility_id") @db.Uuid
+  reportId   String   @map("report_id") @db.Uuid
+  startAt    DateTime @map("start_at") @db.Timestamptz(3)
+  endAt      DateTime @map("end_at") @db.Timestamptz(3)
+  note       String?  @db.Text
+
+  facility Facility       @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  report   FacilityReport @relation(fields: [reportId], references: [id], onDelete: Restrict)
+
+  @@index([facilityId, startAt, endAt])
+  @@index([reportId, startAt, endAt])
+  @@map("maintenance_periods")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String   @db.VarChar(100)
+  entityType String   @map("entity_type") @db.VarChar(100)
+  entityId   String   @map("entity_id") @db.Uuid
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@map("audit_logs")
+}

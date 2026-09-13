@@ -1,0 +1,8 @@
+# backend node
+node_modules
+
+# backend env
+.env
+
+# prisma
+/src/generated/prisma

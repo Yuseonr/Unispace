@@ -6,3 +6,10 @@ node_modules/
 
 # env
 .env
+minio.license
+
+# dist
+dist/
+
+# ts
+*.tsbuildinfo
