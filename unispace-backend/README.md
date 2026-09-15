@@ -25,6 +25,54 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## API response contract
+
+Every HTTP response has a server-generated `requestId`, `statusCode`, and
+`timestamp`. The `X-Request-Id` header contains the same value for browser
+debugging and server-log correlation.
+
+Successful requests return:
+
+```json
+{
+  "success": true,
+  "statusCode": 200,
+  "requestId": "uuid",
+  "timestamp": "2026-09-15T00:00:00.000Z",
+  "data": {}
+}
+```
+
+Failed requests return:
+
+```json
+{
+  "success": false,
+  "statusCode": 400,
+  "requestId": "uuid",
+  "timestamp": "2026-09-15T00:00:00.000Z",
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Request validation failed.",
+    "details": []
+  }
+}
+```
+
+Unexpected errors never expose exception messages or stack traces. Endpoint
+handlers must return explicit public data, never raw Prisma records containing
+password hashes, refresh-token hashes, or other internal fields.
+
+## Code style
+
+Use `npm run format` for Prettier formatting and `npm run lint` before commit.
+OXLint performs fast static checks; `npm run build` remains the TypeScript check.
+Use `npm run lint:fix` for safe lint fixes plus formatting, or `npm run check`
+before a commit to run formatting, lint, build, and unit tests together.
+Keep imports at the top of a file: external packages first, then project or
+relative imports, followed by one blank line before executable code. Keep
+domain-oriented import groups meaningful; do not alphabetize imports blindly.
+
 ## Project setup
 
 ```bash
