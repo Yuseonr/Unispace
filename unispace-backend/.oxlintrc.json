@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": ["coverage/**", "dist/**", "src/generated/**"],
+  "env": {
+    "node": true
+  },
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "import"],
+  "rules": {
+    "curly": "error",
+    "eqeqeq": "error",
+    "import/first": ["error", "absolute-first"],
+    "import/newline-after-import": "error",
+    "import/no-cycle": "error",
+    "import/no-duplicates": "error",
+    "no-console": "error",
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^ignored",
+        "varsIgnorePattern": "^ignored"
+      }
+    ],
+    "prefer-const": "error",
+    "typescript/no-explicit-any": "error",
+    "unicorn/prefer-node-protocol": "error"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.spec.ts", "test/**/*.ts"],
+      "env": {
+        "jest": true
+      }
+    }
+  ]
+}
