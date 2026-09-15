@@ -33,6 +33,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER wajib diisi}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD wajib diisi}
+      MINIO_SITE_REGION: ${S3_REGION:?S3_REGION wajib diisi}
 
     command: server /data --console-address ":9001" --license /minio.license
 
@@ -43,6 +44,33 @@ services:
     volumes:
       - minio_data:/data
       - ./minio.license:/minio.license:ro
+
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    image: quay.io/minio/aistor/minio:RELEASE.2026-08-07T18-34-35Z
+    profiles: [minio]
+    restart: "no"
+
+    depends_on:
+      minio:
+        condition: service_healthy
+
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER wajib diisi}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD wajib diisi}
+      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET wajib diisi}
+
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        /usr/bin/mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" --api S3v4 &&
+        /usr/bin/mc mb --ignore-existing "local/$$S3_BUCKET" &&
+        /usr/bin/mc anonymous set private "local/$$S3_BUCKET"
 
 volumes:
   postgres_data:
