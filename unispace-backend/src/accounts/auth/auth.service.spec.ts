@@ -209,7 +209,7 @@ describe('AuthService', () => {
     const session = await service.changePassword(
       staff.id,
       'password-yang-panjang',
-      'password-baru-yang-panjang',
+      'password-baru-panjang!',
     );
 
     expect(session.user.role).toBe(UserRole.STAFF);

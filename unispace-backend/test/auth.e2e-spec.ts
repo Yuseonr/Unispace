@@ -244,6 +244,24 @@ describe('Authentication HTTP integration', () => {
           ]),
         );
       });
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({
+        name: 'Long Password',
+        identityNumber: '87654322',
+        email: 'long-password@example.test',
+        password: 'a'.repeat(25),
+      })
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe('VALIDATION_ERROR');
+        expect(body.error.details).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ field: 'password' }),
+          ]),
+        );
+      });
   });
 
   it('returns a clear pending status and keeps rejected identities unavailable for re-registration', async () => {
@@ -356,7 +374,7 @@ describe('Authentication HTTP integration', () => {
       .set('Authorization', `Bearer ${login.body.data.accessToken}`)
       .send({
         currentPassword: 'password-yang-panjang',
-        newPassword: 'password-baru-yang-panjang',
+        newPassword: 'password-baru-panjang!',
       })
       .expect(200)
       .expect(({ body }) => {

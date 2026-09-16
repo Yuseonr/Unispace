@@ -1,11 +1,15 @@
 import { Transform } from 'class-transformer';
 import {
   IsEmail,
+  IsIn,
   IsString,
   Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { UserRole } from '../../../generated/prisma/client';
+
+const MANAGEABLE_ROLES = [UserRole.USER, UserRole.STAFF] as const;
 
 const normalizeSpaces = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value;
@@ -16,7 +20,7 @@ const normalizeEmail = ({ value }: { value: unknown }) =>
 const trimValue = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
 
-export class RegisterDto {
+export class CreateManagedUserDto {
   @Transform(normalizeSpaces)
   @IsString()
   @MinLength(2)
@@ -39,11 +43,6 @@ export class RegisterDto {
   @MaxLength(320)
   email: string;
 
-  @IsString()
-  @MinLength(12)
-  @MaxLength(24)
-  @Matches(/\S/, {
-    message: 'password must contain at least one non-whitespace character',
-  })
-  password: string;
+  @IsIn(MANAGEABLE_ROLES)
+  role: (typeof MANAGEABLE_ROLES)[number];
 }
