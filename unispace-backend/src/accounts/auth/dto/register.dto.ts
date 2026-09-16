@@ -41,7 +41,7 @@ export class RegisterDto {
 
   @IsString()
   @MinLength(12)
-  @MaxLength(128)
+  @MaxLength(24)
   @Matches(/\S/, {
     message: 'password must contain at least one non-whitespace character',
   })
