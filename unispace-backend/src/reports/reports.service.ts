@@ -10,8 +10,10 @@ import {
 	ReportStatus,
 } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { ObjectStorageService } from '../common/storage/object-storage.service';
 import { CreateReportDto } from './dto/create-report.dto';
 import { ListMyReportsDto } from './dto/list-my-reports.dto';
+import { ListStaffReportsDto } from './dto/list-staff-reports.dto';
 import {
 	REPORT_CATEGORY_LABELS,
 	REPORT_ENTITY_TYPE,
@@ -94,9 +96,16 @@ type ReportRecord = Prisma.FacilityReportGetPayload<{
 
 @Injectable()
 export class ReportsService {
-	constructor(private readonly prisma: PrismaService) {}
+	constructor(
+		private readonly prisma: PrismaService,
+		private readonly storage: ObjectStorageService,
+	) {}
 
-	async create(reporterId: string, input: CreateReportDto) {
+	async create(
+		reporterId: string,
+		input: CreateReportDto,
+		files: Express.Multer.File[],
+	) {
 		const facility = await this.prisma.facility.findUnique({
 			where: { id: input.facilityId },
 			select: {
@@ -118,7 +127,12 @@ export class ReportsService {
 			});
 		}
 
-		const report = await this.prisma.$transaction(async (transaction) => {
+		const uploaded = await Promise.all(
+			files.map((file) => this.storage.uploadReportPhoto(file)),
+		);
+
+		try {
+			const report = await this.prisma.$transaction(async (transaction) => {
 			const created = await transaction.facilityReport.create({
 				data: {
 					reporterId,
@@ -144,10 +158,57 @@ export class ReportsService {
 				},
 			});
 
+			await transaction.reportAttachment.createMany({
+				data: uploaded.map((attachment) => ({
+					reportId: created.id,
+					...attachment,
+				})),
+			});
+
 			return created;
 		});
 
-		return this.toResponse(report);
+			return this.detailMine(reporterId, report.id);
+		} catch (error) {
+			await Promise.allSettled(
+				uploaded.map((attachment) => this.storage.remove(attachment.objectKey)),
+			);
+			throw error;
+		}
+	}
+
+	async listStaff(query: ListStaffReportsDto): Promise<PaginatedReportsResponse> {
+		const where: Prisma.FacilityReportWhereInput = {
+			...(query.status === undefined ? {} : { status: query.status }),
+			...(query.facilityId === undefined ? {} : { facilityId: query.facilityId }),
+			...(query.createdFrom === undefined && query.createdTo === undefined
+				? {}
+				: {
+						createdAt: {
+							...(query.createdFrom === undefined ? {} : { gte: new Date(query.createdFrom) }),
+							...(query.createdTo === undefined ? {} : { lte: new Date(query.createdTo) }),
+						},
+					}),
+		};
+		const skip = (query.page - 1) * query.limit;
+		const [reports, total] = await Promise.all([
+			this.prisma.facilityReport.findMany({
+				where,
+				select: reportSelect,
+				orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+				skip,
+				take: query.limit,
+			}),
+			this.prisma.facilityReport.count({ where }),
+		]);
+
+		return {
+			items: reports.map((report) => this.toResponse(report)),
+			page: query.page,
+			limit: query.limit,
+			total,
+			totalPages: Math.ceil(total / query.limit),
+		};
 	}
 
 	async listMine(
