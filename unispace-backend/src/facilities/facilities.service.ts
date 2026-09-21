@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { type Prisma, ReservationMode } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { QueryAvailabilityDto } from './dto/query-availability.dto';
 import { QueryFacilitiesDto } from './dto/query-facilities.dto';
 
 // ---------------------------------------------------------------------------
@@ -247,6 +248,297 @@ export class FacilitiesService {
       description: facility.description,
       primaryImageUrl: facility.primaryImageUrl,
       status: facility.status,
+    };
+  }
+
+  // ─── Ketersediaan Slot 30 Menit (FR-FAC-04 & FR-FAC-05) ───────────────────
+
+  /**
+   * Mengembalikan 26 kartu slot waktu 30 menit (07.00–20.00 WIB)
+   * untuk tanggal tertentu tanpa membocorkan identitas/tujuan peminjam.
+   */
+  async getAvailability(id: string, query: QueryAvailabilityDto) {
+    const { date, kind = 'unit' } = query;
+    const [year, month, day] = date.split('-').map(Number);
+    const checkDate = new Date(Date.UTC(year, month - 1, day, 5, 0, 0)); // Siang hari WIB
+    const dayOfWeek = checkDate.getUTCDay();
+    const isOperationalDay = dayOfWeek >= 1 && dayOfWeek <= 5; // Senin–Jumat
+
+    const usageDate = new Date(Date.UTC(year, month - 1, day));
+    const dayStartUtc = new Date(Date.UTC(year, month - 1, day, 0, 0, 0)); // 07:00 WIB
+    const dayEndUtc = new Date(Date.UTC(year, month - 1, day, 13, 0, 0)); // 20:00 WIB
+
+    if (kind === 'group') {
+      const group = await this.prisma.facilityGroup.findFirst({
+        where: { id, reservationMode: ReservationMode.QUANTITY },
+        include: {
+          facilities: {
+            where: { status: 'ACTIVE' },
+            select: { id: true, assetCode: true },
+          },
+        },
+      });
+      if (!group) {
+        throw new NotFoundException('Kelompok fasilitas tidak ditemukan.');
+      }
+
+      const activeUnitsCount = group.facilities.length;
+      const activeUnitIds = group.facilities.map((f) => f.id);
+
+      const [approvedReservations, maintenancePeriods] = await Promise.all([
+        this.prisma.reservation.findMany({
+          where: {
+            facilityGroupId: id,
+            usageDate,
+            status: 'APPROVED',
+          },
+          select: {
+            startTime: true,
+            endTime: true,
+            requestedQuantity: true,
+          },
+        }),
+        activeUnitIds.length > 0
+          ? this.prisma.maintenancePeriod.findMany({
+              where: {
+                facilityId: { in: activeUnitIds },
+                startAt: { lt: dayEndUtc },
+                endAt: { gt: dayStartUtc },
+              },
+              select: {
+                facilityId: true,
+                startAt: true,
+                endAt: true,
+              },
+            })
+          : [],
+      ]);
+
+      const slots = Array.from({ length: 26 }, (_, i) => {
+        const startHour = 7 + Math.floor(i / 2);
+        const startMin = (i % 2) * 30;
+        const endHour = 7 + Math.floor((i + 1) / 2);
+        const endMin = ((i + 1) % 2) * 30;
+
+        const pad = (n: number) => n.toString().padStart(2, '0');
+        const startTimeStr = `${pad(startHour)}:${pad(startMin)}`;
+        const endTimeStr = `${pad(endHour)}:${pad(endMin)}`;
+
+        if (!isOperationalDay) {
+          return {
+            slotIndex: i,
+            startTime: startTimeStr,
+            endTime: endTimeStr,
+            available: false,
+            availableUnits: 0,
+            totalUnits: activeUnitsCount,
+            reason: 'NON_OPERATIONAL_DAY',
+          };
+        }
+
+        const slotStartTimeDate = new Date(
+          Date.UTC(1970, 0, 1, startHour, startMin, 0),
+        );
+        const slotEndTimeDate = new Date(
+          Date.UTC(1970, 0, 1, endHour, endMin, 0),
+        );
+        const slotStartUtc = new Date(
+          Date.UTC(year, month - 1, day, startHour - 7, startMin, 0),
+        );
+        const slotEndUtc = new Date(
+          Date.UTC(year, month - 1, day, endHour - 7, endMin, 0),
+        );
+
+        const maintenanceUnitIds = new Set(
+          maintenancePeriods
+            .filter((m) => m.startAt < slotEndUtc && m.endAt > slotStartUtc)
+            .map((m) => m.facilityId),
+        );
+        const maintenanceCount = maintenanceUnitIds.size;
+
+        const reservedCount = approvedReservations
+          .filter(
+            (r) =>
+              r.startTime < slotEndTimeDate && r.endTime > slotStartTimeDate,
+          )
+          .reduce((sum, r) => sum + r.requestedQuantity, 0);
+
+        const availableUnits = Math.max(
+          0,
+          activeUnitsCount - maintenanceCount - reservedCount,
+        );
+
+        return {
+          slotIndex: i,
+          startTime: startTimeStr,
+          endTime: endTimeStr,
+          available: availableUnits > 0,
+          availableUnits,
+          totalUnits: activeUnitsCount,
+          reason:
+            availableUnits > 0
+              ? undefined
+              : maintenanceCount > 0
+                ? 'MAINTENANCE'
+                : 'OUT_OF_STOCK',
+        };
+      });
+
+      return {
+        kind: 'QUANTITY' as const,
+        facilityGroupId: group.id,
+        name: group.name,
+        date,
+        isOperationalDay,
+        totalActiveUnits: activeUnitsCount,
+        slots,
+      };
+    }
+
+    // Default: EXCLUSIVE unit
+    const facility = await this.prisma.facility.findFirst({
+      where: {
+        id,
+        facilityGroup: { reservationMode: ReservationMode.EXCLUSIVE },
+      },
+      select: {
+        id: true,
+        assetCode: true,
+        name: true,
+        status: true,
+        facilityGroup: { select: { name: true } },
+      },
+    });
+
+    if (!facility) {
+      throw new NotFoundException('Fasilitas tidak ditemukan.');
+    }
+
+    if (facility.status !== 'ACTIVE') {
+      return {
+        kind: 'EXCLUSIVE' as const,
+        facilityId: facility.id,
+        assetCode: facility.assetCode,
+        name: facility.name ?? facility.facilityGroup.name,
+        date,
+        isOperationalDay,
+        status: facility.status,
+        slots: Array.from({ length: 26 }, (_, i) => {
+          const startHour = 7 + Math.floor(i / 2);
+          const startMin = (i % 2) * 30;
+          const endHour = 7 + Math.floor((i + 1) / 2);
+          const endMin = ((i + 1) % 2) * 30;
+          const pad = (n: number) => n.toString().padStart(2, '0');
+          return {
+            slotIndex: i,
+            startTime: `${pad(startHour)}:${pad(startMin)}`,
+            endTime: `${pad(endHour)}:${pad(endMin)}`,
+            available: false,
+            reason: 'FACILITY_INACTIVE',
+          };
+        }),
+      };
+    }
+
+    const [approvedReservations, maintenancePeriods] = await Promise.all([
+      this.prisma.reservation.findMany({
+        where: {
+          facilityId: id,
+          usageDate,
+          status: 'APPROVED',
+        },
+        select: {
+          startTime: true,
+          endTime: true,
+        },
+      }),
+      this.prisma.maintenancePeriod.findMany({
+        where: {
+          facilityId: id,
+          startAt: { lt: dayEndUtc },
+          endAt: { gt: dayStartUtc },
+        },
+        select: {
+          startAt: true,
+          endAt: true,
+        },
+      }),
+    ]);
+
+    const slots = Array.from({ length: 26 }, (_, i) => {
+      const startHour = 7 + Math.floor(i / 2);
+      const startMin = (i % 2) * 30;
+      const endHour = 7 + Math.floor((i + 1) / 2);
+      const endMin = ((i + 1) % 2) * 30;
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      const startTimeStr = `${pad(startHour)}:${pad(startMin)}`;
+      const endTimeStr = `${pad(endHour)}:${pad(endMin)}`;
+
+      if (!isOperationalDay) {
+        return {
+          slotIndex: i,
+          startTime: startTimeStr,
+          endTime: endTimeStr,
+          available: false,
+          reason: 'NON_OPERATIONAL_DAY',
+        };
+      }
+
+      const slotStartTimeDate = new Date(
+        Date.UTC(1970, 0, 1, startHour, startMin, 0),
+      );
+      const slotEndTimeDate = new Date(
+        Date.UTC(1970, 0, 1, endHour, endMin, 0),
+      );
+      const slotStartUtc = new Date(
+        Date.UTC(year, month - 1, day, startHour - 7, startMin, 0),
+      );
+      const slotEndUtc = new Date(
+        Date.UTC(year, month - 1, day, endHour - 7, endMin, 0),
+      );
+
+      const isMaintenance = maintenancePeriods.some(
+        (m) => m.startAt < slotEndUtc && m.endAt > slotStartUtc,
+      );
+      if (isMaintenance) {
+        return {
+          slotIndex: i,
+          startTime: startTimeStr,
+          endTime: endTimeStr,
+          available: false,
+          reason: 'MAINTENANCE',
+        };
+      }
+
+      const isReserved = approvedReservations.some(
+        (r) => r.startTime < slotEndTimeDate && r.endTime > slotStartTimeDate,
+      );
+      if (isReserved) {
+        return {
+          slotIndex: i,
+          startTime: startTimeStr,
+          endTime: endTimeStr,
+          available: false,
+          reason: 'RESERVED',
+        };
+      }
+
+      return {
+        slotIndex: i,
+        startTime: startTimeStr,
+        endTime: endTimeStr,
+        available: true,
+      };
+    });
+
+    return {
+      kind: 'EXCLUSIVE' as const,
+      facilityId: facility.id,
+      assetCode: facility.assetCode,
+      name: facility.name ?? facility.facilityGroup.name,
+      date,
+      isOperationalDay,
+      slots,
     };
   }
 }

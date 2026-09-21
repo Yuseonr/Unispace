@@ -1,5 +1,6 @@
 import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { Public } from '../accounts/auth/decorators/public.decorator';
+import { QueryAvailabilityDto } from './dto/query-availability.dto';
 import { QueryFacilitiesDto } from './dto/query-facilities.dto';
 import { FacilitiesService } from './facilities.service';
 
@@ -43,6 +44,20 @@ export class FacilitiesController {
   @Get()
   list(@Query() query: QueryFacilitiesDto) {
     return this.facilities.list(query);
+  }
+
+  /**
+   * GET /api/v1/facilities/:id/availability
+   * Ketersediaan 26 slot 30 menit (07.00–20.00 WIB) per tanggal.
+   * Publik tanpa login, tanpa membocorkan identitas pemesan (FR-FAC-04, FR-FAC-05).
+   */
+  @Public()
+  @Get(':id/availability')
+  getAvailability(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query() query: QueryAvailabilityDto,
+  ) {
+    return this.facilities.getAvailability(id, query);
   }
 
   /**

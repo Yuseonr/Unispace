@@ -53,6 +53,8 @@ const prismaMock = {
   location: { findMany: jest.fn() },
   facility: { findMany: jest.fn(), count: jest.fn(), findFirst: jest.fn() },
   facilityGroup: { findMany: jest.fn(), count: jest.fn(), findFirst: jest.fn() },
+  reservation: { findMany: jest.fn() },
+  maintenancePeriod: { findMany: jest.fn() },
 };
 
 // ---------------------------------------------------------------------------
@@ -196,6 +198,157 @@ describe('FacilitiesService', () => {
       await expect(service.detail('not-exist', 'group')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  // ── getAvailability ────────────────────────────────────────────────────────
+
+  describe('getAvailability', () => {
+    const mondayDate = '2026-09-21'; // Hari Senin (hari kerja)
+    const sundayDate = '2026-09-20'; // Hari Minggu (non-operasional)
+
+    describe('EXCLUSIVE unit', () => {
+      it('mengembalikan 26 slot dengan status available=true jika tidak ada bentrok pada hari kerja', async () => {
+        prismaMock.facility.findFirst.mockResolvedValue(stubExclusiveFacility);
+        prismaMock.reservation.findMany.mockResolvedValue([]);
+        prismaMock.maintenancePeriod.findMany.mockResolvedValue([]);
+
+        const result = await service.getAvailability('fac-1', {
+          date: mondayDate,
+          kind: 'unit',
+        });
+
+        expect(result.kind).toBe('EXCLUSIVE');
+        expect(result.isOperationalDay).toBe(true);
+        expect(result.slots).toHaveLength(26);
+        expect(result.slots[0].startTime).toBe('07:00');
+        expect(result.slots[0].endTime).toBe('07:30');
+        expect(result.slots[0].available).toBe(true);
+        expect(result.slots.every((s) => s.available)).toBe(true);
+      });
+
+      it('menandai semua slot available=false dengan reason NON_OPERATIONAL_DAY pada akhir pekan', async () => {
+        prismaMock.facility.findFirst.mockResolvedValue(stubExclusiveFacility);
+
+        const result = await service.getAvailability('fac-1', {
+          date: sundayDate,
+          kind: 'unit',
+        });
+
+        expect(result.isOperationalDay).toBe(false);
+        expect(result.slots).toHaveLength(26);
+        expect(
+          result.slots.every(
+            (s) => !s.available && s.reason === 'NON_OPERATIONAL_DAY',
+          ),
+        ).toBe(true);
+      });
+
+      it('menandai slot yang bertabrakan dengan reservasi APPROVED sebagai available=false dengan reason RESERVED', async () => {
+        prismaMock.facility.findFirst.mockResolvedValue(stubExclusiveFacility);
+        // Reservasi jam 08:00 - 09:00 WIB (slot index 2 & 3)
+        prismaMock.reservation.findMany.mockResolvedValue([
+          {
+            startTime: new Date(Date.UTC(1970, 0, 1, 8, 0, 0)),
+            endTime: new Date(Date.UTC(1970, 0, 1, 9, 0, 0)),
+          },
+        ]);
+        prismaMock.maintenancePeriod.findMany.mockResolvedValue([]);
+
+        const result = await service.getAvailability('fac-1', {
+          date: mondayDate,
+          kind: 'unit',
+        });
+
+        const slot0800 = result.slots.find((s) => s.startTime === '08:00')!;
+        const slot0830 = result.slots.find((s) => s.startTime === '08:30')!;
+        const slot0900 = result.slots.find((s) => s.startTime === '09:00')!;
+
+        expect(slot0800.available).toBe(false);
+        expect(slot0800.reason).toBe('RESERVED');
+        expect(slot0830.available).toBe(false);
+        expect(slot0830.reason).toBe('RESERVED');
+        expect(slot0900.available).toBe(true);
+      });
+
+      it('menandai slot yang bertabrakan dengan maintenance period sebagai available=false dengan reason MAINTENANCE', async () => {
+        prismaMock.facility.findFirst.mockResolvedValue(stubExclusiveFacility);
+        prismaMock.reservation.findMany.mockResolvedValue([]);
+        // Maintenance jam 10:00 - 12:00 WIB (03:00 - 05:00 UTC)
+        prismaMock.maintenancePeriod.findMany.mockResolvedValue([
+          {
+            startAt: new Date(Date.UTC(2026, 8, 21, 3, 0, 0)),
+            endAt: new Date(Date.UTC(2026, 8, 21, 5, 0, 0)),
+          },
+        ]);
+
+        const result = await service.getAvailability('fac-1', {
+          date: mondayDate,
+          kind: 'unit',
+        });
+
+        const slot1000 = result.slots.find((s) => s.startTime === '10:00')!;
+        expect(slot1000.available).toBe(false);
+        expect(slot1000.reason).toBe('MAINTENANCE');
+      });
+
+      it('melempar NotFoundException bila unit tidak ditemukan', async () => {
+        prismaMock.facility.findFirst.mockResolvedValue(null);
+        await expect(
+          service.getAvailability('unknown-id', {
+            date: mondayDate,
+            kind: 'unit',
+          }),
+        ).rejects.toThrow(NotFoundException);
+      });
+    });
+
+    describe('QUANTITY group', () => {
+      const groupWithUnits = {
+        id: 'grp-qty-1',
+        name: 'Proyektor Epson EB-X06',
+        reservationMode: ReservationMode.QUANTITY,
+        facilities: [{ id: 'unit-1', assetCode: 'PRJ-001' }, { id: 'unit-2', assetCode: 'PRJ-002' }],
+      };
+
+      it('menghitung availableUnits = totalActiveUnits dikurangi unit reservasi dan maintenance', async () => {
+        prismaMock.facilityGroup.findFirst.mockResolvedValue(groupWithUnits);
+        // Reservasi 1 unit jam 07:00 - 08:00
+        prismaMock.reservation.findMany.mockResolvedValue([
+          {
+            startTime: new Date(Date.UTC(1970, 0, 1, 7, 0, 0)),
+            endTime: new Date(Date.UTC(1970, 0, 1, 8, 0, 0)),
+            requestedQuantity: 1,
+          },
+        ]);
+        prismaMock.maintenancePeriod.findMany.mockResolvedValue([]);
+
+        const result = await service.getAvailability('grp-qty-1', {
+          date: mondayDate,
+          kind: 'group',
+        });
+
+        expect(result.kind).toBe('QUANTITY');
+        expect(result.totalActiveUnits).toBe(2);
+
+        const slot0700 = result.slots.find((s) => s.startTime === '07:00')!;
+        expect(slot0700.totalUnits).toBe(2);
+        expect(slot0700.availableUnits).toBe(1); // 2 - 1 = 1
+        expect(slot0700.available).toBe(true);
+
+        const slot0800 = result.slots.find((s) => s.startTime === '08:00')!;
+        expect(slot0800.availableUnits).toBe(2);
+      });
+
+      it('melempar NotFoundException bila kelompok tidak ditemukan', async () => {
+        prismaMock.facilityGroup.findFirst.mockResolvedValue(null);
+        await expect(
+          service.getAvailability('unknown-group', {
+            date: mondayDate,
+            kind: 'group',
+          }),
+        ).rejects.toThrow(NotFoundException);
+      });
     });
   });
 });
