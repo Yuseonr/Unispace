@@ -14,6 +14,7 @@ import type { AuthenticatedUser } from '../accounts/auth/auth.types';
 import { CreateFacilityGroupDto } from './dto/create-facility-group.dto';
 import { CreateFacilityUnitDto } from './dto/create-facility-unit.dto';
 import { UpdateFacilityGroupDto } from './dto/update-facility-group.dto';
+import { UpdateFacilityStatusDto } from './dto/update-facility-status.dto';
 import { FacilitiesService } from './facilities.service';
 
 @Controller('admin/facilities')
@@ -65,5 +66,19 @@ export class AdminFacilitiesController {
     @Body() input: CreateFacilityUnitDto,
   ) {
     return this.facilities.adminCreateUnit(admin.id, input);
+  }
+
+  /**
+   * PATCH /api/v1/admin/facilities/units/:id/status
+   * Mengubah status unit fasilitas (ACTIVE / NONACTIVE).
+   * Ditolak jika ada reservasi APPROVED yang belum selesai (FR-FAC-07).
+   */
+  @Patch('units/:id/status')
+  updateUnitStatus(
+    @CurrentUser() admin: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: UpdateFacilityStatusDto,
+  ) {
+    return this.facilities.adminUpdateUnitStatus(admin.id, id, input.status);
   }
 }

@@ -1,15 +1,57 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { type Prisma, ReservationMode } from '../generated/prisma/client';
+import {
+  FacilityStatus,
+  type Prisma,
+  ReservationMode,
+} from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CreateFacilityGroupDto } from './dto/create-facility-group.dto';
 import { CreateFacilityUnitDto } from './dto/create-facility-unit.dto';
 import { QueryAvailabilityDto } from './dto/query-availability.dto';
 import { QueryFacilitiesDto } from './dto/query-facilities.dto';
 import { UpdateFacilityGroupDto } from './dto/update-facility-group.dto';
+
+// ---------------------------------------------------------------------------
+// Helper Waktu Jakarta (Asia/Jakarta)
+// ---------------------------------------------------------------------------
+
+function jakartaReservationBoundary(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+
+  const numberPart = (type: Intl.DateTimeFormatPartTypes) => {
+    const value = parts.find((part) => part.type === type)?.value;
+    if (!value) {
+      throw new Error(`Unable to determine Jakarta ${type}.`);
+    }
+    return Number(value);
+  };
+
+  const year = numberPart('year');
+  const month = numberPart('month');
+  const day = numberPart('day');
+  const hour = numberPart('hour');
+  const minute = numberPart('minute');
+  const second = numberPart('second');
+
+  return {
+    usageDate: new Date(Date.UTC(year, month - 1, day)),
+    endTime: new Date(Date.UTC(1970, 0, 1, hour, minute, second)),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Projection: data yang dikembalikan ke publik — tanpa data pribadi pemesan
@@ -783,6 +825,151 @@ export class FacilitiesService {
         },
       },
       orderBy: { name: 'asc' },
+    });
+  }
+
+  /**
+   * FR-FAC-07: Admin mengubah status unit fasilitas (ACTIVE <-> NONACTIVE).
+   * Menolak aksi jika masih ada reservasi APPROVED yang jam selesainya belum terlewati.
+   * Menolak pengajuan PENDING secara otomatis jika penonaktifan berhasil.
+   * Mencatat ke FacilityStatusHistory dan AuditLog.
+   */
+  async adminUpdateUnitStatus(
+    adminId: string,
+    facilityId: string,
+    newStatus: FacilityStatus,
+  ) {
+    const facility = await this.prisma.facility.findUnique({
+      where: { id: facilityId },
+      include: {
+        facilityGroup: { select: { name: true, reservationMode: true } },
+      },
+    });
+
+    if (!facility) {
+      throw new NotFoundException('Unit fasilitas tidak ditemukan.');
+    }
+
+    if (facility.status === newStatus) {
+      return facility;
+    }
+
+    const now = new Date();
+
+    if (newStatus === FacilityStatus.NONACTIVE) {
+      const boundary = jakartaReservationBoundary(now);
+
+      // Cek apakah masih ada reservasi APPROVED yang belum selesai
+      // (Bisa terhubung via facilityId langsung atau via reservationItems)
+      const activeApproved = await this.prisma.reservation.findFirst({
+        where: {
+          status: 'APPROVED',
+          OR: [
+            { facilityId },
+            { items: { some: { facilityId } } },
+          ],
+          AND: [
+            {
+              OR: [
+                { usageDate: { gt: boundary.usageDate } },
+                {
+                  usageDate: boundary.usageDate,
+                  endTime: { gte: boundary.endTime },
+                },
+              ],
+            },
+          ],
+        },
+      });
+
+      if (activeApproved) {
+        throw new BadRequestException(
+          'Tidak dapat menonaktifkan fasilitas: masih terdapat reservasi disetujui (APPROVED) yang belum selesai. ' +
+            'Silakan minta petugas membatalkan reservasi tersebut terlebih dahulu.',
+        );
+      }
+
+      return this.prisma.$transaction(async (tx) => {
+        // 1. Update status unit fasilitas
+        const updated = await tx.facility.update({
+          where: { id: facilityId },
+          data: { status: FacilityStatus.NONACTIVE },
+        });
+
+        // 2. Tolak reservasi PENDING yang mengarah ke fasilitas ini
+        await tx.reservation.updateMany({
+          where: {
+            status: 'PENDING',
+            facilityId,
+          },
+          data: {
+            status: 'REJECTED',
+            decisionReason: 'Fasilitas dinonaktifkan oleh administrator.',
+            decidedAt: now,
+            processedById: null,
+          },
+        });
+
+        // 3. Catat ke FacilityStatusHistory
+        await tx.facilityStatusHistory.create({
+          data: {
+            facilityId,
+            status: FacilityStatus.NONACTIVE,
+            changedById: adminId,
+            effectiveAt: now,
+          },
+        });
+
+        // 4. Catat ke AuditLog
+        await tx.auditLog.create({
+          data: {
+            actorId: adminId,
+            action: 'FACILITY_STATUS_DEACTIVATED',
+            entityType: 'FACILITY',
+            entityId: facilityId,
+            metadata: {
+              assetCode: facility.assetCode,
+              fromStatus: FacilityStatus.ACTIVE,
+              toStatus: FacilityStatus.NONACTIVE,
+            },
+          },
+        });
+
+        return updated;
+      });
+    }
+
+    // Mengaktifkan kembali (ACTIVE)
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.facility.update({
+        where: { id: facilityId },
+        data: { status: FacilityStatus.ACTIVE },
+      });
+
+      await tx.facilityStatusHistory.create({
+        data: {
+          facilityId,
+          status: FacilityStatus.ACTIVE,
+          changedById: adminId,
+          effectiveAt: now,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: adminId,
+          action: 'FACILITY_STATUS_ACTIVATED',
+          entityType: 'FACILITY',
+          entityId: facilityId,
+          metadata: {
+            assetCode: facility.assetCode,
+            fromStatus: FacilityStatus.NONACTIVE,
+            toStatus: FacilityStatus.ACTIVE,
+          },
+        },
+      });
+
+      return updated;
     });
   }
 }

@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { jest } from '@jest/globals';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { ReservationMode, FacilityStatus } from '../generated/prisma/client';
@@ -57,6 +57,7 @@ const prismaMock = {
     findFirst: jest.fn(),
     findUnique: jest.fn(),
     create: jest.fn(),
+    update: jest.fn(),
   },
   facilityGroup: {
     findMany: jest.fn(),
@@ -66,8 +67,13 @@ const prismaMock = {
     create: jest.fn(),
     update: jest.fn(),
   },
-  reservation: { findMany: jest.fn() },
+  reservation: {
+    findMany: jest.fn(),
+    findFirst: jest.fn(),
+    updateMany: jest.fn(),
+  },
   maintenancePeriod: { findMany: jest.fn() },
+  facilityStatusHistory: { create: jest.fn() },
   auditLog: { create: jest.fn() },
   $transaction: jest.fn(),
 };
@@ -443,6 +449,92 @@ describe('FacilitiesService', () => {
       prismaMock.facilityGroup.findMany.mockResolvedValue([stubQuantityGroup]);
       const result = await service.adminList();
       expect(result).toHaveLength(1);
+    });
+  });
+
+  describe('adminUpdateUnitStatus', () => {
+    const adminId = 'admin-uuid-1';
+    const facilityId = 'fac-1';
+
+    it('menolak penonaktifan fasilitas bila masih ada reservasi APPROVED yang belum selesai', async () => {
+      prismaMock.facility.findUnique.mockResolvedValue({
+        id: facilityId,
+        assetCode: 'R-101',
+        status: FacilityStatus.ACTIVE,
+        facilityGroup: { name: 'Ruang 101', reservationMode: ReservationMode.EXCLUSIVE },
+      });
+      // Ada reservasi APPROVED yang aktif
+      prismaMock.reservation.findFirst.mockResolvedValue({ id: 'res-approved-1' });
+
+      await expect(
+        service.adminUpdateUnitStatus(adminId, facilityId, FacilityStatus.NONACTIVE),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('berhasil menonaktifkan fasilitas dan menolak reservasi PENDING yang terkait', async () => {
+      prismaMock.facility.findUnique.mockResolvedValue({
+        id: facilityId,
+        assetCode: 'R-101',
+        status: FacilityStatus.ACTIVE,
+        facilityGroup: { name: 'Ruang 101', reservationMode: ReservationMode.EXCLUSIVE },
+      });
+      prismaMock.reservation.findFirst.mockResolvedValue(null);
+
+      const updatedFacility = {
+        id: facilityId,
+        assetCode: 'R-101',
+        status: FacilityStatus.NONACTIVE,
+      };
+
+      prismaMock.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => unknown) =>
+          callback({
+            facility: { update: jest.fn().mockResolvedValue(updatedFacility) },
+            reservation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+            facilityStatusHistory: { create: jest.fn().mockResolvedValue({}) },
+            auditLog: { create: jest.fn().mockResolvedValue({}) },
+          }),
+      );
+
+      const result = await service.adminUpdateUnitStatus(
+        adminId,
+        facilityId,
+        FacilityStatus.NONACTIVE,
+      );
+
+      expect(result.status).toBe(FacilityStatus.NONACTIVE);
+    });
+
+    it('berhasil mengaktifkan kembali fasilitas dari NONACTIVE ke ACTIVE', async () => {
+      prismaMock.facility.findUnique.mockResolvedValue({
+        id: facilityId,
+        assetCode: 'R-101',
+        status: FacilityStatus.NONACTIVE,
+        facilityGroup: { name: 'Ruang 101', reservationMode: ReservationMode.EXCLUSIVE },
+      });
+
+      const updatedFacility = {
+        id: facilityId,
+        assetCode: 'R-101',
+        status: FacilityStatus.ACTIVE,
+      };
+
+      prismaMock.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => unknown) =>
+          callback({
+            facility: { update: jest.fn().mockResolvedValue(updatedFacility) },
+            facilityStatusHistory: { create: jest.fn().mockResolvedValue({}) },
+            auditLog: { create: jest.fn().mockResolvedValue({}) },
+          }),
+      );
+
+      const result = await service.adminUpdateUnitStatus(
+        adminId,
+        facilityId,
+        FacilityStatus.ACTIVE,
+      );
+
+      expect(result.status).toBe(FacilityStatus.ACTIVE);
     });
   });
 });
