@@ -49,12 +49,27 @@ const stubQuantityGroup = {
 // ---------------------------------------------------------------------------
 
 const prismaMock = {
-  facilityType: { findMany: jest.fn() },
-  location: { findMany: jest.fn() },
-  facility: { findMany: jest.fn(), count: jest.fn(), findFirst: jest.fn() },
-  facilityGroup: { findMany: jest.fn(), count: jest.fn(), findFirst: jest.fn() },
+  facilityType: { findMany: jest.fn(), findUnique: jest.fn() },
+  location: { findMany: jest.fn(), findUnique: jest.fn() },
+  facility: {
+    findMany: jest.fn(),
+    count: jest.fn(),
+    findFirst: jest.fn(),
+    findUnique: jest.fn(),
+    create: jest.fn(),
+  },
+  facilityGroup: {
+    findMany: jest.fn(),
+    count: jest.fn(),
+    findFirst: jest.fn(),
+    findUnique: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+  },
   reservation: { findMany: jest.fn() },
   maintenancePeriod: { findMany: jest.fn() },
+  auditLog: { create: jest.fn() },
+  $transaction: jest.fn(),
 };
 
 // ---------------------------------------------------------------------------
@@ -349,6 +364,85 @@ describe('FacilitiesService', () => {
           }),
         ).rejects.toThrow(NotFoundException);
       });
+    });
+  });
+
+  // ── Admin CRUD ────────────────────────────────────────────────────────────
+
+  describe('adminCreateGroup', () => {
+    const adminId = 'admin-uuid-1';
+
+    it('berhasil membuat grup baru dan mencatat audit log', async () => {
+      prismaMock.facilityType.findUnique.mockResolvedValue(stubType);
+      prismaMock.location.findUnique.mockResolvedValue(stubLocation);
+      prismaMock.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => unknown) =>
+          callback({
+            facilityGroup: {
+              create: jest.fn().mockResolvedValue(stubQuantityGroup),
+            },
+            facility: { create: jest.fn() },
+            auditLog: { create: jest.fn().mockResolvedValue({}) },
+          }),
+      );
+
+      const result = await service.adminCreateGroup(adminId, {
+        name: 'Proyektor Epson',
+        facilityTypeId: 'type-1',
+        reservationMode: ReservationMode.QUANTITY,
+        locationId: 'loc-1',
+        primaryImageUrl: 'https://example.com/img.jpg',
+      });
+
+      expect(result.id).toBe('grp-qty-1');
+    });
+
+    it('melempar NotFoundException bila facilityTypeId tidak valid', async () => {
+      prismaMock.facilityType.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.adminCreateGroup(adminId, {
+          name: 'Ruang 101',
+          facilityTypeId: 'non-existent',
+          reservationMode: ReservationMode.EXCLUSIVE,
+          primaryImageUrl: 'https://example.com/img.jpg',
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('adminCreateUnit', () => {
+    const adminId = 'admin-uuid-1';
+
+    it('berhasil membuat unit fisik baru bila assetCode belum terpakai', async () => {
+      prismaMock.facilityGroup.findUnique.mockResolvedValue(stubQuantityGroup);
+      prismaMock.facility.findUnique.mockResolvedValue(null);
+      prismaMock.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => unknown) =>
+          callback({
+            facility: {
+              create: jest
+                .fn()
+                .mockResolvedValue({ id: 'u-1', assetCode: 'PRJ-099' }),
+            },
+            auditLog: { create: jest.fn().mockResolvedValue({}) },
+          }),
+      );
+
+      const result = await service.adminCreateUnit(adminId, {
+        facilityGroupId: 'grp-qty-1',
+        assetCode: 'PRJ-099',
+      });
+
+      expect(result.assetCode).toBe('PRJ-099');
+    });
+  });
+
+  describe('adminList', () => {
+    it('mengembalikan seluruh grup fasilitas beserta unit fisiknya', async () => {
+      prismaMock.facilityGroup.findMany.mockResolvedValue([stubQuantityGroup]);
+      const result = await service.adminList();
+      expect(result).toHaveLength(1);
     });
   });
 });

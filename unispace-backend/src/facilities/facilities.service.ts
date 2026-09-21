@@ -1,8 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { type Prisma, ReservationMode } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { CreateFacilityGroupDto } from './dto/create-facility-group.dto';
+import { CreateFacilityUnitDto } from './dto/create-facility-unit.dto';
 import { QueryAvailabilityDto } from './dto/query-availability.dto';
 import { QueryFacilitiesDto } from './dto/query-facilities.dto';
+import { UpdateFacilityGroupDto } from './dto/update-facility-group.dto';
 
 // ---------------------------------------------------------------------------
 // Projection: data yang dikembalikan ke publik — tanpa data pribadi pemesan
@@ -540,5 +547,242 @@ export class FacilitiesService {
       isOperationalDay,
       slots,
     };
+  }
+
+  // ─── Admin Master Facilities (FR-FAC-06 & FR-FAC-08) ──────────────────────
+
+  /**
+   * Admin membuat kelompok fasilitas baru.
+   * Jika mode EXCLUSIVE, unit fisik awal otomatis dibuat jika assetCode disertakan.
+   */
+  async adminCreateGroup(adminId: string, input: CreateFacilityGroupDto) {
+    // Validasi existence tipe fasilitas
+    const typeExists = await this.prisma.facilityType.findUnique({
+      where: { id: input.facilityTypeId },
+    });
+    if (!typeExists) {
+      throw new NotFoundException('Tipe fasilitas tidak ditemukan.');
+    }
+
+    if (input.locationId) {
+      const locExists = await this.prisma.location.findUnique({
+        where: { id: input.locationId },
+      });
+      if (!locExists) {
+        throw new NotFoundException('Lokasi tidak ditemukan.');
+      }
+    }
+
+    if (input.reservationMode === ReservationMode.EXCLUSIVE && input.assetCode) {
+      const existingAsset = await this.prisma.facility.findUnique({
+        where: { assetCode: input.assetCode },
+      });
+      if (existingAsset) {
+        throw new ConflictException(
+          `Kode aset "${input.assetCode}" sudah digunakan.`,
+        );
+      }
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const group = await tx.facilityGroup.create({
+        data: {
+          name: input.name,
+          facilityTypeId: input.facilityTypeId,
+          reservationMode: input.reservationMode,
+          locationId: input.locationId,
+          capacity: input.capacity,
+          description: input.description,
+          primaryImageUrl: input.primaryImageUrl,
+        },
+        include: {
+          facilityType: { select: { id: true, name: true } },
+          location: { select: { id: true, name: true } },
+        },
+      });
+
+      let initialUnit = null;
+      if (
+        input.reservationMode === ReservationMode.EXCLUSIVE &&
+        input.assetCode
+      ) {
+        initialUnit = await tx.facility.create({
+          data: {
+            facilityGroupId: group.id,
+            assetCode: input.assetCode,
+            name: input.name,
+            locationId: input.locationId,
+            capacity: input.capacity,
+            description: input.description,
+            primaryImageUrl: input.primaryImageUrl,
+            status: 'ACTIVE',
+          },
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          actorId: adminId,
+          action: 'FACILITY_GROUP_CREATED',
+          entityType: 'FACILITY_GROUP',
+          entityId: group.id,
+          metadata: {
+            name: group.name,
+            reservationMode: group.reservationMode,
+            initialAssetCode: input.assetCode ?? null,
+          },
+        },
+      });
+
+      return {
+        ...group,
+        initialUnit,
+      };
+    });
+  }
+
+  /**
+   * Admin memperbarui metadata kelompok fasilitas (nama, tipe, lokasi, foto utama, dsb).
+   */
+  async adminUpdateGroup(
+    adminId: string,
+    groupId: string,
+    input: UpdateFacilityGroupDto,
+  ) {
+    const existingGroup = await this.prisma.facilityGroup.findUnique({
+      where: { id: groupId },
+    });
+    if (!existingGroup) {
+      throw new NotFoundException('Kelompok fasilitas tidak ditemukan.');
+    }
+
+    if (input.facilityTypeId) {
+      const typeExists = await this.prisma.facilityType.findUnique({
+        where: { id: input.facilityTypeId },
+      });
+      if (!typeExists) {
+        throw new NotFoundException('Tipe fasilitas tidak ditemukan.');
+      }
+    }
+
+    if (input.locationId) {
+      const locExists = await this.prisma.location.findUnique({
+        where: { id: input.locationId },
+      });
+      if (!locExists) {
+        throw new NotFoundException('Lokasi tidak ditemukan.');
+      }
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.facilityGroup.update({
+        where: { id: groupId },
+        data: {
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.facilityTypeId !== undefined
+            ? { facilityTypeId: input.facilityTypeId }
+            : {}),
+          ...(input.locationId !== undefined
+            ? { locationId: input.locationId }
+            : {}),
+          ...(input.capacity !== undefined
+            ? { capacity: input.capacity }
+            : {}),
+          ...(input.description !== undefined
+            ? { description: input.description }
+            : {}),
+          ...(input.primaryImageUrl !== undefined
+            ? { primaryImageUrl: input.primaryImageUrl }
+            : {}),
+        },
+        include: {
+          facilityType: { select: { id: true, name: true } },
+          location: { select: { id: true, name: true } },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: adminId,
+          action: 'FACILITY_GROUP_UPDATED',
+          entityType: 'FACILITY_GROUP',
+          entityId: groupId,
+          metadata: { changes: input as unknown as Prisma.InputJsonValue },
+        },
+      });
+
+      return updated;
+    });
+  }
+
+  /**
+   * Admin menambah unit fisik baru dengan asset_code unik ke dalam kelompok fasilitas.
+   */
+  async adminCreateUnit(adminId: string, input: CreateFacilityUnitDto) {
+    const group = await this.prisma.facilityGroup.findUnique({
+      where: { id: input.facilityGroupId },
+    });
+    if (!group) {
+      throw new NotFoundException('Kelompok fasilitas tidak ditemukan.');
+    }
+
+    const existingAsset = await this.prisma.facility.findUnique({
+      where: { assetCode: input.assetCode },
+    });
+    if (existingAsset) {
+      throw new ConflictException(
+        `Kode aset "${input.assetCode}" sudah digunakan.`,
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const unit = await tx.facility.create({
+        data: {
+          facilityGroupId: input.facilityGroupId,
+          assetCode: input.assetCode,
+          name: input.name ?? null,
+          locationId: group.locationId,
+          status: 'ACTIVE',
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: adminId,
+          action: 'FACILITY_UNIT_CREATED',
+          entityType: 'FACILITY',
+          entityId: unit.id,
+          metadata: {
+            assetCode: unit.assetCode,
+            facilityGroupId: group.id,
+          },
+        },
+      });
+
+      return unit;
+    });
+  }
+
+  /**
+   * Admin melihat daftar semua kelompok dan unit fasilitas (termasuk yang nonaktif).
+   */
+  async adminList() {
+    return this.prisma.facilityGroup.findMany({
+      include: {
+        facilityType: { select: { id: true, name: true } },
+        location: { select: { id: true, name: true } },
+        facilities: {
+          select: {
+            id: true,
+            assetCode: true,
+            name: true,
+            status: true,
+            createdAt: true,
+          },
+          orderBy: { assetCode: 'asc' },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
   }
 }
