@@ -1,12 +1,17 @@
 import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { Public } from '../accounts/auth/decorators/public.decorator';
-import { QueryAvailabilityDto } from './dto/query-availability.dto';
-import { QueryFacilitiesDto } from './dto/query-facilities.dto';
-import { FacilitiesService } from './facilities.service';
+import { FacilityMasterService } from './admin/facility-master.service';
+import { FacilityAvailabilityService } from './catalog/facility-availability.service';
+import { FacilityCatalogService } from './catalog/facility-catalog.service';
+import { QueryAvailabilityDto, QueryFacilitiesDto } from './dto/catalog';
 
 @Controller('facilities')
 export class FacilitiesController {
-  constructor(private readonly facilities: FacilitiesService) {}
+  constructor(
+    private readonly master: FacilityMasterService,
+    private readonly catalog: FacilityCatalogService,
+    private readonly availability: FacilityAvailabilityService,
+  ) {}
 
   /**
    * GET /api/v1/facilities/types
@@ -16,14 +21,14 @@ export class FacilitiesController {
   @Public()
   @Get('types')
   listTypes() {
-    return this.facilities.listTypes();
+    return this.master.listTypes();
   }
 
   /** Daftar fakultas/area kampus aktif untuk dropdown filter katalog. */
   @Public()
   @Get('areas')
   listAreas() {
-    return this.facilities.listAreas();
+    return this.master.listActiveAreas();
   }
 
   /**
@@ -39,7 +44,7 @@ export class FacilitiesController {
   @Public()
   @Get()
   list(@Query() query: QueryFacilitiesDto) {
-    return this.facilities.list(query);
+    return this.catalog.list(query);
   }
 
   /**
@@ -53,7 +58,7 @@ export class FacilitiesController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Query() query: QueryAvailabilityDto,
   ) {
-    return this.facilities.getAvailability(id, query);
+    return this.availability.getAvailability(id, query);
   }
 
   /**
@@ -69,6 +74,6 @@ export class FacilitiesController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Query('kind') kind?: 'unit' | 'group',
   ) {
-    return this.facilities.detail(id, kind ?? 'unit');
+    return this.catalog.detail(id, kind ?? 'unit');
   }
 }
