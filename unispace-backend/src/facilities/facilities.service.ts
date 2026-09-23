@@ -61,11 +61,12 @@ const facilityGroupPublicSelect = {
   id: true,
   name: true,
   reservationMode: true,
+  locationDetail: true,
   capacity: true,
   description: true,
   primaryImageUrl: true,
   facilityType: { select: { id: true, name: true } },
-  location: { select: { id: true, name: true, detail: true } },
+  facilityArea: { select: { id: true, code: true, name: true } },
 } satisfies Prisma.FacilityGroupSelect;
 
 const facilityUnitPublicSelect = {
@@ -81,8 +82,9 @@ const facilityUnitPublicSelect = {
       id: true,
       name: true,
       reservationMode: true,
+      locationDetail: true,
       facilityType: { select: { id: true, name: true } },
-      location: { select: { id: true, name: true, detail: true } },
+      facilityArea: { select: { id: true, code: true, name: true } },
     },
   },
 } satisfies Prisma.FacilitySelect;
@@ -104,9 +106,10 @@ export class FacilitiesService {
     });
   }
 
-  /** Daftar lokasi/gedung — untuk dropdown filter katalog */
-  async listLocations() {
-    return this.prisma.location.findMany({
+  /** Daftar fakultas/area kampus aktif — untuk dropdown filter katalog. */
+  async listAreas() {
+    return this.prisma.facilityArea.findMany({
+      where: { status: 'ACTIVE' },
       orderBy: { name: 'asc' },
     });
   }
@@ -132,13 +135,21 @@ export class FacilitiesService {
         ...(query.facilityTypeId
           ? { facilityTypeId: query.facilityTypeId }
           : {}),
-        ...(query.locationId ? { locationId: query.locationId } : {}),
+        ...(query.facilityAreaId
+          ? { facilityAreaId: query.facilityAreaId }
+          : {}),
         ...(query.search
           ? {
               OR: [
                 { name: { contains: query.search, mode: 'insensitive' } },
                 {
                   description: {
+                    contains: query.search,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  locationDetail: {
                     contains: query.search,
                     mode: 'insensitive',
                   },
@@ -155,10 +166,8 @@ export class FacilitiesService {
     // ── QUANTITY: kelompok alat — filter pada FacilityGroup ──────────────
     const quantityGroupWhere: Prisma.FacilityGroupWhereInput = {
       reservationMode: ReservationMode.QUANTITY,
-      ...(query.facilityTypeId
-        ? { facilityTypeId: query.facilityTypeId }
-        : {}),
-      ...(query.locationId ? { locationId: query.locationId } : {}),
+      ...(query.facilityTypeId ? { facilityTypeId: query.facilityTypeId } : {}),
+      ...(query.facilityAreaId ? { facilityAreaId: query.facilityAreaId } : {}),
       ...(query.minCapacity !== undefined
         ? { capacity: { gte: query.minCapacity } }
         : {}),
@@ -167,6 +176,12 @@ export class FacilitiesService {
             OR: [
               { name: { contains: query.search, mode: 'insensitive' } },
               { description: { contains: query.search, mode: 'insensitive' } },
+              {
+                locationDetail: {
+                  contains: query.search,
+                  mode: 'insensitive',
+                },
+              },
             ],
           }
         : {}),
@@ -204,7 +219,8 @@ export class FacilitiesService {
       assetCode: f.assetCode,
       name: f.name ?? f.facilityGroup.name,
       facilityType: f.facilityGroup.facilityType,
-      location: f.facilityGroup.location,
+      facilityArea: f.facilityGroup.facilityArea,
+      locationDetail: f.facilityGroup.locationDetail,
       capacity: f.capacity,
       description: f.description,
       primaryImageUrl: f.primaryImageUrl,
@@ -216,7 +232,8 @@ export class FacilitiesService {
       id: g.id,
       name: g.name,
       facilityType: g.facilityType,
-      location: g.location,
+      facilityArea: g.facilityArea,
+      locationDetail: g.locationDetail,
       capacity: g.capacity,
       description: g.description,
       primaryImageUrl: g.primaryImageUrl,
@@ -265,7 +282,8 @@ export class FacilitiesService {
         id: group.id,
         name: group.name,
         facilityType: group.facilityType,
-        location: group.location,
+        facilityArea: group.facilityArea,
+        locationDetail: group.locationDetail,
         capacity: group.capacity,
         description: group.description,
         primaryImageUrl: group.primaryImageUrl,
@@ -292,7 +310,8 @@ export class FacilitiesService {
       assetCode: facility.assetCode,
       name: facility.name ?? facility.facilityGroup.name,
       facilityType: facility.facilityGroup.facilityType,
-      location: facility.facilityGroup.location,
+      facilityArea: facility.facilityGroup.facilityArea,
+      locationDetail: facility.facilityGroup.locationDetail,
       capacity: facility.capacity,
       description: facility.description,
       primaryImageUrl: facility.primaryImageUrl,
@@ -606,16 +625,19 @@ export class FacilitiesService {
       throw new NotFoundException('Tipe fasilitas tidak ditemukan.');
     }
 
-    if (input.locationId) {
-      const locExists = await this.prisma.location.findUnique({
-        where: { id: input.locationId },
-      });
-      if (!locExists) {
-        throw new NotFoundException('Lokasi tidak ditemukan.');
-      }
+    const area = await this.prisma.facilityArea.findFirst({
+      where: { id: input.facilityAreaId, status: 'ACTIVE' },
+    });
+    if (!area) {
+      throw new NotFoundException(
+        'Fakultas/area kampus aktif tidak ditemukan.',
+      );
     }
 
-    if (input.reservationMode === ReservationMode.EXCLUSIVE && input.assetCode) {
+    if (
+      input.reservationMode === ReservationMode.EXCLUSIVE &&
+      input.assetCode
+    ) {
       const existingAsset = await this.prisma.facility.findUnique({
         where: { assetCode: input.assetCode },
       });
@@ -632,14 +654,15 @@ export class FacilitiesService {
           name: input.name,
           facilityTypeId: input.facilityTypeId,
           reservationMode: input.reservationMode,
-          locationId: input.locationId,
+          facilityAreaId: input.facilityAreaId,
+          locationDetail: input.locationDetail,
           capacity: input.capacity,
           description: input.description,
           primaryImageUrl: input.primaryImageUrl,
         },
         include: {
           facilityType: { select: { id: true, name: true } },
-          location: { select: { id: true, name: true } },
+          facilityArea: { select: { id: true, code: true, name: true } },
         },
       });
 
@@ -653,7 +676,6 @@ export class FacilitiesService {
             facilityGroupId: group.id,
             assetCode: input.assetCode,
             name: input.name,
-            locationId: input.locationId,
             capacity: input.capacity,
             description: input.description,
             primaryImageUrl: input.primaryImageUrl,
@@ -707,12 +729,14 @@ export class FacilitiesService {
       }
     }
 
-    if (input.locationId) {
-      const locExists = await this.prisma.location.findUnique({
-        where: { id: input.locationId },
+    if (input.facilityAreaId) {
+      const area = await this.prisma.facilityArea.findFirst({
+        where: { id: input.facilityAreaId, status: 'ACTIVE' },
       });
-      if (!locExists) {
-        throw new NotFoundException('Lokasi tidak ditemukan.');
+      if (!area) {
+        throw new NotFoundException(
+          'Fakultas/area kampus aktif tidak ditemukan.',
+        );
       }
     }
 
@@ -724,12 +748,13 @@ export class FacilitiesService {
           ...(input.facilityTypeId !== undefined
             ? { facilityTypeId: input.facilityTypeId }
             : {}),
-          ...(input.locationId !== undefined
-            ? { locationId: input.locationId }
+          ...(input.facilityAreaId !== undefined
+            ? { facilityAreaId: input.facilityAreaId }
             : {}),
-          ...(input.capacity !== undefined
-            ? { capacity: input.capacity }
+          ...(input.locationDetail !== undefined
+            ? { locationDetail: input.locationDetail }
             : {}),
+          ...(input.capacity !== undefined ? { capacity: input.capacity } : {}),
           ...(input.description !== undefined
             ? { description: input.description }
             : {}),
@@ -739,7 +764,7 @@ export class FacilitiesService {
         },
         include: {
           facilityType: { select: { id: true, name: true } },
-          location: { select: { id: true, name: true } },
+          facilityArea: { select: { id: true, code: true, name: true } },
         },
       });
 
@@ -783,7 +808,6 @@ export class FacilitiesService {
           facilityGroupId: input.facilityGroupId,
           assetCode: input.assetCode,
           name: input.name ?? null,
-          locationId: group.locationId,
           status: 'ACTIVE',
         },
       });
@@ -812,7 +836,7 @@ export class FacilitiesService {
     return this.prisma.facilityGroup.findMany({
       include: {
         facilityType: { select: { id: true, name: true } },
-        location: { select: { id: true, name: true } },
+        facilityArea: { select: { id: true, code: true, name: true } },
         facilities: {
           select: {
             id: true,
@@ -864,10 +888,7 @@ export class FacilitiesService {
       const activeApproved = await this.prisma.reservation.findFirst({
         where: {
           status: 'APPROVED',
-          OR: [
-            { facilityId },
-            { items: { some: { facilityId } } },
-          ],
+          OR: [{ facilityId }, { items: { some: { facilityId } } }],
           AND: [
             {
               OR: [

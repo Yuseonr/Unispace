@@ -45,7 +45,7 @@ export class AdminFacilitiesController {
 
   /**
    * PATCH /api/v1/admin/facilities/groups/:id
-   * Memperbarui metadata kelompok fasilitas (nama, tipe, lokasi, foto utama, dsb).
+   * Memperbarui metadata kelompok fasilitas (nama, area, lokasi detail, foto utama, dsb).
    */
   @Patch('groups/:id')
   updateGroup(

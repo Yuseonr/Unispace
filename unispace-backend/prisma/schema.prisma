@@ -39,6 +39,13 @@ enum FacilityStatus {
   @@map("facility_status")
 }
 
+enum FacilityAreaStatus {
+  ACTIVE
+  NONACTIVE
+
+  @@map("facility_area_status")
+}
+
 enum ReservationStatus {
   PENDING
   APPROVED
@@ -117,16 +124,18 @@ model FacilityType {
   @@map("facility_types")
 }
 
-model Location {
-  id     String  @id @default(uuid()) @db.Uuid
-  name   String  @db.VarChar(120)
-  detail String? @db.Text
+model FacilityArea {
+  id        String             @id @default(uuid()) @db.Uuid
+  code      String             @unique @db.VarChar(30)
+  name      String             @unique @db.VarChar(120)
+  status    FacilityAreaStatus @default(ACTIVE)
+  createdAt DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   facilityGroups FacilityGroup[]
-  facilities     Facility[]
 
-  @@index([name])
-  @@map("locations")
+  @@index([status, name])
+  @@map("facility_areas")
 }
 
 model FacilityGroup {
@@ -134,18 +143,19 @@ model FacilityGroup {
   name            String          @db.VarChar(150)
   facilityTypeId  String          @map("facility_type_id") @db.Uuid
   reservationMode ReservationMode @map("reservation_mode")
-  locationId      String?         @map("location_id") @db.Uuid
+  facilityAreaId  String          @map("facility_area_id") @db.Uuid
+  locationDetail  String          @map("location_detail") @db.Text
   capacity        Int?
   description     String?         @db.Text
   primaryImageUrl String?         @map("primary_image_url") @db.Text
 
   facilityType FacilityType  @relation(fields: [facilityTypeId], references: [id], onDelete: Restrict)
-  location     Location?     @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  facilityArea FacilityArea  @relation(fields: [facilityAreaId], references: [id], onDelete: Restrict)
   facilities   Facility[]
   reservations Reservation[]
 
   @@index([facilityTypeId, reservationMode])
-  @@index([locationId])
+  @@index([facilityAreaId])
   @@map("facility_groups")
 }
 
@@ -154,7 +164,6 @@ model Facility {
   facilityGroupId String         @map("facility_group_id") @db.Uuid
   assetCode       String         @unique @map("asset_code") @db.VarChar(64)
   name            String?        @db.VarChar(150)
-  locationId      String?        @map("location_id") @db.Uuid
   capacity        Int?
   description     String?        @db.Text
   primaryImageUrl String?        @map("primary_image_url") @db.Text
@@ -163,7 +172,6 @@ model Facility {
   updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   facilityGroup      FacilityGroup           @relation(fields: [facilityGroupId], references: [id], onDelete: Restrict)
-  location           Location?               @relation(fields: [locationId], references: [id], onDelete: Restrict)
   reservations       Reservation[]
   reservationItems   ReservationItem[]
   reports            FacilityReport[]
@@ -171,7 +179,6 @@ model Facility {
   maintenancePeriods MaintenancePeriod[]
 
   @@index([facilityGroupId, status])
-  @@index([locationId])
   @@map("facilities")
 }
 

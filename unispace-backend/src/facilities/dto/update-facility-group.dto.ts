@@ -28,7 +28,13 @@ export class UpdateFacilityGroupDto {
 
   @IsOptional()
   @IsUUID()
-  locationId?: string;
+  facilityAreaId?: string;
+
+  @IsOptional()
+  @Transform(toOptionalTrimmedString)
+  @IsString()
+  @MaxLength(500)
+  locationDetail?: string;
 
   @IsOptional()
   @Transform(toNumber)
