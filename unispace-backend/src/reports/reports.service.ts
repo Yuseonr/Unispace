@@ -9,6 +9,7 @@ import {
 	ReportCategory,
 	ReportStatus,
 } from '../generated/prisma/client';
+import { MaintenanceMode } from './reports.constants';
 import { PrismaService } from '../database/prisma.service';
 import { ObjectStorageService } from '../common/storage/object-storage.service';
 import { CreateReportDto } from './dto/create-report.dto';
@@ -450,6 +451,141 @@ export class ReportsService {
 		});
 
 		return this.toResponse(updated);
+	}
+
+	async createMaintenancePeriod(
+		staffId: string,
+		reportId: string,
+		input: {
+			mode: MaintenanceMode;
+			startDate?: string;
+			endDate?: string;
+			date?: string;
+			startTime?: string;
+			endTime?: string;
+			cancelImpactedReservations: boolean;
+			cancellationReason?: string;
+			note?: string;
+		},
+	) {
+		const report = await this.prisma.facilityReport.findUnique({
+			where: { id: reportId },
+			select: reportSelect,
+		});
+
+		if (!report) {
+			throw new NotFoundException({
+				code: 'REPORT_NOT_FOUND',
+				message: 'The report was not found.',
+			});
+		}
+
+		if (report.status !== ReportStatus.IN_PROGRESS) {
+			throw new ConflictException({
+				code: 'REPORT_NOT_IN_PROGRESS',
+				message: 'Only IN_PROGRESS reports can create maintenance periods.',
+			});
+		}
+
+		const dateStart = input.mode === MaintenanceMode.DATE_RANGE
+			? new Date(`${input.startDate ?? input.date}T07:00:00.000+07:00`)
+			: new Date(`${input.date}T${input.startTime ?? '07:00'}:00.000+07:00`);
+		const dateEnd = input.mode === MaintenanceMode.DATE_RANGE
+			? new Date(`${input.endDate ?? input.date}T20:00:00.000+07:00`)
+			: new Date(`${input.date}T${input.endTime ?? '20:00'}:00.000+07:00`);
+
+		if (dateEnd <= dateStart) {
+			throw new ConflictException({
+				code: 'MAINTENANCE_INVALID_RANGE',
+				message: 'Maintenance end time must be after start time.',
+			});
+		}
+
+		const period = await this.prisma.maintenancePeriod.create({
+			data: {
+				facilityId: report.facility.id,
+				reportId: report.id,
+				startAt: dateStart,
+				endAt: dateEnd,
+				note: input.note ?? input.cancellationReason ?? null,
+			},
+		});
+
+		await this.prisma.auditLog.create({
+			data: {
+				actorId: staffId,
+				action: 'MAINTENANCE_PERIOD_CREATED',
+				entityType: 'MAINTENANCE_PERIOD',
+				entityId: period.id,
+				metadata: {
+					reportId: report.id,
+					facilityId: report.facility.id,
+					mode: input.mode,
+					cancelImpactedReservations: input.cancelImpactedReservations,
+					cancellationReason: input.cancellationReason ?? null,
+				},
+			},
+		});
+
+		return {
+			id: period.id,
+			facilityId: period.facilityId,
+			reportId: period.reportId,
+			startAt: period.startAt.toISOString(),
+			endAt: period.endAt.toISOString(),
+			note: period.note,
+		};
+	}
+
+	async endMaintenancePeriod(
+		staffId: string,
+		periodId: string,
+		endAt: Date,
+	) {
+		const maintenance = await this.prisma.maintenancePeriod.findUnique({
+			where: { id: periodId },
+		});
+
+		if (!maintenance) {
+			throw new NotFoundException({
+				code: 'MAINTENANCE_PERIOD_NOT_FOUND',
+				message: 'The maintenance period was not found.',
+			});
+		}
+
+		if (endAt <= maintenance.startAt) {
+			throw new ConflictException({
+				code: 'MAINTENANCE_INVALID_OVERRIDE',
+				message: 'Maintenance end time must be after the original start time.',
+			});
+		}
+
+		const updated = await this.prisma.maintenancePeriod.update({
+			where: { id: periodId },
+			data: { endAt },
+		});
+
+		await this.prisma.auditLog.create({
+			data: {
+				actorId: staffId,
+				action: 'MAINTENANCE_PERIOD_ENDED_EARLY',
+				entityType: 'MAINTENANCE_PERIOD',
+				entityId: periodId,
+				metadata: {
+					oldEndAt: maintenance.endAt.toISOString(),
+					newEndAt: endAt.toISOString(),
+				},
+			},
+		});
+
+		return {
+			id: updated.id,
+			facilityId: updated.facilityId,
+			reportId: updated.reportId,
+			startAt: updated.startAt.toISOString(),
+			endAt: updated.endAt.toISOString(),
+			note: updated.note,
+		};
 	}
 
 	private toResponse(report: ReportRecord): ReportResponse {

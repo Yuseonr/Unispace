@@ -56,6 +56,11 @@ describe('ReportsService lifecycle', () => {
               findUnique: jest.fn(),
               update: jest.fn(),
             },
+            maintenancePeriod: {
+              create: jest.fn(),
+              findUnique: jest.fn(),
+              update: jest.fn(),
+            },
             auditLog: { create: jest.fn() },
           },
         },
@@ -173,6 +178,105 @@ describe('ReportsService lifecycle', () => {
     await expect(service.resolve('staff-1', 'report-1', 'note')).rejects.toBeInstanceOf(
       ConflictException,
     );
+  });
+
+  it('creates a maintenance period from an in-progress report', async () => {
+    prisma.facilityReport.findUnique.mockResolvedValue(
+      createMockReport({
+        id: 'report-1',
+        status: ReportStatus.IN_PROGRESS,
+        facility: {
+          id: 'facility-1',
+          assetCode: 'R-101',
+          name: 'Ruang 101',
+          status: 'ACTIVE',
+          facilityGroupId: 'group-1',
+          facilityGroup: { name: 'Ruang Kelas', reservationMode: 'EXCLUSIVE' },
+        },
+      }),
+    );
+    prisma.maintenancePeriod.create.mockResolvedValue({
+      id: 'period-1',
+      facilityId: 'facility-1',
+      reportId: 'report-1',
+      startAt: new Date('2026-01-12T07:00:00.000Z'),
+      endAt: new Date('2026-01-12T20:00:00.000Z'),
+      note: 'Pemeliharaan AC',
+    });
+
+    const result = await service.createMaintenancePeriod('staff-1', 'report-1', {
+      mode: 'DATE_RANGE',
+      startDate: '2026-01-12',
+      endDate: '2026-01-12',
+      cancelImpactedReservations: true,
+      cancellationReason: 'Pemeliharaan AC',
+      note: 'Pemeliharaan AC',
+    });
+
+    expect(prisma.maintenancePeriod.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          reportId: 'report-1',
+          facilityId: 'facility-1',
+          note: 'Pemeliharaan AC',
+        }),
+      }),
+    );
+    expect(result.note).toBe('Pemeliharaan AC');
+  });
+
+  it('rejects maintenance creation when the report is not in progress', async () => {
+    prisma.facilityReport.findUnique.mockResolvedValue(
+      createMockReport({ status: ReportStatus.NEW }),
+    );
+
+    await expect(
+      service.createMaintenancePeriod('staff-1', 'report-1', {
+        mode: 'DATE_RANGE',
+        startDate: '2026-01-12',
+        endDate: '2026-01-12',
+        cancelImpactedReservations: false,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('closes a maintenance period early when a staff overrides the end time', async () => {
+    prisma.maintenancePeriod.findUnique.mockResolvedValue({
+      id: 'period-1',
+      facilityId: 'facility-1',
+      reportId: 'report-1',
+      startAt: new Date('2026-01-12T07:00:00.000Z'),
+      endAt: new Date('2026-01-12T20:00:00.000Z'),
+      note: 'Pemeliharaan AC',
+    });
+    prisma.maintenancePeriod.update.mockResolvedValue({
+      id: 'period-1',
+      facilityId: 'facility-1',
+      reportId: 'report-1',
+      startAt: new Date('2026-01-12T07:00:00.000Z'),
+      endAt: new Date('2026-01-12T09:00:00.000Z'),
+      note: 'Pemeliharaan AC',
+    });
+
+    const result = await service.endMaintenancePeriod('staff-1', 'period-1', new Date('2026-01-12T09:00:00.000Z'));
+
+    expect(prisma.maintenancePeriod.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'period-1' },
+        data: expect.objectContaining({
+          endAt: expect.any(Date),
+        }),
+      }),
+    );
+    expect(result.endAt).toBe(new Date('2026-01-12T09:00:00.000Z').toISOString());
+  });
+
+  it('throws when the maintenance period does not exist', async () => {
+    prisma.maintenancePeriod.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.endMaintenancePeriod('staff-1', 'missing-period', new Date('2026-01-12T09:00:00.000Z')),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('throws when the report does not exist', async () => {
