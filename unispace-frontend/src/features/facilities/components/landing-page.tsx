@@ -6,6 +6,9 @@ import { FacilityCard } from "./facility-card";
 import { SiteFooter } from "./site-footer";
 
 export function LandingPage({ facilities }: { facilities: CatalogFacility[] }) {
+  const featuredFacility =
+    facilities.find((facility) => facility.id === "aula-muladi") ?? facilities[0];
+
   return (
     <main className="landing">
       <svg
@@ -67,7 +70,7 @@ export function LandingPage({ facilities }: { facilities: CatalogFacility[] }) {
           </div>
 
           <div
-            aria-label="Aula Muladi di Universitas Diponegoro"
+            aria-label={`${featuredFacility.name} di ${featuredFacility.facilityArea.name}`}
             className="hero__visual"
             role="img"
           >
@@ -82,9 +85,11 @@ export function LandingPage({ facilities }: { facilities: CatalogFacility[] }) {
               />
               <div className="hero__photo-overlay" aria-hidden="true" />
               <div className="hero__visual-label">
-                <small>Featured space</small>
-                <strong>Aula Muladi</strong>
-                <span>Universitas Diponegoro · Tembalang</span>
+                <small>Ruang unggulan</small>
+                <strong>{featuredFacility.name}</strong>
+                <span>
+                  {featuredFacility.facilityArea.name} · {featuredFacility.locationDetail}
+                </span>
               </div>
             </div>
           </div>
