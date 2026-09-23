@@ -45,6 +45,12 @@ describe('ReportsService lifecycle', () => {
   let service: ReportsService;
   let prisma: any;
 
+  const mockFacility = {
+    id: 'facility-1',
+    facilityGroupId: 'group-1',
+    facilityGroup: { reservationMode: 'EXCLUSIVE' },
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -60,6 +66,13 @@ describe('ReportsService lifecycle', () => {
               create: jest.fn(),
               findUnique: jest.fn(),
               update: jest.fn(),
+            },
+            reservation: {
+              findMany: jest.fn(),
+              updateMany: jest.fn(),
+            },
+            facility: {
+              findUnique: jest.fn(),
             },
             auditLog: { create: jest.fn() },
           },
@@ -277,6 +290,69 @@ describe('ReportsService lifecycle', () => {
     await expect(
       service.endMaintenancePeriod('staff-1', 'missing-period', new Date('2026-01-12T09:00:00.000Z')),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('returns impacted reservations for a maintenance window', async () => {
+    prisma.facility.findUnique.mockResolvedValue(mockFacility);
+    prisma.reservation.findMany.mockResolvedValue([
+      {
+        id: 'res-1',
+        usageDate: new Date('2026-01-12T00:00:00.000Z'),
+        startTime: new Date('2026-01-01T07:30:00.000Z'),
+        endTime: new Date('2026-01-01T09:00:00.000Z'),
+        requestedQuantity: 2,
+        status: 'APPROVED',
+      },
+      {
+        id: 'res-2',
+        usageDate: new Date('2026-01-12T00:00:00.000Z'),
+        startTime: new Date('2026-01-01T08:00:00.000Z'),
+        endTime: new Date('2026-01-01T09:30:00.000Z'),
+        requestedQuantity: 1,
+        status: 'PENDING',
+      },
+    ]);
+
+    const result = await service.previewMaintenanceImpact('facility-1', new Date('2026-01-12T07:00:00.000Z'), new Date('2026-01-12T20:00:00.000Z'));
+
+    expect(result.approvedReservations).toHaveLength(1);
+    expect(result.pendingReservations).toHaveLength(1);
+    expect(result.approvedReservations[0].id).toBe('res-1');
+  });
+
+  it('applies maintenance impact to impacted reservations when confirmed', async () => {
+    prisma.facility.findUnique.mockResolvedValue(mockFacility);
+    prisma.reservation.findMany.mockResolvedValue([
+      {
+        id: 'res-1',
+        usageDate: new Date('2026-01-12T00:00:00.000Z'),
+        startTime: new Date('2026-01-01T07:30:00.000Z'),
+        endTime: new Date('2026-01-01T09:00:00.000Z'),
+        requestedQuantity: 2,
+        status: 'APPROVED',
+      },
+      {
+        id: 'res-2',
+        usageDate: new Date('2026-01-12T00:00:00.000Z'),
+        startTime: new Date('2026-01-01T08:00:00.000Z'),
+        endTime: new Date('2026-01-01T09:30:00.000Z'),
+        requestedQuantity: 1,
+        status: 'PENDING',
+      },
+    ]);
+    prisma.reservation.updateMany.mockResolvedValue({ count: 2 });
+
+    const result = await service.confirmMaintenanceImpact(
+      'staff-1',
+      'facility-1',
+      new Date('2026-01-12T07:00:00.000Z'),
+      new Date('2026-01-12T20:00:00.000Z'),
+      'Pemeliharaan AC',
+    );
+
+    expect(prisma.reservation.updateMany).toHaveBeenCalled();
+    expect(result.approvedReservations).toHaveLength(1);
+    expect(result.pendingReservations).toHaveLength(1);
   });
 
   it('throws when the report does not exist', async () => {

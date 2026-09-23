@@ -588,6 +588,161 @@ export class ReportsService {
 		};
 	}
 
+	async previewMaintenanceImpact(
+		facilityId: string,
+		startAt: Date,
+		endAt: Date,
+	) {
+		const toMinutesOfDay = (value: Date) => {
+			const time = new Date(value);
+			return time.getUTCHours() * 60 + time.getUTCMinutes();
+		};
+
+		const windowStartMinutes = toMinutesOfDay(startAt);
+		const windowEndMinutes = toMinutesOfDay(endAt);
+
+		const facility = await this.prisma.facility.findUnique({
+			where: { id: facilityId },
+			select: {
+				id: true,
+				facilityGroupId: true,
+				facilityGroup: { select: { reservationMode: true } },
+			},
+		});
+
+		if (!facility) {
+			throw new NotFoundException({
+				code: 'FACILITY_NOT_FOUND',
+				message: 'The facility was not found.',
+			});
+		}
+
+		const impacted = await this.prisma.reservation.findMany({
+			where: {
+				OR: [
+					{ facilityId, status: 'APPROVED' },
+					{ facilityId, status: 'PENDING' },
+					{ facilityGroupId: facility.facilityGroupId, status: 'APPROVED' },
+					{ facilityGroupId: facility.facilityGroupId, status: 'PENDING' },
+				],
+				usageDate: {
+					gte: new Date(startAt.toISOString().slice(0, 10) + 'T00:00:00.000Z'),
+					lte: new Date(endAt.toISOString().slice(0, 10) + 'T23:59:59.999Z'),
+				},
+			},
+			select: {
+				id: true,
+				usageDate: true,
+				startTime: true,
+				endTime: true,
+				requestedQuantity: true,
+				status: true,
+			},
+		});
+
+		const approvedReservations = impacted
+			.filter((reservation) => reservation.status === 'APPROVED')
+			.filter((reservation) => {
+				const reservationStartMinutes = toMinutesOfDay(reservation.startTime);
+				const reservationEndMinutes = toMinutesOfDay(reservation.endTime);
+				return reservationStartMinutes < windowEndMinutes && reservationEndMinutes > windowStartMinutes;
+			})
+			.map((reservation) => ({
+				id: reservation.id,
+				usageDate: reservation.usageDate.toISOString(),
+				startTime: reservation.startTime.toISOString(),
+				endTime: reservation.endTime.toISOString(),
+			}));
+
+		const pendingReservations = impacted
+			.filter((reservation) => reservation.status === 'PENDING')
+			.filter((reservation) => {
+				const reservationStartMinutes = toMinutesOfDay(reservation.startTime);
+				const reservationEndMinutes = toMinutesOfDay(reservation.endTime);
+				return reservationStartMinutes < windowEndMinutes && reservationEndMinutes > windowStartMinutes;
+			})
+			.map((reservation) => ({
+				id: reservation.id,
+				usageDate: reservation.usageDate.toISOString(),
+				startTime: reservation.startTime.toISOString(),
+				endTime: reservation.endTime.toISOString(),
+				requestedQuantity: reservation.requestedQuantity,
+			}));
+
+		return {
+			facilityId,
+			approvedReservations,
+			pendingReservations,
+		};
+	}
+
+	async confirmMaintenanceImpact(
+		staffId: string,
+		facilityId: string,
+		startAt: Date,
+		endAt: Date,
+		reason: string,
+	) {
+		const preview = await this.previewMaintenanceImpact(facilityId, startAt, endAt);
+
+		if (!reason || !reason.trim()) {
+			throw new ConflictException({
+				code: 'MAINTENANCE_REASON_REQUIRED',
+				message: 'A maintenance cancellation reason is required.',
+			});
+		}
+
+		const trimmedReason = reason.trim();
+
+		const approvedIds = preview.approvedReservations.map((reservation) => reservation.id);
+		const pendingIds = preview.pendingReservations.map((reservation) => reservation.id);
+
+		const approvedResult = await this.prisma.reservation.updateMany({
+			where: { id: { in: approvedIds } },
+			data: {
+				status: 'CANCELLED_BY_STAFF',
+				decisionReason: trimmedReason,
+				processedById: staffId,
+				cancelledAt: new Date(),
+			},
+		});
+
+		const rejectedResult = await this.prisma.reservation.updateMany({
+			where: { id: { in: pendingIds } },
+			data: {
+				status: 'REJECTED',
+				decisionReason: trimmedReason,
+				processedById: staffId,
+				decidedAt: new Date(),
+			},
+		});
+
+		await this.prisma.auditLog.create({
+			data: {
+				actorId: staffId,
+				action: 'MAINTENANCE_IMPACT_CONFIRMED',
+				entityType: 'MAINTENANCE_PERIOD',
+				entityId: facilityId,
+				metadata: {
+					facilityId,
+					startAt: startAt.toISOString(),
+					endAt: endAt.toISOString(),
+					approvedCancellations: approvedResult.count,
+					pendingRejections: rejectedResult.count,
+					reason: trimmedReason,
+				},
+			},
+		});
+
+		return {
+			facilityId,
+			approvedReservations: preview.approvedReservations,
+			pendingReservations: preview.pendingReservations,
+			approvedCancelled: approvedResult.count,
+			pendingRejected: rejectedResult.count,
+		};
+	}
+
 	private toResponse(report: ReportRecord): ReportResponse {
 		return {
 			id: report.id,
