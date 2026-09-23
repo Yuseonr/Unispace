@@ -17,12 +17,17 @@ import { ListMyReportsDto } from './dto/list-my-reports.dto';
 import { ListStaffReportsDto } from './dto/list-staff-reports.dto';
 import {
 	REPORT_CATEGORY_LABELS,
+	FACILITY_ENTITY_TYPE,
+	MAINTENANCE_ENTITY_TYPE,
+	REPORT_AUDIT_ACTIONS,
 	REPORT_ENTITY_TYPE,
 	REPORT_STATUS_LABELS,
 } from './reports.constants';
+import { ListReportAuditDto } from './dto/list-report-audit.dto';
 import type {
 	MaintenancePeriodResponse,
 	PaginatedReportsResponse,
+	ReportAuditLogResponse,
 	ReportResponse,
 } from './reports.types';
 
@@ -153,7 +158,7 @@ export class ReportsService {
 			await transaction.auditLog.create({
 				data: {
 					actorId: reporterId,
-					action: 'REPORT_CREATED',
+					action: REPORT_AUDIT_ACTIONS.CREATED,
 					entityType: REPORT_ENTITY_TYPE,
 					entityId: created.id,
 					metadata: {
@@ -289,6 +294,85 @@ export class ReportsService {
 		return this.toResponse(report);
 	}
 
+	async listAudit(
+		reportId: string,
+		query: ListReportAuditDto,
+	): Promise<{
+		items: ReportAuditLogResponse[];
+		page: number;
+		limit: number;
+		total: number;
+		totalPages: number;
+	}> {
+		const report = await this.prisma.facilityReport.findUnique({
+			where: { id: reportId },
+			select: {
+				id: true,
+				facilityId: true,
+				maintenancePeriods: { select: { id: true } },
+			},
+		});
+
+		if (!report) {
+			throw new NotFoundException({
+				code: 'REPORT_NOT_FOUND',
+				message: 'The report was not found.',
+			});
+		}
+
+		const maintenanceIds = report.maintenancePeriods.map((period) => period.id);
+		const where: Prisma.AuditLogWhereInput = {
+			OR: [
+				{ entityType: REPORT_ENTITY_TYPE, entityId: reportId },
+				...(maintenanceIds.length > 0
+					? [{ entityType: MAINTENANCE_ENTITY_TYPE, entityId: { in: maintenanceIds } }]
+					: []),
+				{ entityType: FACILITY_ENTITY_TYPE, entityId: report.facilityId },
+			],
+			...(query.action ? { action: query.action } : {}),
+			...(query.actorId ? { actorId: query.actorId } : {}),
+			...(query.from || query.to
+				? {
+						createdAt: {
+							...(query.from ? { gte: new Date(query.from) } : {}),
+							...(query.to ? { lte: new Date(query.to) } : {}),
+						},
+					}
+				: {}),
+		};
+		const skip = (query.page - 1) * query.limit;
+		const [logs, total] = await Promise.all([
+			this.prisma.auditLog.findMany({
+				where,
+				select: {
+					id: true,
+					action: true,
+					entityType: true,
+					entityId: true,
+					metadata: true,
+					createdAt: true,
+					actor: { select: { id: true, name: true, role: true } },
+				},
+				orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+				skip,
+				take: query.limit,
+			}),
+			this.prisma.auditLog.count({ where }),
+		]);
+
+		return {
+			items: logs.map((log) => ({
+				...log,
+				metadata: log.metadata ?? null,
+				createdAt: log.createdAt.toISOString(),
+			})),
+			page: query.page,
+			limit: query.limit,
+			total,
+			totalPages: Math.ceil(total / query.limit),
+		};
+	}
+
 	async accept(staffId: string, reportId: string): Promise<ReportResponse> {
 		const report = await this.prisma.facilityReport.findUnique({
 			where: { id: reportId },
@@ -310,30 +394,34 @@ export class ReportsService {
 		}
 
 		const now = new Date();
-		const updated = await this.prisma.facilityReport.update({
-			where: { id: reportId },
-			data: {
-				status: report.status === ReportStatus.NEW ? ReportStatus.IN_PROGRESS : report.status,
-				acceptedById: report.acceptedById ?? staffId,
-				acceptedAt: report.acceptedAt ?? now,
-				processedById: staffId,
-			},
-			select: reportSelect,
-		});
-
-		await this.prisma.auditLog.create({
-			data: {
-				actorId: staffId,
-				action: 'REPORT_ACCEPTED',
-				entityType: REPORT_ENTITY_TYPE,
-				entityId: reportId,
-				metadata: {
-					fromStatus: report.status,
-					toStatus: updated.status,
-					acceptedById: updated.acceptedById,
+		const updated = await this.prisma.$transaction(async (tx) => {
+			const changed = await tx.facilityReport.update({
+				where: { id: reportId },
+				data: {
+					status: report.status === ReportStatus.NEW ? ReportStatus.IN_PROGRESS : report.status,
+					acceptedById: report.acceptedById ?? staffId,
+					acceptedAt: report.acceptedAt ?? now,
 					processedById: staffId,
 				},
-			},
+				select: reportSelect,
+			});
+
+			await tx.auditLog.create({
+				data: {
+					actorId: staffId,
+					action: REPORT_AUDIT_ACTIONS.ACCEPTED,
+					entityType: REPORT_ENTITY_TYPE,
+					entityId: reportId,
+					metadata: {
+						fromStatus: report.status,
+						toStatus: changed.status,
+						acceptedById: changed.acceptedById,
+						acceptedAt: changed.acceptedAt?.toISOString() ?? null,
+						processedById: staffId,
+					},
+				},
+			});
+			return changed;
 		});
 
 		return this.toResponse(updated);
@@ -367,30 +455,36 @@ export class ReportsService {
 		}
 
 		const now = new Date();
-		const updated = await this.prisma.facilityReport.update({
-			where: { id: reportId },
-			data: {
-				status: ReportStatus.REJECTED,
-				decisionReason: reason.trim(),
-				acceptedById: report.acceptedById ?? staffId,
-				acceptedAt: report.acceptedAt ?? now,
-				processedById: staffId,
-			},
-			select: reportSelect,
-		});
-
-		await this.prisma.auditLog.create({
-			data: {
-				actorId: staffId,
-				action: 'REPORT_REJECTED',
-				entityType: REPORT_ENTITY_TYPE,
-				entityId: reportId,
-				metadata: {
-					fromStatus: report.status,
-					toStatus: ReportStatus.REJECTED,
-					reason: reason.trim(),
+		const updated = await this.prisma.$transaction(async (tx) => {
+			const changed = await tx.facilityReport.update({
+				where: { id: reportId },
+				data: {
+					status: ReportStatus.REJECTED,
+					decisionReason: reason.trim(),
+					acceptedById: report.acceptedById ?? staffId,
+					acceptedAt: report.acceptedAt ?? now,
+					processedById: staffId,
 				},
-			},
+				select: reportSelect,
+			});
+
+			await tx.auditLog.create({
+				data: {
+					actorId: staffId,
+					action: REPORT_AUDIT_ACTIONS.REJECTED,
+					entityType: REPORT_ENTITY_TYPE,
+					entityId: reportId,
+					metadata: {
+						fromStatus: report.status,
+						toStatus: changed.status,
+						decisionReason: reason.trim(),
+						acceptedById: changed.acceptedById,
+						acceptedAt: changed.acceptedAt?.toISOString() ?? null,
+						processedById: staffId,
+					},
+				},
+			});
+			return changed;
 		});
 
 		return this.toResponse(updated);
@@ -439,32 +533,38 @@ export class ReportsService {
 		}
 
 		const now = new Date();
-		const updated = await this.prisma.facilityReport.update({
-			where: { id: reportId },
-			data: {
-				status: ReportStatus.RESOLVED,
-				resolutionNote: resolutionNote.trim(),
-				acceptedById: report.acceptedById ?? staffId,
-				acceptedAt: report.acceptedAt ?? now,
-				resolvedById: staffId,
-				resolvedAt: now,
-				processedById: staffId,
-			},
-			select: reportSelect,
-		});
-
-		await this.prisma.auditLog.create({
-			data: {
-				actorId: staffId,
-				action: 'REPORT_RESOLVED',
-				entityType: REPORT_ENTITY_TYPE,
-				entityId: reportId,
-				metadata: {
-					fromStatus: report.status,
-					toStatus: ReportStatus.RESOLVED,
+		const updated = await this.prisma.$transaction(async (tx) => {
+			const changed = await tx.facilityReport.update({
+				where: { id: reportId },
+				data: {
+					status: ReportStatus.RESOLVED,
 					resolutionNote: resolutionNote.trim(),
+					acceptedById: report.acceptedById ?? staffId,
+					acceptedAt: report.acceptedAt ?? now,
+					resolvedById: staffId,
+					resolvedAt: now,
+					processedById: staffId,
 				},
-			},
+				select: reportSelect,
+			});
+
+			await tx.auditLog.create({
+				data: {
+					actorId: staffId,
+					action: REPORT_AUDIT_ACTIONS.RESOLVED,
+					entityType: REPORT_ENTITY_TYPE,
+					entityId: reportId,
+					metadata: {
+						fromStatus: report.status,
+						toStatus: changed.status,
+						resolutionNote: resolutionNote.trim(),
+						resolvedById: changed.resolvedById,
+						resolvedAt: changed.resolvedAt?.toISOString() ?? null,
+						processedById: staffId,
+					},
+				},
+			});
+			return changed;
 		});
 
 		return this.toResponse(updated);
@@ -541,7 +641,7 @@ export class ReportsService {
 			await tx.auditLog.create({
 				data: {
 					actorId: staffId,
-					action: 'MAINTENANCE_PERIOD_CREATED',
+					action: REPORT_AUDIT_ACTIONS.MAINTENANCE_CREATED,
 					entityType: 'MAINTENANCE_PERIOD',
 					entityId: created.id,
 					metadata: {
@@ -601,10 +701,12 @@ export class ReportsService {
 			await tx.auditLog.create({
 				data: {
 					actorId: staffId,
-					action: 'MAINTENANCE_PERIOD_ENDED_EARLY',
+					action: REPORT_AUDIT_ACTIONS.MAINTENANCE_ENDED_EARLY,
 					entityType: 'MAINTENANCE_PERIOD',
 					entityId: periodId,
 					metadata: {
+						facilityId: maintenance.facilityId,
+						reportId: maintenance.reportId,
 						oldEndAt: maintenance.endAt.toISOString(),
 						newEndAt: endAt.toISOString(),
 					},
@@ -665,6 +767,20 @@ export class ReportsService {
 				status: nextStatus,
 				changedById: actorId,
 				effectiveAt,
+			},
+		});
+		await transaction.auditLog.create({
+			data: {
+				actorId,
+				action: REPORT_AUDIT_ACTIONS.FACILITY_STATUS_CHANGED,
+				entityType: FACILITY_ENTITY_TYPE,
+				entityId: facilityId,
+				metadata: {
+					fromStatus: facility.status,
+					toStatus: nextStatus,
+					effectiveAt: effectiveAt.toISOString(),
+					source: 'MAINTENANCE_PERIOD',
+				},
 			},
 		});
 	}
@@ -778,41 +894,47 @@ export class ReportsService {
 		const approvedIds = preview.approvedReservations.map((reservation) => reservation.id);
 		const pendingIds = preview.pendingReservations.map((reservation) => reservation.id);
 
-		const approvedResult = await this.prisma.reservation.updateMany({
-			where: { id: { in: approvedIds } },
-			data: {
-				status: 'CANCELLED_BY_STAFF',
-				decisionReason: trimmedReason,
-				processedById: staffId,
-				cancelledAt: new Date(),
-			},
-		});
-
-		const rejectedResult = await this.prisma.reservation.updateMany({
-			where: { id: { in: pendingIds } },
-			data: {
-				status: 'REJECTED',
-				decisionReason: trimmedReason,
-				processedById: staffId,
-				decidedAt: new Date(),
-			},
-		});
-
-		await this.prisma.auditLog.create({
-			data: {
-				actorId: staffId,
-				action: 'MAINTENANCE_IMPACT_CONFIRMED',
-				entityType: 'MAINTENANCE_PERIOD',
-				entityId: facilityId,
-				metadata: {
-					facilityId,
-					startAt: startAt.toISOString(),
-					endAt: endAt.toISOString(),
-					approvedCancellations: approvedResult.count,
-					pendingRejections: rejectedResult.count,
-					reason: trimmedReason,
+		const { approvedResult, rejectedResult } = await this.prisma.$transaction(async (tx) => {
+			const approvedResult = await tx.reservation.updateMany({
+				where: { id: { in: approvedIds }, status: 'APPROVED' },
+				data: {
+					status: 'CANCELLED_BY_STAFF',
+					decisionReason: trimmedReason,
+					processedById: staffId,
+					cancelledAt: new Date(),
 				},
-			},
+			});
+
+			const rejectedResult = await tx.reservation.updateMany({
+				where: { id: { in: pendingIds }, status: 'PENDING' },
+				data: {
+					status: 'REJECTED',
+					decisionReason: trimmedReason,
+					processedById: staffId,
+					decidedAt: new Date(),
+				},
+			});
+
+			await tx.auditLog.create({
+				data: {
+					actorId: staffId,
+					action: REPORT_AUDIT_ACTIONS.MAINTENANCE_IMPACT_CONFIRMED,
+					entityType: FACILITY_ENTITY_TYPE,
+					entityId: facilityId,
+					metadata: {
+						facilityId,
+						startAt: startAt.toISOString(),
+						endAt: endAt.toISOString(),
+						approvedCandidates: approvedIds.length,
+						approvedCancellations: approvedResult.count,
+						pendingCandidates: pendingIds.length,
+						pendingRejections: rejectedResult.count,
+						reason: trimmedReason,
+					},
+				},
+			});
+
+			return { approvedResult, rejectedResult };
 		});
 
 		return {

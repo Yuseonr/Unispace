@@ -14,6 +14,7 @@ import type { AuthenticatedUser } from '../accounts/auth/auth.types';
 import { RejectReportDto } from './dto/reject-report.dto';
 import { ResolveReportDto } from './dto/resolve-report.dto';
 import { ListStaffReportsDto } from './dto/list-staff-reports.dto';
+import { ListReportAuditDto } from './dto/list-report-audit.dto';
 import { ReportsService } from './reports.service';
 
 @Controller('staff/reports')
@@ -31,6 +32,15 @@ export class StaffReportsController {
 		@Param('reportId', new ParseUUIDPipe()) reportId: string,
 	) {
 		return this.reports.detailStaff(reportId);
+	}
+
+	@Get(':reportId/audit')
+	@Roles(UserRole.STAFF, UserRole.ADMIN)
+	audit(
+		@Param('reportId', new ParseUUIDPipe()) reportId: string,
+		@Query() query: ListReportAuditDto,
+	) {
+		return this.reports.listAudit(reportId, query);
 	}
 
 	@Patch(':reportId/accept')

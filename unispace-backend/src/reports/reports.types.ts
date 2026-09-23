@@ -76,3 +76,17 @@ export type MaintenanceImpactResponse = {
   approvedReservations: Array<{ id: string; usageDate: string; startTime: string; endTime: string }>;
   pendingReservations: Array<{ id: string; usageDate: string; startTime: string; endTime: string; requestedQuantity: number }>;
 };
+
+export type ReportAuditLogResponse = {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  metadata: unknown;
+  createdAt: string;
+  actor: {
+    id: string;
+    name: string;
+    role: string;
+  } | null;
+};

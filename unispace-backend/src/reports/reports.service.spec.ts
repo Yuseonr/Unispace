@@ -76,7 +76,11 @@ describe('ReportsService lifecycle', () => {
               findUnique: jest.fn(),
             },
             facilityStatusHistory: { create: jest.fn() },
-            auditLog: { create: jest.fn() },
+            auditLog: {
+              create: jest.fn(),
+              findMany: jest.fn(),
+              count: jest.fn(),
+            },
             $transaction: jest.fn(),
           },
         },
@@ -133,6 +137,48 @@ describe('ReportsService lifecycle', () => {
       }),
     );
     expect(result.status).toBe(ReportStatus.IN_PROGRESS);
+  });
+
+  it('returns a paginated immutable audit timeline for a report', async () => {
+    prisma.facilityReport.findUnique.mockResolvedValue({
+      id: 'report-1',
+      facilityId: 'facility-1',
+      maintenancePeriods: [{ id: 'period-1' }],
+    });
+    prisma.auditLog.findMany.mockResolvedValue([
+      {
+        id: 'audit-1',
+        action: 'REPORT_ACCEPTED',
+        entityType: 'FACILITY_REPORT',
+        entityId: 'report-1',
+        metadata: { fromStatus: 'NEW', toStatus: 'IN_PROGRESS' },
+        createdAt: new Date('2026-01-10T09:00:00.000Z'),
+        actor: { id: 'staff-1', name: 'Staff A', role: 'STAFF' },
+      },
+    ]);
+    prisma.auditLog.count.mockResolvedValue(1);
+
+    const result = await service.listAudit('report-1', {
+      page: 1,
+      limit: 50,
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.items[0].metadata).toEqual({
+      fromStatus: 'NEW',
+      toStatus: 'IN_PROGRESS',
+    });
+    expect(prisma.auditLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            { entityType: 'FACILITY_REPORT', entityId: 'report-1' },
+            { entityType: 'MAINTENANCE_PERIOD', entityId: { in: ['period-1'] } },
+            { entityType: 'FACILITY', entityId: 'facility-1' },
+          ]),
+        }),
+      }),
+    );
   });
 
   it('rejects a report with a required reason', async () => {
