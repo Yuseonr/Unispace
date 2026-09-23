@@ -8,6 +8,7 @@ import { ReportsService } from './reports.service';
 
 const createMockReport = (overrides: Partial<Record<string, any>> = {}) => ({
   id: 'report-1',
+  facilityId: 'facility-1',
   category: 'PHYSICAL_DAMAGE',
   description: 'Kursi rusak',
   status: ReportStatus.NEW,
@@ -66,6 +67,7 @@ describe('ReportsService lifecycle', () => {
               create: jest.fn(),
               findUnique: jest.fn(),
               findFirst: jest.fn(),
+              findMany: jest.fn(),
               update: jest.fn(),
             },
             reservation: {
@@ -97,7 +99,10 @@ describe('ReportsService lifecycle', () => {
     prisma.facility.findUnique.mockResolvedValue({
       id: 'facility-1',
       status: 'ACTIVE',
+      facilityGroup: { reservationMode: 'EXCLUSIVE', facilities: [] },
     });
+    prisma.reservation.findMany.mockResolvedValue([]);
+    prisma.maintenancePeriod.findMany.mockResolvedValue([]);
     prisma.$transaction.mockImplementation(async (callback: (tx: any) => unknown) =>
       callback(prisma),
     );
@@ -410,6 +415,73 @@ describe('ReportsService lifecycle', () => {
     expect(prisma.reservation.updateMany).toHaveBeenCalled();
     expect(result.approvedReservations).toHaveLength(1);
     expect(result.pendingReservations).toHaveLength(1);
+  });
+
+  it('creates maintenance atomically and rejects only insufficient QUANTITY pending reservations', async () => {
+    prisma.facilityReport.findUnique.mockResolvedValue(
+      createMockReport({ status: ReportStatus.IN_PROGRESS }),
+    );
+    prisma.facility.findUnique.mockResolvedValue({
+      id: 'facility-1',
+      facilityGroupId: 'group-1',
+      status: 'ACTIVE',
+      facilityGroup: {
+        reservationMode: 'QUANTITY',
+        facilities: [
+          { id: 'facility-1' },
+          { id: 'facility-2' },
+          { id: 'facility-3' },
+          { id: 'facility-4' },
+        ],
+      },
+    });
+    prisma.reservation.findMany.mockResolvedValue([
+      {
+        id: 'approved-1',
+        usageDate: new Date('2026-01-12T00:00:00.000Z'),
+        startTime: new Date('2026-01-01T08:00:00.000Z'),
+        endTime: new Date('2026-01-01T09:00:00.000Z'),
+        requestedQuantity: 2,
+        status: 'APPROVED',
+        facilityId: null,
+        facilityGroupId: 'group-1',
+      },
+      {
+        id: 'pending-1',
+        usageDate: new Date('2026-01-12T00:00:00.000Z'),
+        startTime: new Date('2026-01-01T08:00:00.000Z'),
+        endTime: new Date('2026-01-01T09:00:00.000Z'),
+        requestedQuantity: 1,
+        status: 'PENDING',
+        facilityId: null,
+        facilityGroupId: 'group-1',
+      },
+    ]);
+    prisma.maintenancePeriod.create.mockResolvedValue({
+      id: 'period-2',
+      reportId: 'report-1',
+      facilityId: 'facility-1',
+      startAt: new Date('2026-01-12T01:00:00.000Z'),
+      endAt: new Date('2026-01-12T13:00:00.000Z'),
+      note: 'Pemeliharaan AC',
+    });
+    prisma.reservation.updateMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.confirmMaintenancePeriod('staff-1', 'report-1', {
+      mode: 'DATE_RANGE',
+      startDate: '2026-01-12',
+      endDate: '2026-01-12',
+      cancelImpactedReservations: true,
+      cancellationReason: 'Pemeliharaan AC',
+    });
+
+    expect(prisma.maintenancePeriod.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ reportId: 'report-1', facilityId: 'facility-1' }),
+      }),
+    );
+    expect(prisma.reservation.updateMany).toHaveBeenCalledTimes(1);
+    expect(result.pendingRejected).toBe(0);
   });
 
   it('throws when the report does not exist', async () => {

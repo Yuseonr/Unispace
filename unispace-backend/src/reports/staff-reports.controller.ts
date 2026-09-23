@@ -5,6 +5,7 @@ import {
 	Param,
 	ParseUUIDPipe,
 	Patch,
+	Post,
 	Query,
 } from '@nestjs/common';
 import { UserRole } from '../generated/prisma/client';
@@ -15,6 +16,8 @@ import { RejectReportDto } from './dto/reject-report.dto';
 import { ResolveReportDto } from './dto/resolve-report.dto';
 import { ListStaffReportsDto } from './dto/list-staff-reports.dto';
 import { ListReportAuditDto } from './dto/list-report-audit.dto';
+import { ConfirmMaintenancePeriodDto } from './dto/confirm-maintenance-period.dto';
+import { PreviewMaintenanceImpactDto } from './dto/preview-maintenance-impact.dto';
 import { ReportsService } from './reports.service';
 
 @Controller('staff/reports')
@@ -25,6 +28,35 @@ export class StaffReportsController {
 	@Get()
 	list(@Query() query: ListStaffReportsDto) {
 		return this.reports.listStaff(query);
+	}
+
+	@Post(':reportId/maintenance/preview')
+	previewMaintenanceImpact(
+		@Param('reportId', new ParseUUIDPipe()) reportId: string,
+		@Body() dto: PreviewMaintenanceImpactDto,
+	) {
+		return this.reports.previewReportMaintenanceImpact(
+			reportId,
+			new Date(dto.startAt),
+			new Date(dto.endAt),
+		);
+	}
+
+	@Post(':reportId/maintenance')
+	confirmMaintenancePeriod(
+		@CurrentUser() user: AuthenticatedUser,
+		@Param('reportId', new ParseUUIDPipe()) reportId: string,
+		@Body() dto: ConfirmMaintenancePeriodDto,
+	) {
+		return this.reports.confirmMaintenancePeriod(user.id, reportId, dto);
+	}
+
+	@Patch('maintenance/:periodId/end')
+	endMaintenancePeriod(
+		@CurrentUser() user: AuthenticatedUser,
+		@Param('periodId', new ParseUUIDPipe()) periodId: string,
+	) {
+		return this.reports.endMaintenancePeriod(user.id, periodId, new Date());
 	}
 
 	@Get(':reportId')
