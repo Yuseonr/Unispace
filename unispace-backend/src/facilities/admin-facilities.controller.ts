@@ -6,21 +6,39 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import { UserRole } from '../generated/prisma/client';
 import { CurrentUser } from '../accounts/auth/decorators/current-user.decorator';
 import { Roles } from '../accounts/auth/decorators/roles.decorator';
 import type { AuthenticatedUser } from '../accounts/auth/auth.types';
-import { CreateFacilityGroupDto } from './dto/create-facility-group.dto';
-import { CreateFacilityUnitDto } from './dto/create-facility-unit.dto';
-import { UpdateFacilityGroupDto } from './dto/update-facility-group.dto';
-import { UpdateFacilityStatusDto } from './dto/update-facility-status.dto';
-import { FacilitiesService } from './facilities.service';
+import { FacilityManagementService } from './admin/facility-management.service';
+import { FacilityMasterService } from './admin/facility-master.service';
+import { FacilityStatusService } from './admin/facility-status.service';
+import {
+  CreateFacilityAreaDto,
+  CreateFacilityGroupDto,
+  CreateFacilityTypeDto,
+  CreateFacilityUnitDto,
+  UpdateFacilityAreaDto,
+  UpdateFacilityAreaStatusDto,
+  UpdateFacilityGroupDto,
+  UpdateFacilityStatusDto,
+  UpdateFacilityTypeDto,
+  UpdateFacilityUnitDto,
+} from './dto/admin';
+import type { FacilityImageUpload } from './facility-image-storage.service';
+import { FacilityImageUploadInterceptor } from './facility-image-upload.interceptor';
 
 @Controller('admin/facilities')
 @Roles(UserRole.ADMIN)
 export class AdminFacilitiesController {
-  constructor(private readonly facilities: FacilitiesService) {}
+  constructor(
+    private readonly master: FacilityMasterService,
+    private readonly management: FacilityManagementService,
+    private readonly status: FacilityStatusService,
+  ) {}
 
   /**
    * GET /api/v1/admin/facilities
@@ -28,7 +46,7 @@ export class AdminFacilitiesController {
    */
   @Get()
   list() {
-    return this.facilities.adminList();
+    return this.management.adminList();
   }
 
   /**
@@ -36,11 +54,13 @@ export class AdminFacilitiesController {
    * Membuat kelompok fasilitas baru (EXCLUSIVE atau QUANTITY) dengan foto utama wajib.
    */
   @Post('groups')
+  @UseInterceptors(FacilityImageUploadInterceptor)
   createGroup(
     @CurrentUser() admin: AuthenticatedUser,
     @Body() input: CreateFacilityGroupDto,
+    @UploadedFile() primaryImage?: FacilityImageUpload,
   ) {
-    return this.facilities.adminCreateGroup(admin.id, input);
+    return this.management.adminCreateGroup(admin.id, input, primaryImage);
   }
 
   /**
@@ -48,12 +68,14 @@ export class AdminFacilitiesController {
    * Memperbarui metadata kelompok fasilitas (nama, area, lokasi detail, foto utama, dsb).
    */
   @Patch('groups/:id')
+  @UseInterceptors(FacilityImageUploadInterceptor)
   updateGroup(
     @CurrentUser() admin: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: UpdateFacilityGroupDto,
+    @UploadedFile() primaryImage?: FacilityImageUpload,
   ) {
-    return this.facilities.adminUpdateGroup(admin.id, id, input);
+    return this.management.adminUpdateGroup(admin.id, id, input, primaryImage);
   }
 
   /**
@@ -65,7 +87,19 @@ export class AdminFacilitiesController {
     @CurrentUser() admin: AuthenticatedUser,
     @Body() input: CreateFacilityUnitDto,
   ) {
-    return this.facilities.adminCreateUnit(admin.id, input);
+    return this.management.adminCreateUnit(admin.id, input);
+  }
+
+  /** Memperbarui kode aset atau metadata unit EXCLUSIVE. */
+  @Patch('units/:id')
+  @UseInterceptors(FacilityImageUploadInterceptor)
+  updateUnit(
+    @CurrentUser() admin: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: UpdateFacilityUnitDto,
+    @UploadedFile() primaryImage?: FacilityImageUpload,
+  ) {
+    return this.management.adminUpdateUnit(admin.id, id, input, primaryImage);
   }
 
   /**
@@ -79,6 +113,61 @@ export class AdminFacilitiesController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: UpdateFacilityStatusDto,
   ) {
-    return this.facilities.adminUpdateUnitStatus(admin.id, id, input.status);
+    return this.status.adminUpdateUnitStatus(admin.id, id, input.status);
+  }
+
+  /** Master tipe fasilitas untuk form admin dan filter katalog. */
+  @Get('types')
+  listTypes() {
+    return this.master.adminListTypes();
+  }
+
+  @Post('types')
+  createType(
+    @CurrentUser() admin: AuthenticatedUser,
+    @Body() input: CreateFacilityTypeDto,
+  ) {
+    return this.master.adminCreateType(admin.id, input);
+  }
+
+  @Patch('types/:id')
+  updateType(
+    @CurrentUser() admin: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: UpdateFacilityTypeDto,
+  ) {
+    return this.master.adminUpdateType(admin.id, id, input);
+  }
+
+  /** Master area kampus. Tidak ada delete fisik untuk menjaga relasi katalog. */
+  @Get('areas')
+  listAreas() {
+    return this.master.adminListAreas();
+  }
+
+  @Post('areas')
+  createArea(
+    @CurrentUser() admin: AuthenticatedUser,
+    @Body() input: CreateFacilityAreaDto,
+  ) {
+    return this.master.adminCreateArea(admin.id, input);
+  }
+
+  @Patch('areas/:id')
+  updateArea(
+    @CurrentUser() admin: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: UpdateFacilityAreaDto,
+  ) {
+    return this.master.adminUpdateArea(admin.id, id, input);
+  }
+
+  @Patch('areas/:id/status')
+  updateAreaStatus(
+    @CurrentUser() admin: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: UpdateFacilityAreaStatusDto,
+  ) {
+    return this.master.adminUpdateAreaStatus(admin.id, id, input.status);
   }
 }

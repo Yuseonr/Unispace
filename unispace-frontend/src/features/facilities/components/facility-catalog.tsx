@@ -138,7 +138,7 @@ export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] 
 
             <fieldset className="filter-group">
               <legend>Tipe fasilitas</legend>
-              <label>
+              <label key="all-types">
                 <input
                   checked={selectedTypes.length === 0}
                   onChange={() => setSelectedTypes([])}
@@ -162,7 +162,7 @@ export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] 
 
             <fieldset className="filter-group">
               <legend>Fakultas / area kampus</legend>
-              <label>
+              <label key="all-areas">
                 <input
                   checked={selectedAreaCodes.length === 0}
                   onChange={() => setSelectedAreaCodes([])}
@@ -186,7 +186,7 @@ export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] 
 
             <fieldset className="filter-group">
               <legend>Kapasitas</legend>
-              <label>
+              <label key="all-capacities">
                 <input
                   checked={selectedCapacities.length === 0}
                   onChange={() => setSelectedCapacities([])}

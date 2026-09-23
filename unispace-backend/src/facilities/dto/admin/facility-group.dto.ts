@@ -5,12 +5,11 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
-  IsUrl,
   IsUUID,
   MaxLength,
   Min,
 } from 'class-validator';
-import { ReservationMode } from '../../generated/prisma/client';
+import { ReservationMode } from '../../../generated/prisma/client';
 
 const toTrimmedString = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
@@ -21,6 +20,7 @@ const toOptionalTrimmedString = ({ value }: { value: unknown }) =>
 const toNumber = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value !== '' ? Number(value) : value;
 
+/** Payload POST: membentuk identitas dan aturan reservasi sebuah kelompok. */
 export class CreateFacilityGroupDto {
   @Transform(toTrimmedString)
   @IsString()
@@ -55,21 +55,46 @@ export class CreateFacilityGroupDto {
   description?: string;
 
   /**
-   * Foto utama wajib diunggah/diisi (FR-FAC-06 & FR-FAC-08)
-   */
-  @Transform(toTrimmedString)
-  @IsString()
-  @IsNotEmpty()
-  @IsUrl({}, { message: 'primaryImageUrl harus berupa URL yang valid' })
-  primaryImageUrl!: string;
-
-  /**
-   * Khusus mode EXCLUSIVE: kode aset unit fisik awal yang dibuat bersama grup.
-   * Contoh: R-LAB-01
+   * Khusus EXCLUSIVE: kode aset unit fisik awal yang dibuat bersama grup.
+   * Contoh: R-LAB-01.
    */
   @IsOptional()
   @Transform(toTrimmedString)
   @IsString()
   @MaxLength(64)
   assetCode?: string;
+}
+
+/** Payload PATCH: reservationMode sengaja immutable setelah grup dibuat. */
+export class UpdateFacilityGroupDto {
+  @IsOptional()
+  @Transform(toOptionalTrimmedString)
+  @IsString()
+  @MaxLength(150)
+  name?: string;
+
+  @IsOptional()
+  @IsUUID()
+  facilityTypeId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  facilityAreaId?: string;
+
+  @IsOptional()
+  @Transform(toOptionalTrimmedString)
+  @IsString()
+  @MaxLength(500)
+  locationDetail?: string;
+
+  @IsOptional()
+  @Transform(toNumber)
+  @IsInt()
+  @Min(0)
+  capacity?: number;
+
+  @IsOptional()
+  @Transform(toOptionalTrimmedString)
+  @IsString()
+  description?: string;
 }

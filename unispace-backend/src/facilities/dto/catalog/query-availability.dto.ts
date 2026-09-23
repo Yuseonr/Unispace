@@ -7,7 +7,10 @@ export class QueryAvailabilityDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, {
     message: 'date harus menggunakan format YYYY-MM-DD',
   })
-  @IsISO8601({ strict: true }, { message: 'date harus berupa tanggal kalender yang valid' })
+  @IsISO8601(
+    { strict: true },
+    { message: 'date harus berupa tanggal kalender yang valid' },
+  )
   date!: string;
 
   /**

@@ -1,0 +1,128 @@
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { FacilityStatus } from '../../generated/prisma/client';
+import { PrismaService } from '../../database/prisma.service';
+import { jakartaReservationBoundary } from '../utils/jakarta-time.util';
+
+/** Aktivasi/nonaktif unit fasilitas beserta histori dan dampak reservasinya. */
+@Injectable()
+export class FacilityStatusService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async adminUpdateUnitStatus(
+    adminId: string,
+    facilityId: string,
+    newStatus: FacilityStatus,
+  ) {
+    const facility = await this.prisma.facility.findUnique({
+      where: { id: facilityId },
+      include: {
+        facilityGroup: { select: { name: true, reservationMode: true } },
+      },
+    });
+    if (!facility) {
+      throw new NotFoundException('Unit fasilitas tidak ditemukan.');
+    }
+    if (facility.status === newStatus) {
+      return facility;
+    }
+
+    const now = new Date();
+    if (newStatus === FacilityStatus.NONACTIVE) {
+      const boundary = jakartaReservationBoundary(now);
+      const activeApproved = await this.prisma.reservation.findFirst({
+        where: {
+          status: 'APPROVED',
+          OR: [{ facilityId }, { items: { some: { facilityId } } }],
+          AND: [
+            {
+              OR: [
+                { usageDate: { gt: boundary.usageDate } },
+                {
+                  usageDate: boundary.usageDate,
+                  endTime: { gte: boundary.endTime },
+                },
+              ],
+            },
+          ],
+        },
+      });
+      if (activeApproved) {
+        throw new BadRequestException(
+          'Tidak dapat menonaktifkan fasilitas: masih terdapat reservasi disetujui (APPROVED) yang belum selesai. ' +
+            'Silakan minta petugas membatalkan reservasi tersebut terlebih dahulu.',
+        );
+      }
+
+      return this.prisma.$transaction(async (tx) => {
+        const updated = await tx.facility.update({
+          where: { id: facilityId },
+          data: { status: FacilityStatus.NONACTIVE },
+        });
+        await tx.reservation.updateMany({
+          where: { status: 'PENDING', facilityId },
+          data: {
+            status: 'REJECTED',
+            decisionReason: 'Fasilitas dinonaktifkan oleh administrator.',
+            decidedAt: now,
+            processedById: null,
+          },
+        });
+        await tx.facilityStatusHistory.create({
+          data: {
+            facilityId,
+            status: FacilityStatus.NONACTIVE,
+            changedById: adminId,
+            effectiveAt: now,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            actorId: adminId,
+            action: 'FACILITY_STATUS_DEACTIVATED',
+            entityType: 'FACILITY',
+            entityId: facilityId,
+            metadata: {
+              assetCode: facility.assetCode,
+              fromStatus: FacilityStatus.ACTIVE,
+              toStatus: FacilityStatus.NONACTIVE,
+            },
+          },
+        });
+        return updated;
+      });
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.facility.update({
+        where: { id: facilityId },
+        data: { status: FacilityStatus.ACTIVE },
+      });
+      await tx.facilityStatusHistory.create({
+        data: {
+          facilityId,
+          status: FacilityStatus.ACTIVE,
+          changedById: adminId,
+          effectiveAt: now,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId: adminId,
+          action: 'FACILITY_STATUS_ACTIVATED',
+          entityType: 'FACILITY',
+          entityId: facilityId,
+          metadata: {
+            assetCode: facility.assetCode,
+            fromStatus: FacilityStatus.NONACTIVE,
+            toStatus: FacilityStatus.ACTIVE,
+          },
+        },
+      });
+      return updated;
+    });
+  }
+}
