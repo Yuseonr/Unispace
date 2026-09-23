@@ -1,12 +1,15 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { jest } from '@jest/globals';
 import { Test, type TestingModule } from '@nestjs/testing';
+import { validate } from 'class-validator';
 import { ReportStatus } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { ObjectStorageService } from '../common/storage/object-storage.service';
 import { ReportsService } from './reports.service';
+import { CreateMaintenancePeriodDto } from './dto/create-maintenance-period.dto';
+import { MaintenanceMode } from './reports.constants';
 
-const createMockReport = (overrides: Partial<Record<string, any>> = {}) => ({
+const createMockReport = (overrides: Record<string, unknown> = {}) => ({
   id: 'report-1',
   facilityId: 'facility-1',
   category: 'PHYSICAL_DAMAGE',
@@ -42,9 +45,28 @@ const createMockReport = (overrides: Partial<Record<string, any>> = {}) => ({
   ...overrides,
 });
 
+const mockDelegates = () => ({
+  facilityReport: { findUnique: jest.fn(), update: jest.fn() },
+  maintenancePeriod: {
+    create: jest.fn(),
+    findUnique: jest.fn(),
+    findFirst: jest.fn(),
+    findMany: jest.fn(),
+    update: jest.fn(),
+  },
+  reservation: { findMany: jest.fn(), updateMany: jest.fn() },
+  facility: { findUnique: jest.fn(), update: jest.fn() },
+  facilityStatusHistory: { create: jest.fn() },
+  auditLog: { create: jest.fn(), findMany: jest.fn(), count: jest.fn() },
+});
+
+type MockPrisma = ReturnType<typeof mockDelegates> & {
+  $transaction: jest.Mock;
+};
+
 describe('ReportsService lifecycle', () => {
   let service: ReportsService;
-  let prisma: any;
+  let prisma: MockPrisma;
 
   const mockFacility = {
     id: 'facility-1',
@@ -58,33 +80,7 @@ describe('ReportsService lifecycle', () => {
         ReportsService,
         {
           provide: PrismaService,
-          useValue: {
-            facilityReport: {
-              findUnique: jest.fn(),
-              update: jest.fn(),
-            },
-            maintenancePeriod: {
-              create: jest.fn(),
-              findUnique: jest.fn(),
-              findFirst: jest.fn(),
-              findMany: jest.fn(),
-              update: jest.fn(),
-            },
-            reservation: {
-              findMany: jest.fn(),
-              updateMany: jest.fn(),
-            },
-            facility: {
-              findUnique: jest.fn(),
-            },
-            facilityStatusHistory: { create: jest.fn() },
-            auditLog: {
-              create: jest.fn(),
-              findMany: jest.fn(),
-              count: jest.fn(),
-            },
-            $transaction: jest.fn(),
-          },
+          useValue: { ...mockDelegates(), $transaction: jest.fn() },
         },
         {
           provide: ObjectStorageService,
@@ -94,7 +90,7 @@ describe('ReportsService lifecycle', () => {
     }).compile();
 
     service = module.get(ReportsService);
-    prisma = module.get(PrismaService) as any;
+    prisma = module.get(PrismaService) as unknown as MockPrisma;
     prisma.maintenancePeriod.findFirst.mockResolvedValue(null);
     prisma.facility.findUnique.mockResolvedValue({
       id: 'facility-1',
@@ -103,7 +99,7 @@ describe('ReportsService lifecycle', () => {
     });
     prisma.reservation.findMany.mockResolvedValue([]);
     prisma.maintenancePeriod.findMany.mockResolvedValue([]);
-    prisma.$transaction.mockImplementation(async (callback: (tx: any) => unknown) =>
+    prisma.$transaction.mockImplementation(async (callback: (tx: MockPrisma) => unknown) =>
       callback(prisma),
     );
   });
@@ -255,6 +251,29 @@ describe('ReportsService lifecycle', () => {
     );
   });
 
+  it('blocks resolution only while maintenance belongs to the same report', async () => {
+    const report = createMockReport({ status: ReportStatus.IN_PROGRESS });
+    prisma.facilityReport.findUnique.mockResolvedValue(report);
+
+    prisma.maintenancePeriod.findFirst.mockResolvedValueOnce({
+      id: 'scheduled-by-other-report',
+    });
+    await expect(
+      service.resolve('staff-1', 'report-1', 'AC sudah diperbaiki'),
+    ).rejects.toMatchObject({
+      response: { code: 'REPORT_MAINTENANCE_STILL_ACTIVE_OR_SCHEDULED' },
+    });
+
+    expect(prisma.maintenancePeriod.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          reportId: 'report-1',
+          endAt: { gt: expect.any(Date) },
+        }),
+      }),
+    );
+  });
+
   it('creates a maintenance period from an in-progress report', async () => {
     prisma.facilityReport.findUnique.mockResolvedValue(
       createMockReport({
@@ -354,6 +373,38 @@ describe('ReportsService lifecycle', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('aligns the maintenance window to Jakarta time instead of UTC', async () => {
+    prisma.facility.findUnique.mockResolvedValue(mockFacility);
+    prisma.reservation.findMany.mockResolvedValue([
+      {
+        id: 'res-early',
+        usageDate: new Date('2026-01-12T00:00:00.000Z'),
+        startTime: new Date('2026-01-01T07:30:00.000Z'),
+        endTime: new Date('2026-01-01T08:00:00.000Z'),
+        requestedQuantity: 1,
+        status: 'APPROVED',
+      },
+      {
+        id: 'res-midday',
+        usageDate: new Date('2026-01-12T00:00:00.000Z'),
+        startTime: new Date('2026-01-01T12:00:00.000Z'),
+        endTime: new Date('2026-01-01T13:00:00.000Z'),
+        requestedQuantity: 1,
+        status: 'PENDING',
+      },
+    ]);
+
+    const result = await service.previewMaintenanceImpact(
+      'facility-1',
+      new Date('2026-01-12T00:00:00.000Z'), // 07:00 WIB
+      new Date('2026-01-12T01:00:00.000Z'), // 08:00 WIB
+    );
+
+    expect(result.approvedReservations.map((r) => r.id)).toContain('res-early');
+    expect(result.approvedReservations).toHaveLength(1);
+    expect(result.pendingReservations.map((r) => r.id)).not.toContain('res-midday');
+  });
+
   it('returns impacted reservations for a maintenance window', async () => {
     prisma.facility.findUnique.mockResolvedValue(mockFacility);
     prisma.reservation.findMany.mockResolvedValue([
@@ -375,14 +426,21 @@ describe('ReportsService lifecycle', () => {
       },
     ]);
 
-    const result = await service.previewMaintenanceImpact('facility-1', new Date('2026-01-12T07:00:00.000Z'), new Date('2026-01-12T20:00:00.000Z'));
+    const result = await service.previewMaintenanceImpact(
+      'facility-1',
+      new Date('2026-01-12T00:00:00.000Z'), // 07:00 WIB
+      new Date('2026-01-12T13:00:00.000Z'), // 20:00 WIB
+    );
 
     expect(result.approvedReservations).toHaveLength(1);
     expect(result.pendingReservations).toHaveLength(1);
     expect(result.approvedReservations[0].id).toBe('res-1');
   });
 
-  it('applies maintenance impact to impacted reservations when confirmed', async () => {
+  it('cancels approved and rejects pending reservations for an EXCLUSIVE facility on confirmation', async () => {
+    prisma.facilityReport.findUnique.mockResolvedValue(
+      createMockReport({ status: ReportStatus.IN_PROGRESS }),
+    );
     prisma.facility.findUnique.mockResolvedValue(mockFacility);
     prisma.reservation.findMany.mockResolvedValue([
       {
@@ -392,6 +450,8 @@ describe('ReportsService lifecycle', () => {
         endTime: new Date('2026-01-01T09:00:00.000Z'),
         requestedQuantity: 2,
         status: 'APPROVED',
+        facilityId: 'facility-1',
+        facilityGroupId: 'group-1',
       },
       {
         id: 'res-2',
@@ -400,21 +460,31 @@ describe('ReportsService lifecycle', () => {
         endTime: new Date('2026-01-01T09:30:00.000Z'),
         requestedQuantity: 1,
         status: 'PENDING',
+        facilityId: 'facility-1',
+        facilityGroupId: 'group-1',
       },
     ]);
-    prisma.reservation.updateMany.mockResolvedValue({ count: 2 });
+    prisma.reservation.updateMany.mockResolvedValue({ count: 1 });
+    prisma.maintenancePeriod.create.mockResolvedValue({
+      id: 'period-1',
+      reportId: 'report-1',
+      facilityId: 'facility-1',
+      startAt: new Date('2026-01-12T00:00:00.000Z'),
+      endAt: new Date('2026-01-12T13:00:00.000Z'),
+      note: 'Pemeliharaan AC',
+    });
 
-    const result = await service.confirmMaintenanceImpact(
-      'staff-1',
-      'facility-1',
-      new Date('2026-01-12T07:00:00.000Z'),
-      new Date('2026-01-12T20:00:00.000Z'),
-      'Pemeliharaan AC',
-    );
+    const result = await service.confirmMaintenancePeriod('staff-1', 'report-1', {
+      mode: 'DATE_RANGE',
+      startDate: '2026-01-12',
+      endDate: '2026-01-12',
+      cancelImpactedReservations: true,
+      cancellationReason: 'Pemeliharaan AC',
+    });
 
-    expect(prisma.reservation.updateMany).toHaveBeenCalled();
-    expect(result.approvedReservations).toHaveLength(1);
-    expect(result.pendingReservations).toHaveLength(1);
+    expect(prisma.reservation.updateMany).toHaveBeenCalledTimes(2);
+    expect(result.approvedCancelled).toBe(1);
+    expect(result.pendingRejected).toBe(1);
   });
 
   it('creates maintenance atomically and rejects only insufficient QUANTITY pending reservations', async () => {
@@ -490,5 +560,87 @@ describe('ReportsService lifecycle', () => {
     await expect(service.accept('staff-1', 'report-1')).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+});
+
+describe('CreateMaintenancePeriodDto validation', () => {
+  const base = {
+    cancelImpactedReservations: true,
+    cancellationReason: 'Pemeliharaan AC',
+  };
+
+  it('accepts a valid DATE_RANGE without specific times', async () => {
+    const dto = new CreateMaintenancePeriodDto();
+    Object.assign(dto, {
+      mode: MaintenanceMode.DATE_RANGE,
+      startDate: '2026-01-12',
+      endDate: '2026-01-14',
+      ...base,
+    });
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('rejects DATE_RANGE with a specific time mixed in', async () => {
+    const dto = new CreateMaintenancePeriodDto();
+    Object.assign(dto, {
+      mode: MaintenanceMode.DATE_RANGE,
+      startDate: '2026-01-12',
+      endDate: '2026-01-14',
+      startTime: '08:00',
+      ...base,
+    });
+    const errors = await validate(dto);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some((e) => e.property === 'mode')).toBe(true);
+  });
+
+  it('rejects DATE_RANGE without an end date', async () => {
+    const dto = new CreateMaintenancePeriodDto();
+    Object.assign(dto, {
+      mode: MaintenanceMode.DATE_RANGE,
+      startDate: '2026-01-12',
+      ...base,
+    });
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'endDate')).toBe(true);
+  });
+
+  it('accepts a valid TIME_RANGE on 30-minute slot boundaries', async () => {
+    const dto = new CreateMaintenancePeriodDto();
+    Object.assign(dto, {
+      mode: MaintenanceMode.TIME_RANGE,
+      date: '2026-01-12',
+      startTime: '07:30',
+      endTime: '10:00',
+      ...base,
+    });
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('rejects TIME_RANGE outside operating hours or off-boundary slots', async () => {
+    const cases = [
+      { date: '2026-01-12', startTime: '06:30', endTime: '08:00' },
+      { date: '2026-01-12', startTime: '07:15', endTime: '08:00' },
+      { date: '2026-01-12', startTime: '19:30', endTime: '20:30' },
+    ];
+    for (const input of cases) {
+      const dto = new CreateMaintenancePeriodDto();
+      Object.assign(dto, { mode: MaintenanceMode.TIME_RANGE, ...input, ...base });
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('rejects TIME_RANGE where start is not before end', async () => {
+    const dto = new CreateMaintenancePeriodDto();
+    Object.assign(dto, {
+      mode: MaintenanceMode.TIME_RANGE,
+      date: '2026-01-12',
+      startTime: '10:00',
+      endTime: '08:00',
+      ...base,
+    });
+    const errors = await validate(dto);
+    expect(errors.length).toBeGreaterThan(0);
   });
 });

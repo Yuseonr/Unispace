@@ -4,18 +4,14 @@ import {
 	NotFoundException,
 } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client';
-import {
-	FacilityStatus,
-	ReportCategory,
-	ReportStatus,
-} from '../generated/prisma/client';
-import { MaintenanceMode } from './reports.constants';
+import { FacilityStatus, ReportStatus } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { ObjectStorageService } from '../common/storage/object-storage.service';
 import { CreateReportDto } from './dto/create-report.dto';
 import { ListMyReportsDto } from './dto/list-my-reports.dto';
 import { ListStaffReportsDto } from './dto/list-staff-reports.dto';
 import {
+	MaintenanceMode,
 	REPORT_CATEGORY_LABELS,
 	FACILITY_ENTITY_TYPE,
 	MAINTENANCE_ENTITY_TYPE,
@@ -24,6 +20,10 @@ import {
 	REPORT_STATUS_LABELS,
 } from './reports.constants';
 import { ListReportAuditDto } from './dto/list-report-audit.dto';
+import {
+	formatToJakartaDateString,
+	toJakartaMinutesOfDay,
+} from '../reservations/utils/reservation-time.util';
 import type {
 	MaintenancePeriodResponse,
 	PaginatedReportsResponse,
@@ -159,7 +159,7 @@ export class ReportsService {
 				message: 'The selected facility was not found.',
 			});
 		}
-		if (facility.status !== FacilityStatus.ACTIVE) {
+		if (facility.status === FacilityStatus.NONACTIVE) {
 			throw new ConflictException({
 				code: 'FACILITY_NOT_REPORTABLE',
 				message: 'A nonactive facility cannot receive a new report.',
@@ -547,7 +547,7 @@ export class ReportsService {
 
 		const scheduledMaintenance = await this.prisma.maintenancePeriod.findFirst({
 			where: {
-				facilityId: report.facility.id,
+				reportId,
 				endAt: { gt: new Date() },
 			},
 			select: { id: true },
@@ -931,15 +931,28 @@ export class ReportsService {
 		facilityId: string,
 		startAt: Date,
 		endAt: Date,
-		client: any,
+		client: Pick<
+			Prisma.TransactionClient,
+			'facility' | 'reservation' | 'maintenancePeriod'
+		>,
 	): Promise<MaintenanceImpact> {
 		const toMinutesOfDay = (value: Date) => {
 			const time = new Date(value);
 			return time.getUTCHours() * 60 + time.getUTCMinutes();
 		};
 
-		const windowStartMinutes = toMinutesOfDay(startAt);
-		const windowEndMinutes = toMinutesOfDay(endAt);
+		const toJakartaInstant = (usageDate: Date, timeMinutes: number) => {
+			const pad = (n: number) => n.toString().padStart(2, '0');
+			const dateStr = formatToJakartaDateString(usageDate);
+			const hour = Math.floor(timeMinutes / 60);
+			const minute = timeMinutes % 60;
+			return new Date(`${dateStr}T${pad(hour)}:${pad(minute)}:00.000+07:00`);
+		};
+
+		const windowStartMinutes = toJakartaMinutesOfDay(startAt);
+		const windowEndMinutes = toJakartaMinutesOfDay(endAt);
+		const windowStartJakarta = formatToJakartaDateString(startAt);
+		const windowEndJakarta = formatToJakartaDateString(endAt);
 
 		const facility = await client.facility.findUnique({
 			where: { id: facilityId },
@@ -974,8 +987,8 @@ export class ReportsService {
 					{ facilityGroupId: facility.facilityGroupId, status: 'PENDING' },
 				],
 				usageDate: {
-					gte: new Date(startAt.toISOString().slice(0, 10) + 'T00:00:00.000Z'),
-					lte: new Date(endAt.toISOString().slice(0, 10) + 'T23:59:59.999Z'),
+					gte: new Date(`${windowStartJakarta}T00:00:00.000+07:00`),
+					lte: new Date(`${windowEndJakarta}T23:59:59.999+07:00`),
 				},
 			},
 			select: {
@@ -1027,24 +1040,8 @@ export class ReportsService {
 				const reservationStart = toMinutesOfDay(reservation.startTime);
 				const reservationEnd = toMinutesOfDay(reservation.endTime);
 				const usageDate = reservation.usageDate;
-				const reservationStartAt = new Date(
-					Date.UTC(
-						usageDate.getUTCFullYear(),
-						usageDate.getUTCMonth(),
-						usageDate.getUTCDate(),
-						Math.floor(reservationStart / 60),
-						reservationStart % 60,
-					),
-				);
-				const reservationEndAt = new Date(
-					Date.UTC(
-						usageDate.getUTCFullYear(),
-						usageDate.getUTCMonth(),
-						usageDate.getUTCDate(),
-						Math.floor(reservationEnd / 60),
-						reservationEnd % 60,
-					),
-				);
+				const reservationStartAt = toJakartaInstant(usageDate, reservationStart);
+				const reservationEndAt = toJakartaInstant(usageDate, reservationEnd);
 				const overlappingApprovedQuantity = impacted
 					.filter((candidate) =>
 						candidate.status === 'APPROVED' &&
@@ -1088,79 +1085,6 @@ export class ReportsService {
 			facilityId,
 			approvedReservations,
 			pendingReservations,
-		};
-	}
-
-	async confirmMaintenanceImpact(
-		staffId: string,
-		facilityId: string,
-		startAt: Date,
-		endAt: Date,
-		reason: string,
-	) {
-		const preview = await this.previewMaintenanceImpact(facilityId, startAt, endAt);
-
-		if (!reason || !reason.trim()) {
-			throw new ConflictException({
-				code: 'MAINTENANCE_REASON_REQUIRED',
-				message: 'A maintenance cancellation reason is required.',
-			});
-		}
-
-		const trimmedReason = reason.trim();
-
-		const approvedIds = preview.approvedReservations.map((reservation) => reservation.id);
-		const pendingIds = preview.pendingReservations.map((reservation) => reservation.id);
-
-		const { approvedResult, rejectedResult } = await this.prisma.$transaction(async (tx) => {
-			const approvedResult = await tx.reservation.updateMany({
-				where: { id: { in: approvedIds }, status: 'APPROVED' },
-				data: {
-					status: 'CANCELLED_BY_STAFF',
-					decisionReason: trimmedReason,
-					processedById: staffId,
-					cancelledAt: new Date(),
-				},
-			});
-
-			const rejectedResult = await tx.reservation.updateMany({
-				where: { id: { in: pendingIds }, status: 'PENDING' },
-				data: {
-					status: 'REJECTED',
-					decisionReason: trimmedReason,
-					processedById: staffId,
-					decidedAt: new Date(),
-				},
-			});
-
-			await tx.auditLog.create({
-				data: {
-					actorId: staffId,
-					action: REPORT_AUDIT_ACTIONS.MAINTENANCE_IMPACT_CONFIRMED,
-					entityType: FACILITY_ENTITY_TYPE,
-					entityId: facilityId,
-					metadata: {
-						facilityId,
-						startAt: startAt.toISOString(),
-						endAt: endAt.toISOString(),
-						approvedCandidates: approvedIds.length,
-						approvedCancellations: approvedResult.count,
-						pendingCandidates: pendingIds.length,
-						pendingRejections: rejectedResult.count,
-						reason: trimmedReason,
-					},
-				},
-			});
-
-			return { approvedResult, rejectedResult };
-		});
-
-		return {
-			facilityId,
-			approvedReservations: preview.approvedReservations,
-			pendingReservations: preview.pendingReservations,
-			approvedCancelled: approvedResult.count,
-			pendingRejected: rejectedResult.count,
 		};
 	}
 

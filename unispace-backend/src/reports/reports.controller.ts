@@ -8,9 +8,9 @@ import {
 	Post,
 	Query,
 	UploadedFiles,
+	UseInterceptors,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import { UseInterceptors } from '@nestjs/common';
 import { UserRole } from '../generated/prisma/client';
 import { CurrentUser } from '../accounts/auth/decorators/current-user.decorator';
 import { Roles } from '../accounts/auth/decorators/roles.decorator';
@@ -25,6 +25,14 @@ import { ReportsService } from './reports.service';
 export class ReportsController {
 	constructor(private readonly reports: ReportsService) {}
 
+	/**
+	 * POST /api/v1/reports
+	 * Membuat laporan kerusakan/masalah baru oleh pengguna (FR-REP-01 s.d. FR-REP-04).
+	 * - Memilih fasilitas fisik (unit aset untuk alat bergerak) melalui storage: facilityId.
+	 * - Wajib menyertakan 1–3 foto JPEG/PNG/WebP ≤ 5 MB (multipart field "photos").
+	 * - Fasilitas yang berstatus NONACTIVE tidak dapat dipilih untuk laporan baru.
+	 * - Laporan dibuat dengan status NEW dan seluruh aksi tercatat pada AUDIT_LOG.
+	 */
 	@Post()
 	@UseInterceptors(FilesInterceptor('photos', REPORT_ATTACHMENT_LIMITS.maxCount))
 	create(
@@ -50,6 +58,10 @@ export class ReportsController {
 		return this.reports.create(user.id, input, files);
 	}
 
+	/**
+	 * GET /api/v1/reports/me
+	 * Daftar laporan milik pengguna dengan filter status, fasilitas, dan rentang tanggal (FR-REP-05).
+	 */
 	@Get('me')
 	listMine(
 		@CurrentUser() user: AuthenticatedUser,
@@ -58,6 +70,12 @@ export class ReportsController {
 		return this.reports.listMine(user.id, query);
 	}
 
+	/**
+	 * GET /api/v1/reports/me/:reportId
+	 * Detail satu laporan milik pengguna (FR-REP-05).
+	 * Menampilkan alasan keputusan (decisionReason) dan catatan resolusi (resolutionNote)
+	 * yang boleh dibagikan petugas kepada pelapor.
+	 */
 	@Get('me/:reportId')
 	detailMine(
 		@CurrentUser() user: AuthenticatedUser,
