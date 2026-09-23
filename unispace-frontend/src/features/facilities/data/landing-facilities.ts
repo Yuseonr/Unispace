@@ -1,0 +1,70 @@
+import type { CatalogFacility } from "../types";
+
+// Data sementara untuk menyusun dan menguji UI katalog publik.
+// Nantinya sumbernya diganti respons katalog fasilitas dari backend.
+export const landingFacilities: CatalogFacility[] = [
+  {
+    availability: { kind: "EXCLUSIVE", label: "Cek slot untuk hari ini" },
+    capacity: 180,
+    id: "aula-cakrawala",
+    location: "Gedung Rektorat, Lt. 2",
+    name: "Aula Cakrawala",
+    status: "ACTIVE",
+    type: "Aula",
+    visualTheme: "sun",
+  },
+  {
+    availability: { kind: "EXCLUSIVE", label: "Cek slot untuk hari ini" },
+    capacity: 28,
+    id: "ruang-kolaborasi-01",
+    location: "Gedung A, Lt. 1",
+    name: "Ruang Kolaborasi 01",
+    status: "ACTIVE",
+    type: "Ruang",
+    visualTheme: "sage",
+  },
+  {
+    availability: { kind: "EXCLUSIVE", label: "Cek slot untuk hari ini" },
+    capacity: 36,
+    id: "laboratorium-komputer-02",
+    location: "Gedung B, Lt. 3",
+    name: "Laboratorium Komputer 02",
+    status: "ACTIVE",
+    type: "Laboratorium",
+    visualTheme: "mint",
+  },
+  {
+    availability: { kind: "EXCLUSIVE", label: "Tidak tersedia selama perbaikan" },
+    capacity: 20,
+    id: "ruang-diskusi-karya",
+    location: "Perpustakaan, Lt. 2",
+    name: "Ruang Diskusi Karya",
+    status: "MAINTENANCE",
+    type: "Ruang",
+    visualTheme: "sage",
+  },
+  {
+    availability: { kind: "EXCLUSIVE", label: "Cek slot untuk hari ini" },
+    capacity: 100,
+    id: "lapangan-serbaguna",
+    location: "Area Olahraga Timur",
+    name: "Lapangan Serbaguna",
+    status: "ACTIVE",
+    type: "Lapangan",
+    visualTheme: "forest",
+  },
+  {
+    availability: {
+      availableUnits: 8,
+      kind: "QUANTITY",
+      totalActiveUnits: 12,
+    },
+    capacity: null,
+    id: "proyektor-epson-eb-x06",
+    location: "Pusat Media",
+    name: "Proyektor Epson EB-X06",
+    status: "ACTIVE",
+    type: "Peralatan",
+    visualTheme: "sun",
+  },
+];
