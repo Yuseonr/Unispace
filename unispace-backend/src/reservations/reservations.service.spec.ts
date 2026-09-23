@@ -65,7 +65,12 @@ const stubQuantityGroup = {
 const prismaMock = {
   facility: { findUnique: jest.fn() },
   facilityGroup: { findFirst: jest.fn() },
-  reservation: { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn() },
+  reservation: {
+    findFirst: jest.fn(),
+    findMany: jest.fn(),
+    create: jest.fn(),
+    count: jest.fn(),
+  },
   maintenancePeriod: { findFirst: jest.fn(), findMany: jest.fn() },
   user: { findUnique: jest.fn() },
   auditLog: { create: jest.fn() },
@@ -474,5 +479,201 @@ describe('ReservationsService - create', () => {
         now,
       ),
     ).rejects.toThrow('Ketersediaan alat tidak mencukupi');
+  });
+});
+
+describe('ReservationsService - listMy', () => {
+  let service: ReservationsService;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ReservationsService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
+    }).compile();
+
+    service = module.get<ReservationsService>(ReservationsService);
+    jest.clearAllMocks();
+  });
+
+  it('mengembalikan daftar riwayat terpaginasi milik pengguna', async () => {
+    const now = new Date('2026-09-21T08:00:00+07:00'); // Senin
+    const stubResList = [
+      {
+        id: 'res-1',
+        userId: stubActiveUser.id,
+        facilityId: stubExclusiveFacility.id,
+        facilityGroupId: stubExclusiveFacility.facilityGroup.id,
+        requestedQuantity: 1,
+        usageDate: new Date('2026-09-25T00:00:00.000Z'), // Jumat (H-4)
+        startTime: new Date(Date.UTC(1970, 0, 1, 8, 0, 0)),
+        endTime: new Date(Date.UTC(1970, 0, 1, 10, 0, 0)),
+        purpose: 'Kegiatan Rapat Organisasi',
+        status: ReservationStatus.PENDING,
+        facility: stubExclusiveFacility,
+        facilityGroup: stubExclusiveFacility.facilityGroup,
+        items: [],
+      },
+    ];
+
+    prismaMock.reservation.count.mockResolvedValue(1);
+    prismaMock.reservation.findMany.mockResolvedValue(stubResList);
+
+    const result = await service.listMy(
+      stubActiveUser.id,
+      { page: 1, limit: 10 },
+      now,
+    );
+
+    expect(result.meta).toEqual({
+      total: 1,
+      page: 1,
+      limit: 10,
+      totalPages: 1,
+    });
+    expect(result.data.length).toBe(1);
+    expect(result.data[0].id).toBe('res-1');
+    expect(result.data[0].canCancel).toBe(true);
+    expect(result.data[0].allocatedAssets).toEqual([]);
+  });
+
+  it('menandai canCancel = false jika waktu sudah melewati cut-off atau status sudah selesai', async () => {
+    // Sekarang hari Kamis 2026-09-24 pukul 21:00 WIB (sudah lewat batas 20.00 WIB pada H-1)
+    const nowAfterCutoff = new Date('2026-09-24T21:00:00+07:00');
+    const stubResList = [
+      {
+        id: 'res-cutoff',
+        userId: stubActiveUser.id,
+        facilityId: stubExclusiveFacility.id,
+        facilityGroupId: stubExclusiveFacility.facilityGroup.id,
+        requestedQuantity: 1,
+        usageDate: new Date('2026-09-25T00:00:00.000Z'),
+        startTime: new Date(Date.UTC(1970, 0, 1, 8, 0, 0)),
+        endTime: new Date(Date.UTC(1970, 0, 1, 10, 0, 0)),
+        purpose: 'Kegiatan Rapat Organisasi',
+        status: ReservationStatus.APPROVED,
+        facility: stubExclusiveFacility,
+        facilityGroup: stubExclusiveFacility.facilityGroup,
+        items: [],
+      },
+    ];
+
+    prismaMock.reservation.count.mockResolvedValue(1);
+    prismaMock.reservation.findMany.mockResolvedValue(stubResList);
+
+    const result = await service.listMy(
+      stubActiveUser.id,
+      { page: 1, limit: 10 },
+      nowAfterCutoff,
+    );
+
+    expect(result.data[0].canCancel).toBe(false);
+  });
+
+  it('menyertakan daftar allocatedAssets jika reservasi berstatus APPROVED', async () => {
+    const stubApprovedWithItems = [
+      {
+        id: 'res-approved-item',
+        userId: stubActiveUser.id,
+        facilityId: null,
+        facilityGroupId: stubQuantityGroup.id,
+        requestedQuantity: 1,
+        usageDate: new Date('2026-09-25T00:00:00.000Z'),
+        startTime: new Date(Date.UTC(1970, 0, 1, 9, 0, 0)),
+        endTime: new Date(Date.UTC(1970, 0, 1, 11, 0, 0)),
+        purpose: 'Peminjaman Alat Acara',
+        status: ReservationStatus.APPROVED,
+        facility: null,
+        facilityGroup: stubQuantityGroup,
+        items: [
+          {
+            facility: {
+              id: 'unit-1',
+              assetCode: 'PRJ-001',
+              name: 'Proyektor Epson EB-X06 #1',
+            },
+          },
+        ],
+      },
+    ];
+
+    prismaMock.reservation.count.mockResolvedValue(1);
+    prismaMock.reservation.findMany.mockResolvedValue(stubApprovedWithItems);
+
+    const result = await service.listMy(stubActiveUser.id, {});
+
+    expect(result.data[0].allocatedAssets).toEqual([
+      {
+        id: 'unit-1',
+        assetCode: 'PRJ-001',
+        name: 'Proyektor Epson EB-X06 #1',
+      },
+    ]);
+  });
+});
+
+describe('ReservationsService - getMyDetail', () => {
+  let service: ReservationsService;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ReservationsService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
+    }).compile();
+
+    service = module.get<ReservationsService>(ReservationsService);
+    jest.clearAllMocks();
+  });
+
+  it('mengembalikan rincian lengkap reservasi milik pengguna', async () => {
+    const now = new Date('2026-09-21T08:00:00+07:00');
+    const stubDetail = {
+      id: 'res-detail-1',
+      userId: stubActiveUser.id,
+      facilityId: stubExclusiveFacility.id,
+      facilityGroupId: stubExclusiveFacility.facilityGroup.id,
+      requestedQuantity: 1,
+      usageDate: new Date('2026-09-25T00:00:00.000Z'),
+      startTime: new Date(Date.UTC(1970, 0, 1, 8, 0, 0)),
+      endTime: new Date(Date.UTC(1970, 0, 1, 10, 0, 0)),
+      purpose: 'Kuliah Tamu Industri',
+      status: ReservationStatus.APPROVED,
+      facility: stubExclusiveFacility,
+      facilityGroup: stubExclusiveFacility.facilityGroup,
+      processedBy: {
+        id: 'staff-1',
+        name: 'Petugas Joko',
+        email: 'joko@kampus.ac.id',
+      },
+      items: [],
+    };
+
+    prismaMock.reservation.findFirst.mockResolvedValue(stubDetail);
+
+    const result = await service.getMyDetail(
+      stubActiveUser.id,
+      'res-detail-1',
+      now,
+    );
+
+    expect(result.id).toBe('res-detail-1');
+    expect(result.purpose).toBe('Kuliah Tamu Industri');
+    expect(result.canCancel).toBe(true);
+    expect(prismaMock.reservation.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'res-detail-1', userId: stubActiveUser.id },
+      }),
+    );
+  });
+
+  it('melemparkan NotFoundException jika reservasi tidak ditemukan atau milik pengguna lain', async () => {
+    prismaMock.reservation.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.getMyDetail(stubActiveUser.id, 'res-bukan-milik-saya'),
+    ).rejects.toThrow(NotFoundException);
   });
 });

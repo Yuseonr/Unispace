@@ -13,8 +13,11 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { GetAvailabilityDto } from './dto/get-availability.dto';
+import { ListMyReservationsDto } from './dto/list-my-reservations.dto';
 import {
   calculateDecisionDeadline,
+  formatToJakartaDateString,
+  isCancellationAllowed,
   isOperationalDay,
   isValidSlotBoundary,
   isWithinLeadTime,
@@ -621,5 +624,169 @@ export class ReservationsService {
 
       return reservation;
     });
+  }
+
+  /**
+   * Mengambil daftar riwayat permohonan reservasi milik pengguna yang sedang login (FR-RES-04).
+   * Mendukung paginasi, filter status, filter tanggal pemakaian, serta komputasi canCancel dan alokasi aset.
+   */
+  async listMy(
+    userId: string,
+    query: ListMyReservationsDto,
+    now: Date = new Date(),
+  ) {
+    const { status, usageDate, page = 1, limit = 10 } = query;
+    const skip = (page - 1) * limit;
+
+    let usageDateFilter: Date | undefined;
+    if (usageDate) {
+      const [y, m, d] = usageDate.split('-').map(Number);
+      usageDateFilter = new Date(Date.UTC(y, m - 1, d));
+    }
+
+    const where = {
+      userId,
+      ...(status ? { status } : {}),
+      ...(usageDateFilter ? { usageDate: usageDateFilter } : {}),
+    };
+
+    const [total, items] = await Promise.all([
+      this.prisma.reservation.count({ where }),
+      this.prisma.reservation.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: [{ usageDate: 'desc' }, { createdAt: 'desc' }],
+        include: {
+          facility: {
+            select: {
+              id: true,
+              name: true,
+              assetCode: true,
+              location: { select: { id: true, name: true, detail: true } },
+            },
+          },
+          facilityGroup: {
+            select: {
+              id: true,
+              name: true,
+              reservationMode: true,
+              location: { select: { id: true, name: true, detail: true } },
+              facilityType: { select: { id: true, name: true } },
+            },
+          },
+          items: {
+            include: {
+              facility: {
+                select: { id: true, assetCode: true, name: true },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const data = items.map((res) => {
+      const usageDateStr = formatToJakartaDateString(res.usageDate);
+      const isEligibleStatus =
+        res.status === ReservationStatus.PENDING ||
+        res.status === ReservationStatus.APPROVED;
+      const canCancel =
+        isEligibleStatus && isCancellationAllowed(usageDateStr, now);
+
+      const allocatedAssets =
+        res.status === ReservationStatus.APPROVED
+          ? res.items.map((item) => ({
+              id: item.facility.id,
+              assetCode: item.facility.assetCode,
+              name: item.facility.name,
+            }))
+          : [];
+
+      return {
+        ...res,
+        canCancel,
+        allocatedAssets,
+      };
+    });
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
+
+  /**
+   * Mengambil rincian lengkap satu permohonan reservasi milik pengguna yang sedang login (FR-RES-04).
+   * Memastikan pengguna hanya dapat mengakses reservasi miliknya sendiri.
+   */
+  async getMyDetail(userId: string, id: string, now: Date = new Date()) {
+    const reservation = await this.prisma.reservation.findFirst({
+      where: { id, userId },
+      include: {
+        facility: {
+          select: {
+            id: true,
+            name: true,
+            assetCode: true,
+            location: { select: { id: true, name: true, detail: true } },
+          },
+        },
+        facilityGroup: {
+          select: {
+            id: true,
+            name: true,
+            reservationMode: true,
+            location: { select: { id: true, name: true, detail: true } },
+            facilityType: { select: { id: true, name: true } },
+          },
+        },
+        processedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        items: {
+          include: {
+            facility: {
+              select: { id: true, assetCode: true, name: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!reservation) {
+      throw new NotFoundException('Reservasi tidak ditemukan.');
+    }
+
+    const usageDateStr = formatToJakartaDateString(reservation.usageDate);
+    const isEligibleStatus =
+      reservation.status === ReservationStatus.PENDING ||
+      reservation.status === ReservationStatus.APPROVED;
+    const canCancel =
+      isEligibleStatus && isCancellationAllowed(usageDateStr, now);
+
+    const allocatedAssets =
+      reservation.status === ReservationStatus.APPROVED
+        ? reservation.items.map((item) => ({
+            id: item.facility.id,
+            assetCode: item.facility.assetCode,
+            name: item.facility.name,
+          }))
+        : [];
+
+    return {
+      ...reservation,
+      canCancel,
+      allocatedAssets,
+    };
   }
 }
