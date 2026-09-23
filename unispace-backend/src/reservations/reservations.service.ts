@@ -789,4 +789,60 @@ export class ReservationsService {
       allocatedAssets,
     };
   }
+
+  /**
+   * Membatalkan permohonan reservasi mandiri oleh pemohon (FR-RES-06 & RULE-RES-03).
+   * Hanya diizinkan untuk reservasi berstatus PENDING atau APPROVED,
+   * dan maksimal diajukan sebelum pukul 20.00 WIB pada H-1 hari kerja sebelum pemakaian.
+   */
+  async cancelMy(userId: string, id: string, now: Date = new Date()) {
+    const reservation = await this.prisma.reservation.findFirst({
+      where: { id, userId },
+    });
+
+    if (!reservation) {
+      throw new NotFoundException('Reservasi tidak ditemukan.');
+    }
+
+    if (
+      reservation.status !== ReservationStatus.PENDING &&
+      reservation.status !== ReservationStatus.APPROVED
+    ) {
+      throw new BadRequestException(
+        `Reservasi dengan status ${reservation.status} tidak dapat dibatalkan.`,
+      );
+    }
+
+    const usageDateStr = formatToJakartaDateString(reservation.usageDate);
+    if (!isCancellationAllowed(usageDateStr, now)) {
+      throw new BadRequestException(
+        'Batas waktu pembatalan mandiri telah terlewati (maksimal pukul 20.00 WIB pada H-1 hari kerja operasional).',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.reservation.update({
+        where: { id },
+        data: {
+          status: ReservationStatus.CANCELLED_BY_USER,
+          cancelledAt: now,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: userId,
+          action: 'RESERVATION_CANCELLED_BY_USER',
+          entityType: 'RESERVATION',
+          entityId: id,
+          metadata: {
+            previousStatus: reservation.status,
+            cancelledAt: now.toISOString(),
+          },
+        },
+      });
+
+      return updated;
+    });
+  }
 }

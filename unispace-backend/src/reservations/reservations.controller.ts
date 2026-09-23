@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -69,6 +70,32 @@ export class ReservationsController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ) {
     return this.reservations.getMyDetail(user.id, id);
+  }
+
+  /**
+   * PATCH /api/v1/reservations/my/:id/cancel
+   * Membatalkan permohonan reservasi mandiri oleh pengguna (FR-RES-06).
+   */
+  @Roles(UserRole.USER)
+  @Patch('my/:id/cancel')
+  cancelMy(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.reservations.cancelMy(user.id, id);
+  }
+
+  /**
+   * PATCH /api/v1/reservations/:id/cancel
+   * Alias untuk pembatalan mandiri reservasi milik pengguna.
+   */
+  @Roles(UserRole.USER)
+  @Patch(':id/cancel')
+  cancelMyAlias(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.reservations.cancelMy(user.id, id);
   }
 
   /**

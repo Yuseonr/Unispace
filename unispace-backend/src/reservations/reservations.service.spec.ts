@@ -70,6 +70,7 @@ const prismaMock = {
     findMany: jest.fn(),
     create: jest.fn(),
     count: jest.fn(),
+    update: jest.fn(),
   },
   maintenancePeriod: { findFirst: jest.fn(), findMany: jest.fn() },
   user: { findUnique: jest.fn() },
@@ -674,6 +675,136 @@ describe('ReservationsService - getMyDetail', () => {
 
     await expect(
       service.getMyDetail(stubActiveUser.id, 'res-bukan-milik-saya'),
+    ).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('ReservationsService - cancelMy', () => {
+  let service: ReservationsService;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ReservationsService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
+    }).compile();
+
+    service = module.get<ReservationsService>(ReservationsService);
+    jest.clearAllMocks();
+    prismaMock.$transaction.mockImplementation(
+      (callback: (tx: typeof prismaMock) => Promise<unknown>) =>
+        callback(prismaMock),
+    );
+  });
+
+  it('berhasil membatalkan reservasi PENDING sebelum cut-off', async () => {
+    const now = new Date('2026-09-21T08:00:00+07:00'); // Senin
+    const stubPending = {
+      id: 'res-cancel-pending',
+      userId: stubActiveUser.id,
+      status: ReservationStatus.PENDING,
+      usageDate: new Date('2026-09-25T00:00:00.000Z'), // Jumat (H-4)
+    };
+
+    prismaMock.reservation.findFirst.mockResolvedValue(stubPending);
+    prismaMock.reservation.update.mockResolvedValue({
+      ...stubPending,
+      status: ReservationStatus.CANCELLED_BY_USER,
+      cancelledAt: now,
+    });
+    prismaMock.auditLog.create.mockResolvedValue({ id: 'audit-cancel-1' });
+
+    const result = await service.cancelMy(
+      stubActiveUser.id,
+      'res-cancel-pending',
+      now,
+    );
+
+    expect(result.status).toBe(ReservationStatus.CANCELLED_BY_USER);
+    expect(prismaMock.reservation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'res-cancel-pending' },
+        data: expect.objectContaining({
+          status: ReservationStatus.CANCELLED_BY_USER,
+        }),
+      }),
+    );
+    expect(prismaMock.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'RESERVATION_CANCELLED_BY_USER',
+          entityId: 'res-cancel-pending',
+        }),
+      }),
+    );
+  });
+
+  it('berhasil membatalkan reservasi APPROVED sebelum cut-off', async () => {
+    const now = new Date('2026-09-21T08:00:00+07:00'); // Senin
+    const stubApproved = {
+      id: 'res-cancel-approved',
+      userId: stubActiveUser.id,
+      status: ReservationStatus.APPROVED,
+      usageDate: new Date('2026-09-25T00:00:00.000Z'),
+    };
+
+    prismaMock.reservation.findFirst.mockResolvedValue(stubApproved);
+    prismaMock.reservation.update.mockResolvedValue({
+      ...stubApproved,
+      status: ReservationStatus.CANCELLED_BY_USER,
+      cancelledAt: now,
+    });
+    prismaMock.auditLog.create.mockResolvedValue({ id: 'audit-cancel-2' });
+
+    const result = await service.cancelMy(
+      stubActiveUser.id,
+      'res-cancel-approved',
+      now,
+    );
+
+    expect(result.status).toBe(ReservationStatus.CANCELLED_BY_USER);
+  });
+
+  it('menolak pembatalan jika waktu sudah melewati batas cut-off H-1 20.00 WIB', async () => {
+    // Penggunaan Jumat 2026-09-25 -> Cutoff: Kamis 2026-09-24 pukul 20.00 WIB
+    // Mencoba membatalkan Kamis 2026-09-24 pukul 20.15 WIB (terlambat)
+    const lateNow = new Date('2026-09-24T20:15:00+07:00');
+    const stubApproved = {
+      id: 'res-cancel-late',
+      userId: stubActiveUser.id,
+      status: ReservationStatus.APPROVED,
+      usageDate: new Date('2026-09-25T00:00:00.000Z'),
+    };
+
+    prismaMock.reservation.findFirst.mockResolvedValue(stubApproved);
+
+    await expect(
+      service.cancelMy(stubActiveUser.id, 'res-cancel-late', lateNow),
+    ).rejects.toThrow('Batas waktu pembatalan mandiri telah terlewati');
+  });
+
+  it('menolak pembatalan jika status reservasi bukan PENDING atau APPROVED (misal REJECTED)', async () => {
+    const now = new Date('2026-09-21T08:00:00+07:00');
+    const stubRejected = {
+      id: 'res-cancel-rejected',
+      userId: stubActiveUser.id,
+      status: ReservationStatus.REJECTED,
+      usageDate: new Date('2026-09-25T00:00:00.000Z'),
+    };
+
+    prismaMock.reservation.findFirst.mockResolvedValue(stubRejected);
+
+    await expect(
+      service.cancelMy(stubActiveUser.id, 'res-cancel-rejected', now),
+    ).rejects.toThrow('tidak dapat dibatalkan');
+  });
+
+  it('melemparkan NotFoundException jika reservasi tidak ditemukan atau milik user lain', async () => {
+    prismaMock.reservation.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.cancelMy(stubActiveUser.id, 'res-non-existent'),
     ).rejects.toThrow(NotFoundException);
   });
 });
