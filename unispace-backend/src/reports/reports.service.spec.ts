@@ -65,6 +65,7 @@ describe('ReportsService lifecycle', () => {
             maintenancePeriod: {
               create: jest.fn(),
               findUnique: jest.fn(),
+              findFirst: jest.fn(),
               update: jest.fn(),
             },
             reservation: {
@@ -74,7 +75,9 @@ describe('ReportsService lifecycle', () => {
             facility: {
               findUnique: jest.fn(),
             },
+            facilityStatusHistory: { create: jest.fn() },
             auditLog: { create: jest.fn() },
+            $transaction: jest.fn(),
           },
         },
         {
@@ -86,6 +89,14 @@ describe('ReportsService lifecycle', () => {
 
     service = module.get(ReportsService);
     prisma = module.get(PrismaService) as any;
+    prisma.maintenancePeriod.findFirst.mockResolvedValue(null);
+    prisma.facility.findUnique.mockResolvedValue({
+      id: 'facility-1',
+      status: 'ACTIVE',
+    });
+    prisma.$transaction.mockImplementation(async (callback: (tx: any) => unknown) =>
+      callback(prisma),
+    );
   });
 
   it('accepts a new report and records the first processing staff', async () => {

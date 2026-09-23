@@ -33,6 +33,8 @@ const reportSelect = {
 	status: true,
 	decisionReason: true,
 	resolutionNote: true,
+	acceptedById: true,
+	resolvedById: true,
 	acceptedAt: true,
 	resolvedAt: true,
 	createdAt: true,
@@ -421,6 +423,21 @@ export class ReportsService {
 			});
 		}
 
+		const scheduledMaintenance = await this.prisma.maintenancePeriod.findFirst({
+			where: {
+				facilityId: report.facility.id,
+				endAt: { gt: new Date() },
+			},
+			select: { id: true },
+		});
+
+		if (scheduledMaintenance) {
+			throw new ConflictException({
+				code: 'REPORT_MAINTENANCE_STILL_ACTIVE_OR_SCHEDULED',
+				message: 'This report cannot be resolved while maintenance is active or scheduled.',
+			});
+		}
+
 		const now = new Date();
 		const updated = await this.prisma.facilityReport.update({
 			where: { id: reportId },
@@ -501,30 +518,43 @@ export class ReportsService {
 			});
 		}
 
-		const period = await this.prisma.maintenancePeriod.create({
-			data: {
-				facilityId: report.facility.id,
-				reportId: report.id,
-				startAt: dateStart,
-				endAt: dateEnd,
-				note: input.note ?? input.cancellationReason ?? null,
-			},
-		});
+		if (input.cancelImpactedReservations && !input.cancellationReason?.trim()) {
+			throw new ConflictException({
+				code: 'MAINTENANCE_REASON_REQUIRED',
+				message: 'A cancellation reason is required for impacted reservations.',
+			});
+		}
 
-		await this.prisma.auditLog.create({
-			data: {
-				actorId: staffId,
-				action: 'MAINTENANCE_PERIOD_CREATED',
-				entityType: 'MAINTENANCE_PERIOD',
-				entityId: period.id,
-				metadata: {
-					reportId: report.id,
+		const period = await this.prisma.$transaction(async (tx) => {
+			const created = await tx.maintenancePeriod.create({
+				data: {
 					facilityId: report.facility.id,
-					mode: input.mode,
-					cancelImpactedReservations: input.cancelImpactedReservations,
-					cancellationReason: input.cancellationReason ?? null,
+					reportId: report.id,
+					startAt: dateStart,
+					endAt: dateEnd,
+					note: input.note ?? input.cancellationReason ?? null,
 				},
-			},
+			});
+
+			await this.syncEffectiveFacilityStatus(tx, report.facility.id, staffId, new Date());
+
+			await tx.auditLog.create({
+				data: {
+					actorId: staffId,
+					action: 'MAINTENANCE_PERIOD_CREATED',
+					entityType: 'MAINTENANCE_PERIOD',
+					entityId: created.id,
+					metadata: {
+						reportId: report.id,
+						facilityId: report.facility.id,
+						mode: input.mode,
+						cancelImpactedReservations: input.cancelImpactedReservations,
+						cancellationReason: input.cancellationReason ?? null,
+					},
+				},
+			});
+
+			return created;
 		});
 
 		return {
@@ -560,22 +590,28 @@ export class ReportsService {
 			});
 		}
 
-		const updated = await this.prisma.maintenancePeriod.update({
-			where: { id: periodId },
-			data: { endAt },
-		});
+		const updated = await this.prisma.$transaction(async (tx) => {
+			const changed = await tx.maintenancePeriod.update({
+				where: { id: periodId },
+				data: { endAt },
+			});
 
-		await this.prisma.auditLog.create({
-			data: {
-				actorId: staffId,
-				action: 'MAINTENANCE_PERIOD_ENDED_EARLY',
-				entityType: 'MAINTENANCE_PERIOD',
-				entityId: periodId,
-				metadata: {
-					oldEndAt: maintenance.endAt.toISOString(),
-					newEndAt: endAt.toISOString(),
+			await this.syncEffectiveFacilityStatus(tx, maintenance.facilityId, staffId, endAt);
+
+			await tx.auditLog.create({
+				data: {
+					actorId: staffId,
+					action: 'MAINTENANCE_PERIOD_ENDED_EARLY',
+					entityType: 'MAINTENANCE_PERIOD',
+					entityId: periodId,
+					metadata: {
+						oldEndAt: maintenance.endAt.toISOString(),
+						newEndAt: endAt.toISOString(),
+					},
 				},
-			},
+			});
+
+			return changed;
 		});
 
 		return {
@@ -586,6 +622,51 @@ export class ReportsService {
 			endAt: updated.endAt.toISOString(),
 			note: updated.note,
 		};
+	}
+
+	private async syncEffectiveFacilityStatus(
+		transaction: Prisma.TransactionClient,
+		facilityId: string,
+		actorId: string,
+		effectiveAt: Date,
+	) {
+		const facility = await transaction.facility.findUnique({
+			where: { id: facilityId },
+			select: { status: true },
+		});
+
+		if (!facility || facility.status === FacilityStatus.NONACTIVE) {
+			return;
+		}
+
+		const activePeriod = await transaction.maintenancePeriod.findFirst({
+			where: {
+				facilityId,
+				startAt: { lte: effectiveAt },
+				endAt: { gt: effectiveAt },
+			},
+			select: { id: true },
+		});
+		const nextStatus = activePeriod
+			? FacilityStatus.IN_MAINTENANCE
+			: FacilityStatus.ACTIVE;
+
+		if (facility.status === nextStatus) {
+			return;
+		}
+
+		await transaction.facility.update({
+			where: { id: facilityId },
+			data: { status: nextStatus },
+		});
+		await transaction.facilityStatusHistory.create({
+			data: {
+				facilityId,
+				status: nextStatus,
+				changedById: actorId,
+				effectiveAt,
+			},
+		});
 	}
 
 	async previewMaintenanceImpact(

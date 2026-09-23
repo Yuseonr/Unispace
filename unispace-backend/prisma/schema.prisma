@@ -34,6 +34,7 @@ enum ReservationMode {
 
 enum FacilityStatus {
   ACTIVE
+  IN_MAINTENANCE
   NONACTIVE
 
   @@map("facility_status")

@@ -992,6 +992,7 @@ describe('facility domain services', () => {
         async (callback: (tx: unknown) => unknown) =>
           callback({
             facility: { update: jest.fn().mockResolvedValue(updatedFacility) },
+            maintenancePeriod: { findFirst: jest.fn().mockResolvedValue(null) },
             facilityStatusHistory: { create: jest.fn().mockResolvedValue({}) },
             auditLog: { create: jest.fn().mockResolvedValue({}) },
           }),
