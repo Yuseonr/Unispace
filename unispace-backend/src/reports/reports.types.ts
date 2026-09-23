@@ -42,6 +42,7 @@ export type MaintenancePeriodResponse = {
 
 export type ReportResponse = {
   id: string;
+  reportNumber: string;
   reporter?: ReportUserResponse;
   facility: ReportFacilityResponse;
   category: ReportCategory;

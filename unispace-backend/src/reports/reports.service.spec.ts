@@ -2,7 +2,7 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { jest } from '@jest/globals';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { validate } from 'class-validator';
-import { ReportStatus } from '../generated/prisma/client';
+import { ReportCategory, ReportStatus } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { ObjectStorageService } from '../common/storage/object-storage.service';
 import { ReportsService } from './reports.service';
@@ -11,6 +11,7 @@ import { MaintenanceMode } from './reports.constants';
 
 const createMockReport = (overrides: Record<string, unknown> = {}) => ({
   id: 'report-1',
+  reportNumber: 'RPT-20260110-TEST-0001',
   facilityId: 'facility-1',
   category: 'PHYSICAL_DAMAGE',
   description: 'Kursi rusak',
@@ -46,7 +47,13 @@ const createMockReport = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const mockDelegates = () => ({
-  facilityReport: { findUnique: jest.fn(), update: jest.fn() },
+  facilityReport: {
+    findUnique: jest.fn(),
+    findFirst: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+  },
+  reportAttachment: { createMany: jest.fn() },
   maintenancePeriod: {
     create: jest.fn(),
     findUnique: jest.fn(),
@@ -298,7 +305,7 @@ describe('ReportsService lifecycle', () => {
       note: 'Pemeliharaan AC',
     });
 
-    const result = await service.createMaintenancePeriod('staff-1', 'report-1', {
+    const result = await service.confirmMaintenancePeriod('staff-1', 'report-1', {
       mode: 'DATE_RANGE',
       startDate: '2026-01-12',
       endDate: '2026-01-12',
@@ -325,7 +332,7 @@ describe('ReportsService lifecycle', () => {
     );
 
     await expect(
-      service.createMaintenancePeriod('staff-1', 'report-1', {
+      service.confirmMaintenancePeriod('staff-1', 'report-1', {
         mode: 'DATE_RANGE',
         startDate: '2026-01-12',
         endDate: '2026-01-12',
@@ -560,6 +567,143 @@ describe('ReportsService lifecycle', () => {
     await expect(service.accept('staff-1', 'report-1')).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  it('generates a unique report number when a report is created', async () => {
+    const report = createMockReport({
+      reportNumber: 'RPT-20260923T153045-ABC123',
+    });
+    prisma.facility.findUnique.mockResolvedValue({
+      id: 'facility-1',
+      status: 'ACTIVE',
+    });
+    prisma.facilityReport.create.mockResolvedValue(report);
+    prisma.facilityReport.findFirst.mockResolvedValue(report);
+    prisma.reportAttachment.createMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.create(
+      'user-1',
+      {
+        facilityId: 'facility-1',
+        category: ReportCategory.PHYSICAL_DAMAGE,
+        description: 'Kursi rusak',
+      },
+      [],
+    );
+
+    expect(prisma.facilityReport.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          reportNumber: expect.stringMatching(/^RPT-\d{14}-[0-9A-F]{6}$/),
+        }),
+      }),
+    );
+    expect(result.reportNumber).toBe('RPT-20260923T153045-ABC123');
+  });
+
+  it('records the maintenance impact confirmation on the audit timeline', async () => {
+    prisma.facilityReport.findUnique.mockResolvedValue(
+      createMockReport({ status: ReportStatus.IN_PROGRESS }),
+    );
+    prisma.facility.findUnique.mockResolvedValue(mockFacility);
+    prisma.reservation.findMany.mockResolvedValue([
+      {
+        id: 'res-1',
+        usageDate: new Date('2026-01-12T00:00:00.000Z'),
+        startTime: new Date('2026-01-01T07:30:00.000Z'),
+        endTime: new Date('2026-01-01T09:00:00.000Z'),
+        requestedQuantity: 2,
+        status: 'APPROVED',
+        facilityId: 'facility-1',
+        facilityGroupId: 'group-1',
+      },
+    ]);
+    prisma.reservation.updateMany.mockResolvedValue({ count: 1 });
+    prisma.maintenancePeriod.create.mockResolvedValue({
+      id: 'period-1',
+      reportId: 'report-1',
+      facilityId: 'facility-1',
+      startAt: new Date('2026-01-12T00:00:00.000Z'),
+      endAt: new Date('2026-01-12T13:00:00.000Z'),
+      note: 'Pemeliharaan AC',
+    });
+
+    await service.confirmMaintenancePeriod('staff-1', 'report-1', {
+      mode: 'DATE_RANGE',
+      startDate: '2026-01-12',
+      endDate: '2026-01-12',
+      cancelImpactedReservations: true,
+      cancellationReason: 'Pemeliharaan AC',
+    });
+
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'MAINTENANCE_IMPACT_CONFIRMED',
+          entityType: 'FACILITY_REPORT',
+          entityId: 'report-1',
+          metadata: expect.objectContaining({
+            approvedImpactCount: 1,
+            pendingImpactCount: 0,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('automatically syncs facility status for started and ended maintenance periods', async () => {
+    prisma.maintenancePeriod.findMany.mockResolvedValue([
+      { facilityId: 'facility-1' },
+      { facilityId: 'facility-2' },
+    ]);
+    const now = new Date('2026-01-12T09:00:00.000Z');
+
+    prisma.facility.findUnique
+      .mockResolvedValueOnce({ status: 'IN_MAINTENANCE' })
+      .mockResolvedValueOnce({ status: 'ACTIVE' });
+    prisma.maintenancePeriod.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'active-period' });
+
+    const result = await service.syncExpiredMaintenancePeriods(now);
+
+    expect(result.facilitiesChecked).toBe(2);
+    expect(result.facilitiesUpdated).toBe(2);
+    expect(prisma.facility.update).toHaveBeenCalledTimes(2);
+    expect(prisma.facilityStatusHistory.create).toHaveBeenCalledTimes(2);
+    expect(prisma.facilityStatusHistory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          changedById: null,
+          effectiveAt: now,
+        }),
+      }),
+    );
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorId: null,
+          action: 'FACILITY_STATUS_CHANGED',
+          metadata: expect.objectContaining({ automatic: true }),
+        }),
+      }),
+    );
+  });
+
+  it('skips automatic sync when the facility is already in the effective status', async () => {
+    prisma.maintenancePeriod.findMany.mockResolvedValue([
+      { facilityId: 'facility-1' },
+    ]);
+    prisma.facility.findUnique.mockResolvedValue({ status: 'ACTIVE' });
+    prisma.maintenancePeriod.findFirst.mockResolvedValue(null);
+
+    const result = await service.syncExpiredMaintenancePeriods(
+      new Date('2026-01-12T09:00:00.000Z'),
+    );
+
+    expect(result.facilitiesUpdated).toBe(0);
+    expect(prisma.facility.update).not.toHaveBeenCalled();
+    expect(prisma.facilityStatusHistory.create).not.toHaveBeenCalled();
   });
 });
 

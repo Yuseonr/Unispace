@@ -115,6 +115,10 @@ describe('Authentication HTTP integration', () => {
           JWT_REFRESH_SECRET: 'refresh-secret-for-e2e-tests',
           JWT_ACCESS_EXPIRES_IN: '15m',
           JWT_REFRESH_EXPIRES_IN: '7d',
+          S3_ENDPOINT: 'http://localhost:9000',
+          S3_REGION: 'us-east-1',
+          S3_ACCESS_KEY: 'minioadmin',
+          S3_SECRET_KEY: 'minioadmin',
         };
         if (!values[key]) {
           throw new Error(`Missing test config ${key}`);

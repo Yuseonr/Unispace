@@ -3,6 +3,7 @@ import {
 	Injectable,
 	NotFoundException,
 } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import type { Prisma } from '../generated/prisma/client';
 import { FacilityStatus, ReportStatus } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
@@ -22,6 +23,7 @@ import {
 import { ListReportAuditDto } from './dto/list-report-audit.dto';
 import {
 	formatToJakartaDateString,
+	TIMEZONE,
 	toJakartaMinutesOfDay,
 } from '../reservations/utils/reservation-time.util';
 import type {
@@ -33,6 +35,7 @@ import type {
 
 const reportSelect = {
 	id: true,
+	reportNumber: true,
 	category: true,
 	description: true,
 	status: true,
@@ -133,6 +136,11 @@ type ImpactReservation = {
 	facilityGroupId: string | null;
 };
 
+type MaintenanceSyncResult = {
+	facilitiesChecked: number;
+	facilitiesUpdated: number;
+};
+
 @Injectable()
 export class ReportsService {
 	constructor(
@@ -174,6 +182,7 @@ export class ReportsService {
 			const report = await this.prisma.$transaction(async (transaction) => {
 			const created = await transaction.facilityReport.create({
 				data: {
+					reportNumber: this.generateReportNumber(new Date()),
 					reporterId,
 					facilityId: facility.id,
 					category: input.category,
@@ -598,24 +607,6 @@ export class ReportsService {
 		return this.toResponse(updated);
 	}
 
-	async createMaintenancePeriod(
-		staffId: string,
-		reportId: string,
-		input: {
-			mode: MaintenanceMode;
-			startDate?: string;
-			endDate?: string;
-			date?: string;
-			startTime?: string;
-			endTime?: string;
-			cancelImpactedReservations: boolean;
-			cancellationReason?: string;
-			note?: string;
-		},
-	) {
-		return this.confirmMaintenancePeriod(staffId, reportId, input);
-	}
-
 	private maintenanceDates(input: {
 		mode: MaintenanceMode;
 		startDate?: string;
@@ -735,6 +726,23 @@ export class ReportsService {
 			const now = new Date();
 			const approvedIds = impact.approvedReservations.map((reservation) => reservation.id);
 			const pendingIds = impact.pendingReservations.map((reservation) => reservation.id);
+
+			await tx.auditLog.create({
+				data: {
+					actorId: staffId,
+					action: REPORT_AUDIT_ACTIONS.MAINTENANCE_IMPACT_CONFIRMED,
+					entityType: REPORT_ENTITY_TYPE,
+					entityId: reportId,
+					metadata: {
+						facilityId: report.facilityId,
+						startAt: dateStart.toISOString(),
+						endAt: dateEnd.toISOString(),
+						approvedImpactCount: approvedIds.length,
+						pendingImpactCount: pendingIds.length,
+						reason,
+					},
+				},
+			});
 
 			const approvedResult = approvedIds.length === 0
 				? { count: 0 }
@@ -860,19 +868,47 @@ export class ReportsService {
 		};
 	}
 
+	async syncExpiredMaintenancePeriods(
+		now = new Date(),
+	): Promise<MaintenanceSyncResult> {
+		const affected = await this.prisma.maintenancePeriod.findMany({
+			where: { startAt: { lte: now } },
+			select: { facilityId: true },
+			distinct: ['facilityId'],
+		});
+
+		let facilitiesUpdated = 0;
+		for (const { facilityId } of affected) {
+			const changed = await this.syncEffectiveFacilityStatus(
+				this.prisma,
+				facilityId,
+				null,
+				now,
+			);
+			if (changed) {
+				facilitiesUpdated++;
+			}
+		}
+
+		return {
+			facilitiesChecked: affected.length,
+			facilitiesUpdated,
+		};
+	}
+
 	private async syncEffectiveFacilityStatus(
 		transaction: Prisma.TransactionClient,
 		facilityId: string,
-		actorId: string,
+		actorId: string | null,
 		effectiveAt: Date,
-	) {
+	): Promise<boolean> {
 		const facility = await transaction.facility.findUnique({
 			where: { id: facilityId },
 			select: { status: true },
 		});
 
 		if (!facility || facility.status === FacilityStatus.NONACTIVE) {
-			return;
+			return false;
 		}
 
 		const activePeriod = await transaction.maintenancePeriod.findFirst({
@@ -888,7 +924,7 @@ export class ReportsService {
 			: FacilityStatus.ACTIVE;
 
 		if (facility.status === nextStatus) {
-			return;
+			return false;
 		}
 
 		await transaction.facility.update({
@@ -914,9 +950,11 @@ export class ReportsService {
 					toStatus: nextStatus,
 					effectiveAt: effectiveAt.toISOString(),
 					source: 'MAINTENANCE_PERIOD',
+					automatic: actorId === null,
 				},
 			},
 		});
+		return true;
 	}
 
 	async previewMaintenanceImpact(
@@ -1088,9 +1126,36 @@ export class ReportsService {
 		};
 	}
 
+	private generateReportNumber(now: Date): string {
+		const timestamp = new Intl.DateTimeFormat(
+			'en-CA',
+			{
+				timeZone: TIMEZONE,
+				year: 'numeric',
+				month: '2-digit',
+				day: '2-digit',
+				hour: '2-digit',
+				minute: '2-digit',
+				second: '2-digit',
+				hourCycle: 'h23',
+			},
+		)
+			.formatToParts(now)
+			.reduce<Record<string, string>>((acc, part) => {
+				acc[part.type] = part.value;
+				return acc;
+			}, {});
+		const compact =
+			`${timestamp.year}${timestamp.month}${timestamp.day}` +
+			`${timestamp.hour}${timestamp.minute}${timestamp.second}`;
+		const suffix = randomBytes(3).toString('hex').toUpperCase();
+		return `RPT-${compact}-${suffix}`;
+	}
+
 	private toResponse(report: ReportRecord): ReportResponse {
 		return {
 			id: report.id,
+			reportNumber: report.reportNumber,
 			reporter: report.reporter
 				? {
 						id: report.reporter.id,
