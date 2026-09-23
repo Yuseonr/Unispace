@@ -50,6 +50,9 @@ const reportSelect = {
 	resolvedBy: {
 		select: { id: true, name: true, identityNumber: true, email: true },
 	},
+	processedBy: {
+		select: { id: true, name: true, identityNumber: true, email: true },
+	},
 	facility: {
 		select: {
 			id: true,
@@ -269,6 +272,186 @@ export class ReportsService {
 		return this.toResponse(report);
 	}
 
+	async detailStaff(reportId: string) {
+		const report = await this.prisma.facilityReport.findUnique({
+			where: { id: reportId },
+			select: reportSelect,
+		});
+		if (!report) {
+			throw new NotFoundException({
+				code: 'REPORT_NOT_FOUND',
+				message: 'The report was not found.',
+			});
+		}
+		return this.toResponse(report);
+	}
+
+	async accept(staffId: string, reportId: string): Promise<ReportResponse> {
+		const report = await this.prisma.facilityReport.findUnique({
+			where: { id: reportId },
+			select: reportSelect,
+		});
+
+		if (!report) {
+			throw new NotFoundException({
+				code: 'REPORT_NOT_FOUND',
+				message: 'The report was not found.',
+			});
+		}
+
+		if (report.status === ReportStatus.RESOLVED || report.status === ReportStatus.REJECTED) {
+			throw new ConflictException({
+				code: 'REPORT_INVALID_TRANSITION',
+				message: 'This report is no longer actionable.',
+			});
+		}
+
+		const now = new Date();
+		const updated = await this.prisma.facilityReport.update({
+			where: { id: reportId },
+			data: {
+				status: report.status === ReportStatus.NEW ? ReportStatus.IN_PROGRESS : report.status,
+				acceptedById: report.acceptedById ?? staffId,
+				acceptedAt: report.acceptedAt ?? now,
+				processedById: staffId,
+			},
+			select: reportSelect,
+		});
+
+		await this.prisma.auditLog.create({
+			data: {
+				actorId: staffId,
+				action: 'REPORT_ACCEPTED',
+				entityType: REPORT_ENTITY_TYPE,
+				entityId: reportId,
+				metadata: {
+					fromStatus: report.status,
+					toStatus: updated.status,
+					acceptedById: updated.acceptedById,
+					processedById: staffId,
+				},
+			},
+		});
+
+		return this.toResponse(updated);
+	}
+
+	async reject(staffId: string, reportId: string, reason: string): Promise<ReportResponse> {
+		if (!reason || !reason.trim()) {
+			throw new ConflictException({
+				code: 'REPORT_REJECTION_REASON_REQUIRED',
+				message: 'A rejection reason is required.',
+			});
+		}
+
+		const report = await this.prisma.facilityReport.findUnique({
+			where: { id: reportId },
+			select: reportSelect,
+		});
+
+		if (!report) {
+			throw new NotFoundException({
+				code: 'REPORT_NOT_FOUND',
+				message: 'The report was not found.',
+			});
+		}
+
+		if (report.status === ReportStatus.RESOLVED || report.status === ReportStatus.REJECTED) {
+			throw new ConflictException({
+				code: 'REPORT_INVALID_TRANSITION',
+				message: 'A rejected or resolved report cannot be rejected again.',
+			});
+		}
+
+		const now = new Date();
+		const updated = await this.prisma.facilityReport.update({
+			where: { id: reportId },
+			data: {
+				status: ReportStatus.REJECTED,
+				decisionReason: reason.trim(),
+				acceptedById: report.acceptedById ?? staffId,
+				acceptedAt: report.acceptedAt ?? now,
+				processedById: staffId,
+			},
+			select: reportSelect,
+		});
+
+		await this.prisma.auditLog.create({
+			data: {
+				actorId: staffId,
+				action: 'REPORT_REJECTED',
+				entityType: REPORT_ENTITY_TYPE,
+				entityId: reportId,
+				metadata: {
+					fromStatus: report.status,
+					toStatus: ReportStatus.REJECTED,
+					reason: reason.trim(),
+				},
+			},
+		});
+
+		return this.toResponse(updated);
+	}
+
+	async resolve(staffId: string, reportId: string, resolutionNote: string): Promise<ReportResponse> {
+		if (!resolutionNote || !resolutionNote.trim()) {
+			throw new ConflictException({
+				code: 'REPORT_RESOLUTION_NOTE_REQUIRED',
+				message: 'A resolution note is required.',
+			});
+		}
+
+		const report = await this.prisma.facilityReport.findUnique({
+			where: { id: reportId },
+			select: reportSelect,
+		});
+
+		if (!report) {
+			throw new NotFoundException({
+				code: 'REPORT_NOT_FOUND',
+				message: 'The report was not found.',
+			});
+		}
+
+		if (report.status !== ReportStatus.IN_PROGRESS && report.status !== ReportStatus.NEW) {
+			throw new ConflictException({
+				code: 'REPORT_INVALID_TRANSITION',
+				message: 'Only a report in progress can be resolved.',
+			});
+		}
+
+		const now = new Date();
+		const updated = await this.prisma.facilityReport.update({
+			where: { id: reportId },
+			data: {
+				status: ReportStatus.RESOLVED,
+				resolutionNote: resolutionNote.trim(),
+				acceptedById: report.acceptedById ?? staffId,
+				acceptedAt: report.acceptedAt ?? now,
+				resolvedById: staffId,
+				resolvedAt: now,
+				processedById: staffId,
+			},
+			select: reportSelect,
+		});
+
+		await this.prisma.auditLog.create({
+			data: {
+				actorId: staffId,
+				action: 'REPORT_RESOLVED',
+				entityType: REPORT_ENTITY_TYPE,
+				entityId: reportId,
+				metadata: {
+					fromStatus: report.status,
+					toStatus: ReportStatus.RESOLVED,
+					resolutionNote: resolutionNote.trim(),
+				},
+			},
+		});
+
+		return this.toResponse(updated);
+	}
+
 	private toResponse(report: ReportRecord): ReportResponse {
 		return {
 			id: report.id,
@@ -300,6 +483,7 @@ export class ReportsService {
 			acceptedAt: report.acceptedAt?.toISOString() ?? null,
 			resolvedBy: report.resolvedBy,
 			resolvedAt: report.resolvedAt?.toISOString() ?? null,
+			processedBy: report.processedBy,
 			attachments: report.attachments.map((attachment) => ({
 				...attachment,
 				createdAt: attachment.createdAt.toISOString(),

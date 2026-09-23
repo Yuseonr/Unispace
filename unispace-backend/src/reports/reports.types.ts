@@ -55,6 +55,7 @@ export type ReportResponse = {
   acceptedAt: string | null;
   resolvedBy: ReportUserResponse | null;
   resolvedAt: string | null;
+  processedBy: ReportUserResponse | null;
   attachments: ReportAttachmentResponse[];
   maintenancePeriods: MaintenancePeriodResponse[];
   createdAt: string;
