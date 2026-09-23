@@ -22,7 +22,7 @@ export class QueryFacilitiesDto {
 
   @IsOptional()
   @IsUUID()
-  locationId?: string;
+  facilityAreaId?: string;
 
   @IsOptional()
   @Transform(toNumber)

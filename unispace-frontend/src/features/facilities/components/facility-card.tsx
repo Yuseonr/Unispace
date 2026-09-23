@@ -48,6 +48,20 @@ function PinIcon() {
   );
 }
 
+function AreaIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 20h16M6 20V8l6-4 6 4v12M9 20v-5h6v5M9 10h.01M12 10h.01M15 10h.01"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
 function CapacityIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -94,8 +108,12 @@ export function FacilityCard({ facility }: { facility: CatalogFacility }) {
 
         <div className="facility-details">
           <div>
+            <AreaIcon />
+            <span>{facility.facilityArea.name}</span>
+          </div>
+          <div>
             <PinIcon />
-            <span>{facility.location}</span>
+            <span>{facility.locationDetail}</span>
           </div>
           <div>
             <CapacityIcon />

@@ -54,11 +54,16 @@ function matchesCapacity(capacity: number | null, filters: CapacityFilter[]) {
 export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] }) {
   const [query, setQuery] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<FacilityType[]>([]);
-  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+  const [selectedAreaCodes, setSelectedAreaCodes] = useState<string[]>([]);
   const [selectedCapacities, setSelectedCapacities] = useState<CapacityFilter[]>([]);
 
-  const locations = useMemo(
-    () => Array.from(new Set(facilities.map((facility) => facility.location))),
+  const facilityAreas = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          facilities.map((facility) => [facility.facilityArea.code, facility.facilityArea]),
+        ).values(),
+      ).sort((first, second) => first.name.localeCompare(second.name, "id-ID")),
     [facilities],
   );
 
@@ -68,29 +73,30 @@ export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] 
     return facilities.filter((facility) => {
       const matchesQuery =
         normalizedQuery.length === 0 ||
-        `${facility.name} ${facility.type} ${facility.location}`
+        `${facility.name} ${facility.type} ${facility.facilityArea.name} ${facility.locationDetail}`
           .toLocaleLowerCase("id-ID")
           .includes(normalizedQuery);
 
       return (
         matchesQuery &&
         (selectedTypes.length === 0 || selectedTypes.includes(facility.type)) &&
-        (selectedLocations.length === 0 || selectedLocations.includes(facility.location)) &&
+        (selectedAreaCodes.length === 0 ||
+          selectedAreaCodes.includes(facility.facilityArea.code)) &&
         matchesCapacity(facility.capacity, selectedCapacities)
       );
     });
-  }, [facilities, query, selectedCapacities, selectedLocations, selectedTypes]);
+  }, [facilities, query, selectedAreaCodes, selectedCapacities, selectedTypes]);
 
   const hasActiveFilter =
     query.length > 0 ||
     selectedTypes.length > 0 ||
-    selectedLocations.length > 0 ||
+    selectedAreaCodes.length > 0 ||
     selectedCapacities.length > 0;
 
   function resetFilters() {
     setQuery("");
     setSelectedTypes([]);
-    setSelectedLocations([]);
+    setSelectedAreaCodes([]);
     setSelectedCapacities([]);
   }
 
@@ -112,7 +118,7 @@ export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] 
             <input
               id="facility-search"
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Cari nama ruang, lokasi, atau jenis fasilitas"
+              placeholder="Cari nama ruang, fakultas, lokasi detail, atau jenis fasilitas"
               type="search"
               value={query}
             />
@@ -155,25 +161,25 @@ export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] 
             </fieldset>
 
             <fieldset className="filter-group">
-              <legend>Lokasi</legend>
+              <legend>Fakultas / area kampus</legend>
               <label>
                 <input
-                  checked={selectedLocations.length === 0}
-                  onChange={() => setSelectedLocations([])}
+                  checked={selectedAreaCodes.length === 0}
+                  onChange={() => setSelectedAreaCodes([])}
                   type="checkbox"
                 />
-                Semua lokasi
+                Semua area
               </label>
-              {locations.map((location) => (
-                <label key={location}>
+              {facilityAreas.map((area) => (
+                <label key={area.code}>
                   <input
-                    checked={selectedLocations.includes(location)}
+                    checked={selectedAreaCodes.includes(area.code)}
                     onChange={() =>
-                      setSelectedLocations((current) => toggleValue(current, location))
+                      setSelectedAreaCodes((current) => toggleValue(current, area.code))
                     }
                     type="checkbox"
                   />
-                  {location}
+                  {area.name}
                 </label>
               ))}
             </fieldset>

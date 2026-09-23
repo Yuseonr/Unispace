@@ -19,22 +19,18 @@ export class FacilitiesController {
     return this.facilities.listTypes();
   }
 
-  /**
-   * GET /api/v1/facilities/locations
-   * Daftar lokasi/gedung untuk dropdown filter katalog.
-   * Dapat diakses publik tanpa login.
-   */
+  /** Daftar fakultas/area kampus aktif untuk dropdown filter katalog. */
   @Public()
-  @Get('locations')
-  listLocations() {
-    return this.facilities.listLocations();
+  @Get('areas')
+  listAreas() {
+    return this.facilities.listAreas();
   }
 
   /**
    * GET /api/v1/facilities
    * Katalog fasilitas aktif dengan filter opsional:
    *   - facilityTypeId: filter berdasarkan tipe
-   *   - locationId: filter berdasarkan lokasi/gedung
+   *   - facilityAreaId: filter berdasarkan fakultas/area kampus
    *   - minCapacity: filter kapasitas minimum
    *   - search: pencarian nama atau deskripsi
    *   - page, limit: paginasi (default: page=1, limit=20)

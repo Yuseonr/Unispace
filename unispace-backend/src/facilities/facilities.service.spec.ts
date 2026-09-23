@@ -11,14 +11,20 @@ import { QueryFacilitiesDto } from './dto/query-facilities.dto';
 // ---------------------------------------------------------------------------
 
 const stubType = { id: 'type-1', name: 'Ruang Kelas' };
-const stubLocation = { id: 'loc-1', name: 'Gedung A', detail: 'Lantai 1' };
+const stubArea = {
+  id: 'area-1',
+  code: 'FT',
+  name: 'Fakultas Teknik',
+  status: 'ACTIVE',
+};
 
 const stubExclusiveGroup = {
   id: 'grp-ex-1',
   name: 'Ruang 101',
   reservationMode: ReservationMode.EXCLUSIVE,
   facilityType: stubType,
-  location: stubLocation,
+  facilityArea: stubArea,
+  locationDetail: 'Gedung A, Lantai 1, Ruang 101',
 };
 
 const stubExclusiveFacility = {
@@ -40,7 +46,8 @@ const stubQuantityGroup = {
   description: 'Proyektor portabel',
   primaryImageUrl: 'https://example.com/prj.jpg',
   facilityType: stubType,
-  location: stubLocation,
+  facilityArea: stubArea,
+  locationDetail: 'Pusat Media, Gedung A, Lantai 1',
   _count: { facilities: 5 },
 };
 
@@ -50,7 +57,7 @@ const stubQuantityGroup = {
 
 const prismaMock = {
   facilityType: { findMany: jest.fn(), findUnique: jest.fn() },
-  location: { findMany: jest.fn(), findUnique: jest.fn() },
+  facilityArea: { findMany: jest.fn(), findFirst: jest.fn() },
   facility: {
     findMany: jest.fn(),
     count: jest.fn(),
@@ -110,14 +117,15 @@ describe('FacilitiesService', () => {
     });
   });
 
-  // ── listLocations ─────────────────────────────────────────────────────────
+  // ── listAreas ─────────────────────────────────────────────────────────────
 
-  describe('listLocations', () => {
-    it('mengembalikan daftar lokasi terurut A–Z', async () => {
-      prismaMock.location.findMany.mockResolvedValue([stubLocation]);
-      const result = await service.listLocations();
-      expect(result).toEqual([stubLocation]);
-      expect(prismaMock.location.findMany).toHaveBeenCalledWith({
+  describe('listAreas', () => {
+    it('mengembalikan daftar fakultas/area kampus aktif terurut A–Z', async () => {
+      prismaMock.facilityArea.findMany.mockResolvedValue([stubArea]);
+      const result = await service.listAreas();
+      expect(result).toEqual([stubArea]);
+      expect(prismaMock.facilityArea.findMany).toHaveBeenCalledWith({
+        where: { status: 'ACTIVE' },
         orderBy: { name: 'asc' },
       });
     });
@@ -155,9 +163,33 @@ describe('FacilitiesService', () => {
       await service.list(query);
 
       // filter harus ada di where yang dikirim ke Prisma
-      const exclusiveWhere = prismaMock.facility.findMany.mock.calls[0][0].where as Record<string, unknown>;
-      const groupWhere = exclusiveWhere['facilityGroup'] as Record<string, unknown>;
+      const exclusiveWhere = prismaMock.facility.findMany.mock.calls[0][0]
+        .where as Record<string, unknown>;
+      const groupWhere = exclusiveWhere['facilityGroup'] as Record<
+        string,
+        unknown
+      >;
       expect(groupWhere['facilityTypeId']).toBe('type-1');
+    });
+
+    it('meneruskan filter facilityAreaId ke Prisma', async () => {
+      prismaMock.facility.findMany.mockResolvedValue([]);
+      prismaMock.facility.count.mockResolvedValue(0);
+      prismaMock.facilityGroup.findMany.mockResolvedValue([]);
+      prismaMock.facilityGroup.count.mockResolvedValue(0);
+
+      const query = Object.assign(new QueryFacilitiesDto(), {
+        facilityAreaId: 'area-1',
+      });
+      await service.list(query);
+
+      const exclusiveWhere = prismaMock.facility.findMany.mock.calls[0][0]
+        .where as Record<string, unknown>;
+      const groupWhere = exclusiveWhere['facilityGroup'] as Record<
+        string,
+        unknown
+      >;
+      expect(groupWhere['facilityAreaId']).toBe('area-1');
     });
 
     it('meneruskan filter minCapacity ke Prisma', async () => {
@@ -166,10 +198,13 @@ describe('FacilitiesService', () => {
       prismaMock.facilityGroup.findMany.mockResolvedValue([]);
       prismaMock.facilityGroup.count.mockResolvedValue(0);
 
-      const query = Object.assign(new QueryFacilitiesDto(), { minCapacity: 30 });
+      const query = Object.assign(new QueryFacilitiesDto(), {
+        minCapacity: 30,
+      });
       await service.list(query);
 
-      const exclusiveWhere = prismaMock.facility.findMany.mock.calls[0][0].where as Record<string, unknown>;
+      const exclusiveWhere = prismaMock.facility.findMany.mock.calls[0][0]
+        .where as Record<string, unknown>;
       expect(exclusiveWhere['capacity']).toEqual({ gte: 30 });
     });
 
@@ -329,7 +364,10 @@ describe('FacilitiesService', () => {
         id: 'grp-qty-1',
         name: 'Proyektor Epson EB-X06',
         reservationMode: ReservationMode.QUANTITY,
-        facilities: [{ id: 'unit-1', assetCode: 'PRJ-001' }, { id: 'unit-2', assetCode: 'PRJ-002' }],
+        facilities: [
+          { id: 'unit-1', assetCode: 'PRJ-001' },
+          { id: 'unit-2', assetCode: 'PRJ-002' },
+        ],
       };
 
       it('menghitung availableUnits = totalActiveUnits dikurangi unit reservasi dan maintenance', async () => {
@@ -380,7 +418,7 @@ describe('FacilitiesService', () => {
 
     it('berhasil membuat grup baru dan mencatat audit log', async () => {
       prismaMock.facilityType.findUnique.mockResolvedValue(stubType);
-      prismaMock.location.findUnique.mockResolvedValue(stubLocation);
+      prismaMock.facilityArea.findFirst.mockResolvedValue(stubArea);
       prismaMock.$transaction.mockImplementation(
         async (callback: (tx: unknown) => unknown) =>
           callback({
@@ -396,7 +434,8 @@ describe('FacilitiesService', () => {
         name: 'Proyektor Epson',
         facilityTypeId: 'type-1',
         reservationMode: ReservationMode.QUANTITY,
-        locationId: 'loc-1',
+        facilityAreaId: 'area-1',
+        locationDetail: 'Pusat Media, Gedung A, Lantai 1',
         primaryImageUrl: 'https://example.com/img.jpg',
       });
 
@@ -411,6 +450,8 @@ describe('FacilitiesService', () => {
           name: 'Ruang 101',
           facilityTypeId: 'non-existent',
           reservationMode: ReservationMode.EXCLUSIVE,
+          facilityAreaId: 'area-1',
+          locationDetail: 'Gedung A, Lantai 1, Ruang 101',
           primaryImageUrl: 'https://example.com/img.jpg',
         }),
       ).rejects.toThrow(NotFoundException);
@@ -461,13 +502,22 @@ describe('FacilitiesService', () => {
         id: facilityId,
         assetCode: 'R-101',
         status: FacilityStatus.ACTIVE,
-        facilityGroup: { name: 'Ruang 101', reservationMode: ReservationMode.EXCLUSIVE },
+        facilityGroup: {
+          name: 'Ruang 101',
+          reservationMode: ReservationMode.EXCLUSIVE,
+        },
       });
       // Ada reservasi APPROVED yang aktif
-      prismaMock.reservation.findFirst.mockResolvedValue({ id: 'res-approved-1' });
+      prismaMock.reservation.findFirst.mockResolvedValue({
+        id: 'res-approved-1',
+      });
 
       await expect(
-        service.adminUpdateUnitStatus(adminId, facilityId, FacilityStatus.NONACTIVE),
+        service.adminUpdateUnitStatus(
+          adminId,
+          facilityId,
+          FacilityStatus.NONACTIVE,
+        ),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -476,7 +526,10 @@ describe('FacilitiesService', () => {
         id: facilityId,
         assetCode: 'R-101',
         status: FacilityStatus.ACTIVE,
-        facilityGroup: { name: 'Ruang 101', reservationMode: ReservationMode.EXCLUSIVE },
+        facilityGroup: {
+          name: 'Ruang 101',
+          reservationMode: ReservationMode.EXCLUSIVE,
+        },
       });
       prismaMock.reservation.findFirst.mockResolvedValue(null);
 
@@ -490,7 +543,9 @@ describe('FacilitiesService', () => {
         async (callback: (tx: unknown) => unknown) =>
           callback({
             facility: { update: jest.fn().mockResolvedValue(updatedFacility) },
-            reservation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+            reservation: {
+              updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
             facilityStatusHistory: { create: jest.fn().mockResolvedValue({}) },
             auditLog: { create: jest.fn().mockResolvedValue({}) },
           }),
@@ -510,7 +565,10 @@ describe('FacilitiesService', () => {
         id: facilityId,
         assetCode: 'R-101',
         status: FacilityStatus.NONACTIVE,
-        facilityGroup: { name: 'Ruang 101', reservationMode: ReservationMode.EXCLUSIVE },
+        facilityGroup: {
+          name: 'Ruang 101',
+          reservationMode: ReservationMode.EXCLUSIVE,
+        },
       });
 
       const updatedFacility = {

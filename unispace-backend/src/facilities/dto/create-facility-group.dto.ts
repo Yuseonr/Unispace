@@ -34,9 +34,14 @@ export class CreateFacilityGroupDto {
   @IsEnum(ReservationMode)
   reservationMode!: ReservationMode;
 
-  @IsOptional()
   @IsUUID()
-  locationId?: string;
+  facilityAreaId!: string;
+
+  @Transform(toTrimmedString)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  locationDetail!: string;
 
   @IsOptional()
   @Transform(toNumber)
