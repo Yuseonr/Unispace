@@ -1308,3 +1308,202 @@ describe('ReservationsService - approve', () => {
   });
 });
 
+describe('ReservationsService - reject', () => {
+  let service: ReservationsService;
+  const staffId = 'staff-uuid-001';
+  const now = new Date('2026-09-24T10:00:00+07:00');
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ReservationsService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
+    }).compile();
+
+    service = module.get<ReservationsService>(ReservationsService);
+    jest.clearAllMocks();
+
+    prismaMock.$transaction.mockImplementation((callback: (tx: typeof prismaMock) => unknown) =>
+      callback(prismaMock),
+    );
+  });
+
+  it('melemparkan NotFoundException jika reservasi tidak ditemukan', async () => {
+    prismaMock.reservation.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.reject(staffId, 'res-not-found', { reason: 'Fasilitas tidak dapat digunakan' }),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('melemparkan BadRequestException jika reservasi bukan berstatus PENDING', async () => {
+    prismaMock.reservation.findUnique.mockResolvedValue({
+      id: 'res-already-rejected',
+      status: ReservationStatus.APPROVED,
+    });
+
+    await expect(
+      service.reject(staffId, 'res-already-rejected', { reason: 'Fasilitas tidak dapat digunakan' }),
+    ).rejects.toThrow('Hanya permohonan reservasi berstatus PENDING yang dapat ditolak.');
+  });
+
+  it('menolak reservasi PENDING, menyimpan alasan, dan mencatat audit log', async () => {
+    const stubPendingRes = {
+      id: 'res-reject-1',
+      status: ReservationStatus.PENDING,
+      facilityId: stubExclusiveFacility.id,
+      facility: stubExclusiveFacility,
+      facilityGroup: null,
+      user: stubActiveUser,
+      items: [],
+    };
+
+    prismaMock.reservation.findUnique
+      .mockResolvedValueOnce(stubPendingRes)
+      .mockResolvedValueOnce({
+        ...stubPendingRes,
+        status: ReservationStatus.REJECTED,
+        decisionReason: 'Ruangan sedang dalam persiapan acara wisuda.',
+        processedBy: { id: staffId, name: 'Petugas Unispace' },
+      });
+
+    prismaMock.reservation.update.mockResolvedValue({});
+    prismaMock.auditLog.create.mockResolvedValue({});
+
+    const result = await service.reject(
+      staffId,
+      stubPendingRes.id,
+      { reason: 'Ruangan sedang dalam persiapan acara wisuda.' },
+      now,
+    );
+
+    expect(prismaMock.reservation.update).toHaveBeenCalledWith({
+      where: { id: stubPendingRes.id },
+      data: {
+        status: ReservationStatus.REJECTED,
+        decisionReason: 'Ruangan sedang dalam persiapan acara wisuda.',
+        processedById: staffId,
+        decidedAt: now,
+      },
+    });
+
+    expect(prismaMock.auditLog.create).toHaveBeenCalledWith({
+      data: {
+        actorId: staffId,
+        action: 'RESERVATION_REJECTED',
+        entityType: 'RESERVATION',
+        entityId: stubPendingRes.id,
+        metadata: {
+          reason: 'Ruangan sedang dalam persiapan acara wisuda.',
+          previousStatus: ReservationStatus.PENDING,
+        },
+      },
+    });
+
+    expect(result.status).toBe(ReservationStatus.REJECTED);
+    expect(result.decisionReason).toBe('Ruangan sedang dalam persiapan acara wisuda.');
+  });
+});
+
+describe('ReservationsService - cancelByStaff', () => {
+  let service: ReservationsService;
+  const staffId = 'staff-uuid-001';
+  const now = new Date('2026-09-24T10:00:00+07:00');
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ReservationsService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
+    }).compile();
+
+    service = module.get<ReservationsService>(ReservationsService);
+    jest.clearAllMocks();
+
+    prismaMock.$transaction.mockImplementation((callback: (tx: typeof prismaMock) => unknown) =>
+      callback(prismaMock),
+    );
+  });
+
+  it('melemparkan NotFoundException jika reservasi tidak ditemukan', async () => {
+    prismaMock.reservation.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.cancelByStaff(staffId, 'res-not-found', { reason: 'Pemeliharaan darurat fasilitas' }),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('melemparkan BadRequestException jika status reservasi bukan PENDING atau APPROVED', async () => {
+    prismaMock.reservation.findUnique.mockResolvedValue({
+      id: 'res-already-completed',
+      status: ReservationStatus.COMPLETED,
+    });
+
+    await expect(
+      service.cancelByStaff(staffId, 'res-already-completed', { reason: 'Pemeliharaan darurat fasilitas' }),
+    ).rejects.toThrow('Hanya reservasi berstatus PENDING atau APPROVED yang dapat dibatalkan oleh petugas.');
+  });
+
+  it('membatalkan reservasi APPROVED oleh staf, mencatat cancelledAt dan audit log', async () => {
+    const stubApprovedRes = {
+      id: 'res-cancel-staff-1',
+      status: ReservationStatus.APPROVED,
+      facilityId: stubExclusiveFacility.id,
+      facility: stubExclusiveFacility,
+      facilityGroup: null,
+      user: stubActiveUser,
+      items: [],
+    };
+
+    prismaMock.reservation.findUnique
+      .mockResolvedValueOnce(stubApprovedRes)
+      .mockResolvedValueOnce({
+        ...stubApprovedRes,
+        status: ReservationStatus.CANCELLED_BY_STAFF,
+        decisionReason: 'Ruangan dialihkan mendadak untuk agenda kunjungan rektorat.',
+        processedBy: { id: staffId, name: 'Petugas Unispace' },
+        cancelledAt: now,
+      });
+
+    prismaMock.reservation.update.mockResolvedValue({});
+    prismaMock.auditLog.create.mockResolvedValue({});
+
+    const result = await service.cancelByStaff(
+      staffId,
+      stubApprovedRes.id,
+      { reason: 'Ruangan dialihkan mendadak untuk agenda kunjungan rektorat.' },
+      now,
+    );
+
+    expect(prismaMock.reservation.update).toHaveBeenCalledWith({
+      where: { id: stubApprovedRes.id },
+      data: {
+        status: ReservationStatus.CANCELLED_BY_STAFF,
+        decisionReason: 'Ruangan dialihkan mendadak untuk agenda kunjungan rektorat.',
+        processedById: staffId,
+        cancelledAt: now,
+        decidedAt: now,
+      },
+    });
+
+    expect(prismaMock.auditLog.create).toHaveBeenCalledWith({
+      data: {
+        actorId: staffId,
+        action: 'RESERVATION_CANCELLED_BY_STAFF',
+        entityType: 'RESERVATION',
+        entityId: stubApprovedRes.id,
+        metadata: {
+          reason: 'Ruangan dialihkan mendadak untuk agenda kunjungan rektorat.',
+          previousStatus: ReservationStatus.APPROVED,
+        },
+      },
+    });
+
+    expect(result.status).toBe(ReservationStatus.CANCELLED_BY_STAFF);
+    expect(result.decisionReason).toBe('Ruangan dialihkan mendadak untuk agenda kunjungan rektorat.');
+  });
+});
+
+

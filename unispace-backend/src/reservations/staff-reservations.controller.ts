@@ -12,6 +12,8 @@ import { Roles } from '../accounts/auth/decorators/roles.decorator';
 import { CurrentUser } from '../accounts/auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../accounts/auth/auth.types';
 import { ApproveReservationDto } from './dto/approve-reservation.dto';
+import { RejectReservationDto } from './dto/reject-reservation.dto';
+import { CancelStaffReservationDto } from './dto/cancel-staff-reservation.dto';
 import { ListStaffReservationsDto } from './dto/list-staff-reservations.dto';
 import { ReservationsService } from './reservations.service';
 
@@ -54,5 +56,32 @@ export class StaffReservationsController {
   ) {
     return this.reservations.approve(user.id, id, dto);
   }
+
+  /**
+   * PATCH /api/v1/staff/reservations/:id/reject
+   * Menolak permohonan reservasi berstatus PENDING oleh petugas atau admin dengan alasan wajib (FR-RES-05 & RULE-RES-04).
+   */
+  @Patch(':id/reject')
+  reject(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: RejectReservationDto,
+  ) {
+    return this.reservations.reject(user.id, id, dto);
+  }
+
+  /**
+   * PATCH /api/v1/staff/reservations/:id/cancel
+   * Membatalkan permohonan reservasi aktif (PENDING atau APPROVED) oleh petugas atau admin dengan alasan wajib (FR-RES-05).
+   */
+  @Patch(':id/cancel')
+  cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: CancelStaffReservationDto,
+  ) {
+    return this.reservations.cancelByStaff(user.id, id, dto);
+  }
 }
+
 

@@ -17,6 +17,8 @@ import { GetAvailabilityDto } from './dto/get-availability.dto';
 import { ListMyReservationsDto } from './dto/list-my-reservations.dto';
 import { ListStaffReservationsDto } from './dto/list-staff-reservations.dto';
 import { ApproveReservationDto } from './dto/approve-reservation.dto';
+import { RejectReservationDto } from './dto/reject-reservation.dto';
+import { CancelStaffReservationDto } from './dto/cancel-staff-reservation.dto';
 import {
   calculateDecisionDeadline,
   formatToJakartaDateString,
@@ -1547,5 +1549,114 @@ export class ReservationsService {
 
     return this.getStaffDetail(id);
   }
+
+  /**
+   * Menolak permohonan reservasi berstatus PENDING oleh petugas atau admin (FR-RES-05 & RULE-RES-04).
+   * Alasan penolakan (reason) wajib diisi.
+   */
+  async reject(
+    staffId: string,
+    id: string,
+    dto: RejectReservationDto,
+    now: Date = new Date(),
+  ) {
+    const reservation = await this.prisma.reservation.findUnique({
+      where: { id },
+    });
+
+    if (!reservation) {
+      throw new NotFoundException('Reservasi tidak ditemukan.');
+    }
+
+    if (reservation.status !== ReservationStatus.PENDING) {
+      throw new BadRequestException(
+        'Hanya permohonan reservasi berstatus PENDING yang dapat ditolak.',
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.reservation.update({
+        where: { id },
+        data: {
+          status: ReservationStatus.REJECTED,
+          decisionReason: dto.reason,
+          processedById: staffId,
+          decidedAt: now,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: staffId,
+          action: 'RESERVATION_REJECTED',
+          entityType: 'RESERVATION',
+          entityId: id,
+          metadata: {
+            reason: dto.reason,
+            previousStatus: reservation.status,
+          },
+        },
+      });
+    });
+
+    return this.getStaffDetail(id);
+  }
+
+  /**
+   * Membatalkan permohonan reservasi aktif (PENDING atau APPROVED) oleh petugas atau admin (FR-RES-05).
+   * Alasan pembatalan (reason) wajib diisi.
+   */
+  async cancelByStaff(
+    staffId: string,
+    id: string,
+    dto: CancelStaffReservationDto,
+    now: Date = new Date(),
+  ) {
+    const reservation = await this.prisma.reservation.findUnique({
+      where: { id },
+    });
+
+    if (!reservation) {
+      throw new NotFoundException('Reservasi tidak ditemukan.');
+    }
+
+    if (
+      reservation.status !== ReservationStatus.PENDING &&
+      reservation.status !== ReservationStatus.APPROVED
+    ) {
+      throw new BadRequestException(
+        'Hanya reservasi berstatus PENDING atau APPROVED yang dapat dibatalkan oleh petugas.',
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.reservation.update({
+        where: { id },
+        data: {
+          status: ReservationStatus.CANCELLED_BY_STAFF,
+          decisionReason: dto.reason,
+          processedById: staffId,
+          cancelledAt: now,
+          decidedAt: now,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: staffId,
+          action: 'RESERVATION_CANCELLED_BY_STAFF',
+          entityType: 'RESERVATION',
+          entityId: id,
+          metadata: {
+            reason: dto.reason,
+            previousStatus: reservation.status,
+          },
+        },
+      });
+    });
+
+    return this.getStaffDetail(id);
+  }
 }
+
 

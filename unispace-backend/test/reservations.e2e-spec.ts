@@ -469,6 +469,56 @@ describe('Reservations HTTP Integration (E2E)', () => {
         '70000000-0000-4000-8000-000000000001',
       );
     });
+
+    it('menolak aksi reject jika alasan tidak disertakan atau kurang dari 5 karakter (400 Bad Request)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(
+          '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/reject',
+        )
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({ reason: 'abc' });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('mengizinkan role STAFF menolak permohonan reservasi PENDING dengan alasan valid (200 OK)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(
+          '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/reject',
+        )
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({ reason: 'Fasilitas sedang dipersiapkan untuk kegiatan dinas kampus.' });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('success', true);
+      expect(response.body.data).toHaveProperty('id');
+    });
+
+    it('menolak aksi cancel jika alasan pembatalan tidak disertakan atau kurang dari 5 karakter (400 Bad Request)', async () => {
+      const failResponse = await request(app.getHttpServer())
+        .patch(
+          '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/cancel',
+        )
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({ reason: '123' });
+
+      expect(failResponse.status).toBe(400);
+    });
+
+
+    it('mengizinkan role STAFF membatalkan reservasi aktif dengan alasan valid (200 OK)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(
+          '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/cancel',
+        )
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({ reason: 'Agenda darurat institusi membutuhkan ruangan ini.' });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('success', true);
+      expect(response.body.data).toHaveProperty('id');
+    });
   });
 });
+
 
