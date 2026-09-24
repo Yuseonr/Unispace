@@ -84,3 +84,71 @@ export type ReservationSummary = {
     reservationMode: ReservationMode;
   };
 };
+
+export type UserReservationItem = {
+  id: string;
+  userId: string;
+  facilityId?: string | null;
+  facilityGroupId?: string | null;
+  requestedQuantity: number;
+  usageDate: string;
+  startTime: string;
+  endTime: string;
+  purpose: string;
+  status: ReservationStatus;
+  decisionDeadline: string;
+  decisionReason?: string | null;
+  processedById?: string | null;
+  decidedAt?: string | null;
+  cancelledAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  facility?: {
+    id: string;
+    name: string;
+    assetCode?: string;
+    facilityGroup?: {
+      id: string;
+      name: string;
+      locationDetail?: string;
+      facilityArea?: { id: string; code?: string; name: string };
+      facilityType?: { id: string; name: string };
+    } | null;
+  } | null;
+  facilityGroup?: {
+    id: string;
+    name: string;
+    reservationMode: ReservationMode;
+    locationDetail?: string;
+    facilityArea?: { id: string; code?: string; name: string };
+    facilityType?: { id: string; name: string };
+  } | null;
+  items?: Array<{
+    facility: { id: string; assetCode?: string; name: string };
+  }>;
+  canCancel: boolean;
+  allocatedAssets: Array<{
+    id: string;
+    assetCode?: string;
+    name: string;
+  }>;
+};
+
+export type MyReservationsPaginationMeta = {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+};
+
+export type MyReservationsResponse = {
+  data: UserReservationItem[];
+  meta: MyReservationsPaginationMeta;
+};
+
+export type ListMyReservationsQuery = {
+  page?: number;
+  limit?: number;
+  status?: ReservationStatus;
+  usageDate?: string;
+};
