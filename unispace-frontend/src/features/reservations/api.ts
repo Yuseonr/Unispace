@@ -94,6 +94,40 @@ export function getReservationDateBounds(referenceDate = new Date()): {
   return { maxDate, minDate, today };
 }
 
+export interface OperationalDateOption {
+  dayName: string;
+  dayShort: string;
+  formattedDate: string;
+  label: string;
+  value: string;
+}
+
+const OPERATIONAL_DAY_NAMES: Record<number, { full: string; short: string }> = {
+  1: { full: "Senin", short: "SEN" },
+  2: { full: "Selasa", short: "SEL" },
+  3: { full: "Rabu", short: "RAB" },
+  4: { full: "Kamis", short: "KAM" },
+  5: { full: "Jumat", short: "JUM" },
+};
+
+/**
+ * Format tanggal YYYY-MM-DD menjadi format tanggal saja (contoh: "28 September 2026")
+ */
+export function formatDateOnlyIndonesian(dateStr: string): string {
+  if (!dateStr) return "-";
+  try {
+    const date = new Date(`${dateStr}T12:00:00+07:00`);
+    return new Intl.DateTimeFormat("id-ID", {
+      day: "numeric",
+      month: "long",
+      timeZone: TIMEZONE,
+      year: "numeric",
+    }).format(date);
+  } catch {
+    return dateStr;
+  }
+}
+
 /**
  * Format tanggal YYYY-MM-DD menjadi teks ramah pengguna (contoh: "Senin, 28 September 2026")
  */
@@ -109,6 +143,38 @@ export function formatDateIndonesian(dateStr: string): string {
     return dateStr;
   }
 }
+
+/**
+ * Dapatkan daftar seluruh tanggal hari kerja operasional yang valid dipilih
+ * (mulai dari minimal H-2 hari kerja s.d. 14 hari kalender ke depan)
+ */
+export function getAvailableOperationalDates(referenceDate = new Date()): OperationalDateOption[] {
+  const { maxDate, minDate } = getReservationDateBounds(referenceDate);
+  const dates: OperationalDateOption[] = [];
+
+  const cur = new Date(`${minDate}T12:00:00+07:00`);
+  const end = new Date(`${maxDate}T12:00:00+07:00`);
+
+  while (cur <= end) {
+    const dateStr = formatJakartaDate(cur);
+    if (isOperationalDay(dateStr)) {
+      const dayNum = getJakartaDayOfWeek(dateStr);
+      const dayInfo = OPERATIONAL_DAY_NAMES[dayNum] ?? { full: "Hari Kerja", short: "HK" };
+
+      dates.push({
+        dayName: dayInfo.full,
+        dayShort: dayInfo.short,
+        formattedDate: formatDateOnlyIndonesian(dateStr),
+        label: formatDateIndonesian(dateStr),
+        value: dateStr,
+      });
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  return dates;
+}
+
 
 /**
  * Fetch ketersediaan 26 slot 30 menit (07.00-20.00 WIB) untuk fasilitas tertentu
@@ -133,10 +199,16 @@ export async function fetchSlotAvailability(params: {
  */
 export async function createReservation(
   input: CreateReservationInput,
-  requestFn: <T>(path: string, options?: { body?: unknown; method?: string }) => Promise<T>,
+  requestFn: <T>(
+    path: string,
+    options?: {
+      body?: BodyInit | Record<string, unknown> | null;
+      method?: string;
+    },
+  ) => Promise<T>,
 ): Promise<ReservationSummary> {
   return requestFn<ReservationSummary>("/reservations", {
-    body: input,
+    body: input as Record<string, unknown>,
     method: "POST",
   });
 }

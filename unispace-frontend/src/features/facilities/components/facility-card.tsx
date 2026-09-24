@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useState } from "react";
 
 import type { CatalogFacility } from "../types";
@@ -44,7 +45,7 @@ function FacilityArtwork({ type }: { type: string }) {
   );
 }
 
-function FacilityVisual({ facility }: { facility: CatalogFacility }) {
+export function FacilityVisual({ facility }: { facility: CatalogFacility }) {
   const [imageFailed, setImageFailed] = useState(false);
 
   if (facility.primaryImageUrl && !imageFailed) {
@@ -99,23 +100,20 @@ function CapacityIcon() {
 
 export function FacilityCard({ facility }: { facility: CatalogFacility }) {
   const isMaintenance = facility.status === "MAINTENANCE";
-  const availabilityText =
+  const unitText =
     facility.availability.kind === "QUANTITY"
       ? "activeUnits" in facility.availability
         ? `${facility.availability.activeUnits ?? 0} unit aktif`
-        : `${facility.availability.availableUnits ?? 0}/${facility.availability.totalActiveUnits ?? 0} unit tersedia`
-      : facility.availability.label;
+        : `${facility.availability.availableUnits ?? 0}/${facility.availability.totalActiveUnits ?? 0} unit`
+      : null;
   const capacityText =
-    facility.capacity === null ? "Kapasitas fleksibel" : `Hingga ${facility.capacity} orang`;
+    facility.capacity === null ? "Kapasitas fleksibel" : `${facility.capacity} orang`;
   const statusClassName = `facility-status ${
     isMaintenance ? "facility-status--maintenance" : "facility-status--active"
   }`;
-  const availabilityClassName = `availability-copy${
-    isMaintenance ? " availability-copy--maintenance" : ""
-  }`;
 
   return (
-    <article className="facility-card">
+    <Link className="facility-card" href={`/facilities/${facility.id}`}>
       <div
         aria-label={`Ilustrasi ${facility.type}`}
         className="facility-visual"
@@ -149,13 +147,15 @@ export function FacilityCard({ facility }: { facility: CatalogFacility }) {
           </div>
         </div>
 
-        <div className={availabilityClassName}>
-          <span className="availability-copy__dot" aria-hidden="true" />
-          <span>
-            <strong>{isMaintenance ? "Tidak tersedia" : "Ketersediaan"}</strong> · {availabilityText}
+        <div className="facility-card__footer">
+          {unitText ? (
+            <span className="facility-card__unit-info">{unitText}</span>
+          ) : null}
+          <span className="facility-card__action">
+            Lihat Jadwal
           </span>
         </div>
       </div>
-    </article>
+    </Link>
   );
 }

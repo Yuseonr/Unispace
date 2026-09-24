@@ -1,14 +1,11 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
-  addOperationalDays,
   fetchSlotAvailability,
   formatDateIndonesian,
-  formatJakartaDate,
-  getJakartaDayOfWeek,
-  getReservationDateBounds,
+  getAvailableOperationalDates,
   isOperationalDay,
 } from "../api";
 import type {
@@ -34,7 +31,6 @@ export type SlotPickerProps = {
 export function SlotPicker({
   facilityGroupId,
   facilityId,
-  facilityName,
   initialDate,
   mode = "view",
   onDateChange,
@@ -45,15 +41,15 @@ export function SlotPicker({
   selectedStartTime = null,
 }: SlotPickerProps) {
   const dateInputId = useId();
-  const bounds = useMemo(() => getReservationDateBounds(), []);
+  const availableDates = useMemo(() => getAvailableOperationalDates(), []);
 
   // Pastikan tanggal default berada di hari kerja operasional minimal H-2
   const initialValidDate = useMemo(() => {
-    if (initialDate && initialDate >= bounds.minDate && initialDate <= bounds.maxDate) {
+    if (initialDate && availableDates.some((d) => d.value === initialDate)) {
       return initialDate;
     }
-    return bounds.minDate;
-  }, [bounds.maxDate, bounds.minDate, initialDate]);
+    return availableDates[0]?.value ?? "";
+  }, [availableDates, initialDate]);
 
   const [currentDate, setCurrentDate] = useState<string>(initialValidDate);
   const [data, setData] = useState<FacilityAvailabilityData | null>(null);
@@ -63,10 +59,80 @@ export function SlotPicker({
   // Indeks seleksi slot internal (0 - 25)
   const [internalStartIdx, setInternalStartIdx] = useState<number | null>(null);
   const [internalEndIdx, setInternalEndIdx] = useState<number | null>(null);
+  const [isLocked, setIsLocked] = useState<boolean>(false);
 
-  // Hitung rentang aktif (prioritaskan props eksternal jika ada)
+  // Status popover custom dropdown tanggal operasional
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isDropdownOpen) return;
+
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsDropdownOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isDropdownOpen]);
+
+  const selectedDateOption = useMemo(() => {
+    return availableDates.find((d) => d.value === currentDate) ?? null;
+  }, [availableDates, currentDate]);
+
+  // Beritahu parent tentang tanggal awal yang aktif jika tidak diberikan initialDate
+  const hasNotifiedInitialRef = useRef(false);
+  useEffect(() => {
+    if (!hasNotifiedInitialRef.current) {
+      hasNotifiedInitialRef.current = true;
+      if (!initialDate && initialValidDate) {
+        onDateChange?.(initialValidDate);
+      }
+    }
+  }, [initialDate, initialValidDate, onDateChange]);
+
+  // Sinkronisasi tanggal ketika initialDate berubah dari luar
+  const [prevInitialDateProp, setPrevInitialDateProp] = useState(initialDate);
+  if (initialDate !== prevInitialDateProp) {
+    setPrevInitialDateProp(initialDate);
+    if (initialDate && availableDates.some((d) => d.value === initialDate) && initialDate !== currentDate) {
+      setCurrentDate(initialDate);
+      setInternalStartIdx(null);
+      setInternalEndIdx(null);
+      setIsLocked(false);
+      setLoading(true);
+    }
+  }
+
+  // Sinkronisasi reset ketika props waktu dihapus dari luar
+  const [prevStartTimeProp, setPrevStartTimeProp] = useState(selectedStartTime);
+  if (selectedStartTime !== prevStartTimeProp) {
+    setPrevStartTimeProp(selectedStartTime);
+    if (!selectedStartTime) {
+      setInternalStartIdx(null);
+      setInternalEndIdx(null);
+      setIsLocked(false);
+    }
+  }
+
+  // Hitung rentang aktif (prioritaskan state pemilihan internal saat user berinteraksi)
   const { endIdx, startIdx } = useMemo(() => {
     if (!data?.slots) return { endIdx: null, startIdx: null };
+    if (internalStartIdx !== null) {
+      return { endIdx: internalEndIdx, startIdx: internalStartIdx };
+    }
     if (selectedStartTime) {
       const s = data.slots.findIndex((slot) => slot.startTime === selectedStartTime);
       if (s !== -1) {
@@ -77,7 +143,7 @@ export function SlotPicker({
         return { endIdx: s, startIdx: s };
       }
     }
-    return { endIdx: internalEndIdx, startIdx: internalStartIdx };
+    return { endIdx: null, startIdx: null };
   }, [data, internalEndIdx, internalStartIdx, selectedEndTime, selectedStartTime]);
 
   useEffect(() => {
@@ -112,28 +178,10 @@ export function SlotPicker({
     setCurrentDate(newDate);
     setInternalStartIdx(null);
     setInternalEndIdx(null);
+    setIsLocked(false);
     setLoading(true);
     onSlotSelect?.(null, null, 0);
     onDateChange?.(newDate);
-  }
-
-  function handlePrevDay() {
-    const cur = new Date(`${currentDate}T12:00:00+07:00`);
-    cur.setDate(cur.getDate() - 1);
-    while (getJakartaDayOfWeek(formatJakartaDate(cur)) === 0 || getJakartaDayOfWeek(formatJakartaDate(cur)) === 6) {
-      cur.setDate(cur.getDate() - 1);
-    }
-    const target = formatJakartaDate(cur);
-    if (target >= bounds.minDate) {
-      handleDateChange(target);
-    }
-  }
-
-  function handleNextDay() {
-    const nextDate = addOperationalDays(currentDate, 1);
-    if (nextDate <= bounds.maxDate) {
-      handleDateChange(nextDate);
-    }
   }
 
   function isSlotAvailable(slot: SlotItem): boolean {
@@ -147,49 +195,78 @@ export function SlotPicker({
   function handleSlotClick(index: number) {
     if (mode !== "select" || !data?.slots) return;
     const clickedSlot = data.slots[index];
-    if (!isSlotAvailable(clickedSlot)) return;
 
-    if (startIdx === null || endIdx !== null) {
-      // Memulai pilihan baru
-      setInternalStartIdx(index);
-      setInternalEndIdx(null);
-      onSlotSelect?.(clickedSlot.startTime, clickedSlot.endTime, 1);
-    } else {
-      // Sudah ada startIdx, pengguna memilih slot kedua
-      if (index < startIdx) {
-        // Klik slot sebelum startIdx -> ubah startIdx ke slot yang baru
-        setInternalStartIdx(index);
+    // Kasus 1: Keduanya (Start & End) sudah terpilih / terkunci
+    if (startIdx !== null && endIdx !== null) {
+      if (index === startIdx) {
+        // Klik slot START -> Batalkan seluruh pilihan (start dan end batal)
+        handleResetSelection();
+        return;
+      }
+      if (index === endIdx) {
+        // Klik slot END -> Batalkan slot end saja, kembali ke pemilihan end
         setInternalEndIdx(null);
-        onSlotSelect?.(clickedSlot.startTime, clickedSlot.endTime, 1);
-      } else if (index === startIdx) {
-        // Klik slot yang sama -> kunci rentang 1 slot
-        setInternalEndIdx(index);
-        onSlotSelect?.(clickedSlot.startTime, clickedSlot.endTime, 1);
-      } else {
+        setIsLocked(false);
+        onSlotSelect?.(data.slots[startIdx].startTime, data.slots[startIdx].endTime, 1);
+        return;
+      }
+      // Slot lainnya saat terkunci tidak dapat diklik (abaikan)
+      return;
+    }
+
+    // Kasus 2: Baru memilih Start (startIdx !== null && endIdx === null)
+    if (startIdx !== null && endIdx === null) {
+      if (index === startIdx) {
+        // Klik slot yang sama lagi -> Batalkan pilihan itu
+        handleResetSelection();
+        return;
+      }
+
+      if (!isSlotAvailable(clickedSlot)) return;
+
+      if (index > startIdx) {
         // Cek apakah seluruh slot di antara startIdx dan index tersedia
         const range = data.slots.slice(startIdx, index + 1);
         const allAvailable = range.every((s) => isSlotAvailable(s));
 
         if (allAvailable) {
           setInternalEndIdx(index);
+          setIsLocked(true);
           onSlotSelect?.(
             data.slots[startIdx].startTime,
             clickedSlot.endTime,
             index - startIdx + 1,
           );
         } else {
-          // Ada slot bentrok di tengah -> jadikan slot baru sebagai start
+          // Ada slot bentrok di tengah jalan -> jadikan slot baru sebagai start
           setInternalStartIdx(index);
           setInternalEndIdx(null);
+          setIsLocked(false);
           onSlotSelect?.(clickedSlot.startTime, clickedSlot.endTime, 1);
         }
+        return;
       }
+
+      // Klik slot sebelum startIdx -> ubah slot awal menjadi slot baru
+      setInternalStartIdx(index);
+      setInternalEndIdx(null);
+      setIsLocked(false);
+      onSlotSelect?.(clickedSlot.startTime, clickedSlot.endTime, 1);
+      return;
     }
+
+    // Kasus 3: Belum ada slot terpilih (startIdx === null)
+    if (!isSlotAvailable(clickedSlot)) return;
+    setInternalStartIdx(index);
+    setInternalEndIdx(null);
+    setIsLocked(false);
+    onSlotSelect?.(clickedSlot.startTime, clickedSlot.endTime, 1);
   }
 
   function handleResetSelection() {
     setInternalStartIdx(null);
     setInternalEndIdx(null);
+    setIsLocked(false);
     onSlotSelect?.(null, null, 0);
   }
 
@@ -205,9 +282,10 @@ export function SlotPicker({
       count,
       endStr,
       hours,
+      isLocked,
       startStr,
     };
-  }, [data, endIdx, startIdx]);
+  }, [data, endIdx, isLocked, startIdx]);
 
   const isCurrentOperDay = isOperationalDay(currentDate);
 
@@ -215,53 +293,104 @@ export function SlotPicker({
     <div className="slot-picker">
       <div className="slot-picker__header">
         <div className="slot-picker__title-group">
-          <span className="slot-picker__label">Kalender Slot Waktu</span>
-          {facilityName ? <h3 className="slot-picker__facility">{facilityName}</h3> : null}
-          <p className="slot-picker__desc">
-            {mode === "select"
-              ? "Pilih slot awal lalu slot akhir berurutan untuk durasi peminjaman (07.00 – 20.00 WIB)."
-              : "Ketersediaan 26 slot 30 menit per tanggal pada hari operasional kampus."}
-          </p>
+          <h2 className="slot-picker__heading">Jadwal & ketersediaan slot waktu</h2>
         </div>
 
-        <div className="slot-picker__date-nav">
-          <button
-            aria-label="Hari operasional sebelumnya"
-            className="slot-picker__nav-btn"
-            disabled={currentDate <= bounds.minDate}
-            onClick={handlePrevDay}
-            type="button"
-          >
-            ←
-          </button>
-
-          <div className="slot-picker__date-input-wrap">
-            <label className="sr-only" htmlFor={dateInputId}>
-              Pilih tanggal pemakaian
-            </label>
-            <input
-              className="slot-picker__date-input"
+        <div className="slot-picker__date-select-wrap" ref={dropdownRef}>
+          <span className="slot-picker__date-select-label" id={`${dateInputId}-label`}>
+            Pilih Tanggal Penggunaan
+          </span>
+          <div className="slot-picker__dropdown">
+            <button
+              aria-expanded={isDropdownOpen}
+              aria-haspopup="listbox"
+              aria-labelledby={`${dateInputId}-label`}
+              className={`slot-picker__dropdown-trigger ${isDropdownOpen ? "is-open" : ""}`}
               id={dateInputId}
-              max={bounds.maxDate}
-              min={bounds.minDate}
-              onChange={(e) => handleDateChange(e.target.value)}
-              type="date"
-              value={currentDate}
-            />
-            <span className="slot-picker__date-display">
-              {formatDateIndonesian(currentDate)}
-            </span>
-          </div>
+              onClick={() => setIsDropdownOpen((prev) => !prev)}
+              type="button"
+            >
+              <div className="slot-picker__dropdown-trigger-left">
+                <span className="slot-picker__dropdown-icon" aria-hidden="true">
+                  <svg fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="18">
+                    <rect height="18" rx="3" width="18" x="3" y="4" />
+                    <line x1="16" x2="16" y1="2" y2="6" />
+                    <line x1="8" x2="8" y1="2" y2="6" />
+                    <line x1="3" x2="21" y1="10" y2="10" />
+                  </svg>
+                </span>
+                <span className="slot-picker__dropdown-caption">
+                  {selectedDateOption
+                    ? `${selectedDateOption.dayName}, ${selectedDateOption.formattedDate}`
+                    : formatDateIndonesian(currentDate)}
+                </span>
+              </div>
 
-          <button
-            aria-label="Hari operasional berikutnya"
-            className="slot-picker__nav-btn"
-            disabled={currentDate >= bounds.maxDate}
-            onClick={handleNextDay}
-            type="button"
-          >
-            →
-          </button>
+              <div className="slot-picker__dropdown-trigger-right">
+                <span className={`slot-picker__dropdown-arrow ${isDropdownOpen ? "is-open" : ""}`} aria-hidden="true">
+                  <svg fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" viewBox="0 0 24 24" width="16">
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </span>
+              </div>
+            </button>
+
+            {isDropdownOpen ? (
+              <div
+                aria-labelledby={`${dateInputId}-label`}
+                className="slot-picker__dropdown-menu"
+                role="listbox"
+              >
+                <div className="slot-picker__dropdown-menu-hint">
+                  <span className="slot-picker__dropdown-hint-title">Pilihan Hari Operasional Kampus</span>
+                  <span className="slot-picker__dropdown-hint-sub">Senin – Jumat · 07.00 – 20.00 WIB</span>
+                </div>
+
+                <div className="slot-picker__dropdown-list">
+                  {availableDates.map((item) => {
+                    const isSelected = item.value === currentDate;
+                    return (
+                      <button
+                        aria-selected={isSelected}
+                        className={`slot-picker__dropdown-item ${isSelected ? "is-selected" : ""}`}
+                        key={item.value}
+                        onClick={() => {
+                          handleDateChange(item.value);
+                          setIsDropdownOpen(false);
+                        }}
+                        role="option"
+                        type="button"
+                      >
+                        <div className="slot-picker__dropdown-item-main">
+                          <span className="slot-picker__dropdown-day-badge">
+                            {item.dayShort}
+                          </span>
+                          <div className="slot-picker__dropdown-item-details">
+                            <span className="slot-picker__dropdown-item-day">
+                              {item.dayName}
+                            </span>
+                            <span className="slot-picker__dropdown-item-date">
+                              {item.formattedDate}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="slot-picker__dropdown-item-aside">
+                          {isSelected ? (
+                            <span className="slot-picker__dropdown-check" aria-hidden="true">
+                              <svg fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" viewBox="0 0 24 24" width="16">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            </span>
+                          ) : null}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -275,13 +404,17 @@ export function SlotPicker({
       {mode === "select" && selectedRangeSummary ? (
         <div className="slot-picker__summary-bar">
           <div className="slot-picker__summary-content">
-            <span className="slot-picker__summary-badge">Slot Terpilih</span>
+            <span className="slot-picker__summary-badge">
+              {isLocked ? "Slot Terkunci" : "Pilih Jam Selesai"}
+            </span>
             <strong>
               {selectedRangeSummary.startStr} – {selectedRangeSummary.endStr} WIB
             </strong>
-            <span className="slot-picker__summary-meta">
-              ({selectedRangeSummary.count} slot · {selectedRangeSummary.hours} jam)
-            </span>
+            {!isLocked ? (
+              <span className="slot-picker__summary-hint">
+                · Klik slot akhir atau pesan slot ini saja
+              </span>
+            ) : null}
           </div>
           <button
             className="slot-picker__reset-btn"
@@ -298,13 +431,8 @@ export function SlotPicker({
         <span className="slot-legend-item">
           <span className="slot-dot slot-dot--available" /> Tersedia
         </span>
-        {mode === "select" ? (
-          <span className="slot-legend-item">
-            <span className="slot-dot slot-dot--selected" /> Terpilih
-          </span>
-        ) : null}
         <span className="slot-legend-item">
-          <span className="slot-dot slot-dot--booked" /> Terisi / Habis
+          <span className="slot-dot slot-dot--booked" /> Tidak Tersedia
         </span>
         <span className="slot-legend-item">
           <span className="slot-dot slot-dot--maintenance" /> Pemeliharaan
@@ -351,6 +479,15 @@ export function SlotPicker({
               index < endIdx;
             const isSingleSelected = startIdx === index && endIdx === null;
 
+            // Logika slot non-aktif / abu-abu (locked out):
+            // 1. Jika start & end sudah terkunci (isLocked): semua slot di luar rentang startIdx..endIdx
+            // 2. Jika baru memilih jam mulai (!isLocked && startIdx !== null): semua slot sebelum startIdx
+            const isLockedOut =
+              mode === "select" &&
+              startIdx !== null &&
+              ((isLocked && (index < startIdx || (endIdx !== null && index > endIdx))) ||
+                (!isLocked && index < startIdx));
+
             let stateClass = "is-available";
             if (!slot.available) {
               stateClass =
@@ -368,29 +505,49 @@ export function SlotPicker({
               stateClass += " is-selected";
             } else if (isInRange) {
               stateClass += " is-in-range";
+            } else if (isLockedOut) {
+              stateClass += " is-locked-out";
             }
 
             const slotLabel = `${slot.startTime} - ${slot.endTime}`;
             let statusText = "Tersedia";
             if (slot.reason === "MAINTENANCE") statusText = "Pemeliharaan";
-            else if (slot.reason === "BOOKED") statusText = "Terisi";
+            else if (slot.reason === "BOOKED") statusText = "Tidak Tersedia";
             else if (slot.reason === "NON_OPERATIONAL_DAY") statusText = "Libur";
             else if (reservationMode === "QUANTITY" && typeof slot.availableUnits === "number") {
               statusText = `${slot.availableUnits} unit`;
             }
 
+            // Saat terkunci, slot start dan slot end TETAP BISA DIKLIK untuk membatalkan pilihan
+            const isClickableWhenLocked =
+              isLocked && (index === startIdx || index === endIdx);
+
+            const isDisabled =
+              mode !== "select" ||
+              !available ||
+              (isLockedOut && !isClickableWhenLocked) ||
+              (isLocked && !isClickableWhenLocked);
+
+            let ariaActionHint = "";
+            if (isStart && endIdx !== null) {
+              ariaActionHint = " (Mulai - Klik untuk membatalkan seluruh pilihan)";
+            } else if (isEnd && endIdx !== null && startIdx !== endIdx) {
+              ariaActionHint = " (Selesai - Klik untuk membatalkan jam selesai)";
+            } else if (isStart || isSingleSelected) {
+              ariaActionHint = " (Mulai - Klik lagi untuk membatalkan)";
+            }
+
             return (
               <button
-                aria-label={`Slot ${slotLabel}: ${statusText}${isStart || isEnd || isSingleSelected ? " (Terpilih)" : ""}`}
+                aria-label={`Slot ${slotLabel}: ${statusText}${ariaActionHint}`}
                 aria-pressed={mode === "select" ? isStart || isEnd || isSingleSelected || isInRange : undefined}
                 className={`slot-card ${stateClass}`}
-                disabled={mode !== "select" || !available}
+                disabled={isDisabled}
                 key={slot.slotIndex}
                 onClick={() => handleSlotClick(index)}
                 type="button"
               >
                 <span className="slot-card__time">{slotLabel}</span>
-                <span className="slot-card__status">{statusText}</span>
               </button>
             );
           })}

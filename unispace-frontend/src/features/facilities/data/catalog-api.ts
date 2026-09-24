@@ -74,3 +74,46 @@ export async function fetchPublicCatalog() {
     types,
   };
 }
+
+export type CatalogFacilityDetail = CatalogFacility & {
+  activeUnits?: number;
+  assetCode?: string;
+};
+
+export async function fetchFacilityDetail(id: string): Promise<CatalogFacilityDetail> {
+  // 1. Coba fetch sebagai unit EXCLUSIVE
+  try {
+    const item = await apiRequest<PublicCatalogItem>(`/facilities/${id}`);
+    const facility = toCatalogFacility(item);
+    return {
+      ...facility,
+      assetCode: item.assetCode,
+    };
+  } catch {
+    // 2. Coba fetch sebagai kelompok alat QUANTITY jika unit gagal
+    try {
+      const groupItem = await apiRequest<PublicCatalogItem>(`/facilities/${id}?kind=group`);
+      const facility = toCatalogFacility(groupItem);
+      return {
+        ...facility,
+        activeUnits: groupItem.activeUnits,
+      };
+    } catch {
+      // 3. Fallback ke data mock jika API backend belum ada data / offline
+      const { landingFacilities } = await import("./landing-facilities");
+      const fallback = landingFacilities.find((f) => f.id === id);
+      if (fallback) {
+        return {
+          ...fallback,
+          activeUnits:
+            fallback.availability.kind === "QUANTITY" && "activeUnits" in fallback.availability
+              ? fallback.availability.activeUnits
+              : undefined,
+          kind: fallback.availability.kind,
+        };
+      }
+      throw new Error("Fasilitas tidak ditemukan.");
+    }
+  }
+}
+

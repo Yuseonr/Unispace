@@ -3,7 +3,7 @@
 import type { SubmitEvent } from "react";
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { AuthShell } from "@/features/auth/components/auth-shell";
 import { useAuth } from "@/features/auth/auth-provider";
@@ -11,6 +11,8 @@ import { ApiError } from "@/lib/api/client";
 
 export function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTarget = searchParams.get("redirect");
   const { login } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -23,7 +25,13 @@ export function LoginForm() {
 
     try {
       const user = await login(String(formData.get("email") ?? ""), String(formData.get("password") ?? ""));
-      router.replace(user.role === "ADMIN" ? "/admin" : "/facilities");
+      if (user.role === "ADMIN") {
+        router.replace("/admin");
+      } else if (redirectTarget && redirectTarget.startsWith("/")) {
+        router.replace(redirectTarget);
+      } else {
+        router.replace("/facilities");
+      }
     } catch (caughtError) {
       const message = caughtError instanceof ApiError ? caughtError.message : "Masuk belum berhasil. Coba lagi beberapa saat.";
       setError(message);
