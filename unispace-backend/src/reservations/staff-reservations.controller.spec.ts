@@ -22,6 +22,7 @@ describe('StaffReservationsController', () => {
     approve: jest.fn(),
     reject: jest.fn(),
     cancelByStaff: jest.fn(),
+    autoRejectExpiredReservations: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -118,5 +119,19 @@ describe('StaffReservationsController', () => {
       dto,
     );
     expect(result.status).toBe(ReservationStatus.CANCELLED_BY_STAFF);
+  });
+
+  it('memanggil reservationsService.autoRejectExpiredReservations dan mengembalikan ringkasan hasil', async () => {
+    mockService.autoRejectExpiredReservations.mockResolvedValue(5);
+
+    const result = await controller.autoRejectExpired();
+
+    expect(service.autoRejectExpiredReservations).toHaveBeenCalled();
+    expect(result).toEqual({
+      success: true,
+      processedCount: 5,
+      message:
+        'Berhasil mengevaluasi dan menolak otomatis 5 permohonan reservasi yang melewati batas SLA.',
+    });
   });
 });

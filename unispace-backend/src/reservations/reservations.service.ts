@@ -2,7 +2,10 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
 import {
   AccountStatus,
@@ -31,8 +34,32 @@ import {
 } from './utils/reservation-time.util';
 
 @Injectable()
-export class ReservationsService {
+export class ReservationsService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ReservationsService.name);
+  private autoRejectInterval: NodeJS.Timeout | null = null;
+
   constructor(private readonly prisma: PrismaService) {}
+
+  onModuleInit() {
+    // Jalankan periodic background worker evaluasi SLA auto-reject setiap 60 detik (hanya di non-test)
+    if (process.env.NODE_ENV !== 'test') {
+      this.autoRejectInterval = setInterval(async () => {
+        try {
+          await this.autoRejectExpiredReservations();
+        } catch (err) {
+          this.logger.error('Gagal mengeksekusi auto-reject SLA reservasi:', err);
+        }
+      }, 60_000);
+      this.autoRejectInterval.unref();
+    }
+  }
+
+  onModuleDestroy() {
+    if (this.autoRejectInterval) {
+      clearInterval(this.autoRejectInterval);
+      this.autoRejectInterval = null;
+    }
+  }
 
   /**
    * Mengembalikan daftar 26 slot 30 menit (07.00–20.00 WIB) untuk tanggal yang diminta.
@@ -1182,6 +1209,12 @@ export class ReservationsService {
       );
     }
 
+    if (reservation.decisionDeadline && reservation.decisionDeadline <= now) {
+      throw new BadRequestException(
+        'Permohonan reservasi tidak dapat disetujui karena telah melewati batas tenggat evaluasi petugas (SLA Expired).',
+      );
+    }
+
     await this.prisma.$transaction(async (tx) => {
       const uYear = reservation.usageDate.getUTCFullYear();
       const uMonth = reservation.usageDate.getUTCMonth();
@@ -1656,6 +1689,64 @@ export class ReservationsService {
     });
 
     return this.getStaffDetail(id);
+  }
+
+  /**
+   * Menolak otomatis seluruh permohonan reservasi PENDING yang telah melewati batas tenggat evaluasi SLA (FR-RES-08 & RULE-RES-04).
+   * - Menyeleksi reservasi PENDING dengan decisionDeadline <= now.
+   * - Memperbarui status menjadi REJECTED secara transaksional ($transaction).
+   * - Mencatat mutasi ke audit_logs dengan action RESERVATION_AUTO_REJECTED (actorId: null).
+   */
+  async autoRejectExpiredReservations(now: Date = new Date()): Promise<number> {
+    const expiredReservations = await this.prisma.reservation.findMany({
+      where: {
+        status: ReservationStatus.PENDING,
+        decisionDeadline: {
+          lte: now,
+        },
+      },
+      select: {
+        id: true,
+        decisionDeadline: true,
+      },
+    });
+
+    if (expiredReservations.length === 0) {
+      return 0;
+    }
+
+    const expiredIds = expiredReservations.map((r) => r.id);
+    const reason =
+      'Ditolak otomatis oleh sistem karena melewati batas tenggat evaluasi petugas (SLA Expired).';
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.reservation.updateMany({
+        where: { id: { in: expiredIds } },
+        data: {
+          status: ReservationStatus.REJECTED,
+          decidedAt: now,
+          decisionReason: reason,
+        },
+      });
+
+      for (const exp of expiredReservations) {
+        await tx.auditLog.create({
+          data: {
+            actorId: null,
+            action: 'RESERVATION_AUTO_REJECTED',
+            entityType: 'RESERVATION',
+            entityId: exp.id,
+            metadata: {
+              reason,
+              decisionDeadline: exp.decisionDeadline,
+              evaluatedAt: now.toISOString(),
+            },
+          },
+        });
+      }
+    });
+
+    return expiredReservations.length;
   }
 }
 

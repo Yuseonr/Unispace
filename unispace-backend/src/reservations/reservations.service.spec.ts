@@ -1587,5 +1587,87 @@ describe('ReservationsService - cancelByStaff', () => {
   });
 });
 
+describe('ReservationsService - autoRejectExpiredReservations & SLA enforcement', () => {
+  let service: ReservationsService;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ReservationsService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
+    }).compile();
+
+    service = module.get<ReservationsService>(ReservationsService);
+  });
+
+  it('mengembalikan 0 jika tidak ada reservasi PENDING yang melewati decisionDeadline', async () => {
+    prismaMock.reservation.findMany.mockResolvedValue([]);
+
+    const count = await service.autoRejectExpiredReservations();
+
+    expect(count).toBe(0);
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('menolak seluruh reservasi PENDING yang melewati decisionDeadline secara transaksional', async () => {
+    const now = new Date('2026-09-24T20:30:00+07:00');
+    const expiredRes = [
+      {
+        id: 'res-expired-1',
+        decisionDeadline: new Date('2026-09-24T20:00:00+07:00'),
+      },
+      {
+        id: 'res-expired-2',
+        decisionDeadline: new Date('2026-09-24T20:00:00+07:00'),
+      },
+    ];
+
+    prismaMock.reservation.findMany.mockResolvedValue(expiredRes);
+    prismaMock.reservation.updateMany.mockResolvedValue({ count: 2 });
+    prismaMock.auditLog.create.mockResolvedValue({ id: 'audit-log-1' });
+
+    const count = await service.autoRejectExpiredReservations(now);
+
+    expect(count).toBe(2);
+    expect(prismaMock.reservation.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['res-expired-1', 'res-expired-2'] } },
+      data: {
+        status: ReservationStatus.REJECTED,
+        decidedAt: now,
+        decisionReason:
+          'Ditolak otomatis oleh sistem karena melewati batas tenggat evaluasi petugas (SLA Expired).',
+      },
+    });
+    expect(prismaMock.auditLog.create).toHaveBeenCalledTimes(2);
+    expect(prismaMock.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorId: null,
+        action: 'RESERVATION_AUTO_REJECTED',
+        entityType: 'RESERVATION',
+        entityId: 'res-expired-1',
+      }),
+    });
+  });
+
+  it('approve melemparkan BadRequestException jika reservasi telah melewati decisionDeadline (SLA Expired)', async () => {
+    const now = new Date('2026-09-25T10:00:00+07:00');
+    prismaMock.reservation.findUnique.mockResolvedValue({
+      id: 'res-sla-expired',
+      status: ReservationStatus.PENDING,
+      decisionDeadline: new Date('2026-09-24T20:00:00+07:00'),
+      facility: stubExclusiveFacility,
+      facilityGroup: null,
+    });
+
+    await expect(
+      service.approve('staff-uuid', 'res-sla-expired', {}, now),
+    ).rejects.toThrow(
+      'telah melewati batas tenggat evaluasi petugas (SLA Expired)',
+    );
+  });
+});
+
 
 

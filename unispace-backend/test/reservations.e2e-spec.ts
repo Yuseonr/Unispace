@@ -199,7 +199,7 @@ describe('Reservations HTTP Integration (E2E)', () => {
             endTime: new Date('1970-01-01T10:00:00Z'),
             purpose: 'Praktikum Pemrograman Web',
             status: ReservationStatus.PENDING,
-            decisionDeadline: new Date('2026-09-24T20:00:00+07:00'),
+            decisionDeadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
             user: testUser,
             facility: stubExclusiveFacility,
             facilityGroup: null,
@@ -219,7 +219,7 @@ describe('Reservations HTTP Integration (E2E)', () => {
             endTime: new Date('1970-01-01T10:00:00Z'),
             purpose: 'Praktikum Pemrograman Web',
             status: ReservationStatus.PENDING,
-            decisionDeadline: new Date('2026-09-24T20:00:00+07:00'),
+            decisionDeadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
             user: testUser,
             facility: stubExclusiveFacility,
             facilityGroup: null,
@@ -546,6 +546,37 @@ describe('Reservations HTTP Integration (E2E)', () => {
       );
     });
 
+    it('menolak persetujuan reservasi jika batas tenggat keputusan telah terlewati (400 Bad Request / SLA Expired)', async () => {
+      (prisma.reservation as { findUnique: jest.Mock }).findUnique.mockResolvedValueOnce({
+        id: '70000000-0000-4000-8000-000000000001',
+        userId: testUser.id,
+        facilityId: stubExclusiveFacility.id,
+        facilityGroupId: null,
+        requestedQuantity: 1,
+        usageDate: new Date('2026-09-28'),
+        startTime: new Date('1970-01-01T08:00:00Z'),
+        endTime: new Date('1970-01-01T10:00:00Z'),
+        purpose: 'Praktikum Pemrograman Web',
+        status: ReservationStatus.PENDING,
+        decisionDeadline: new Date(Date.now() - 60000),
+        user: testUser,
+        facility: stubExclusiveFacility,
+        facilityGroup: null,
+        processedBy: null,
+        items: [],
+      });
+
+      const response = await request(app.getHttpServer())
+        .patch(
+          '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/approve',
+        )
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({});
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.message).toContain('SLA Expired');
+    });
+
     it('menolak aksi reject jika alasan tidak disertakan atau kurang dari 5 karakter (400 Bad Request)', async () => {
       const response = await request(app.getHttpServer())
         .patch(
@@ -614,6 +645,40 @@ describe('Reservations HTTP Integration (E2E)', () => {
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('success', true);
       expect(response.body.data).toHaveProperty('id');
+    });
+
+    it('menolak aksi auto-reject expired jika unauthenticated (401 Unauthorized)', async () => {
+      const response = await request(app.getHttpServer()).post(
+        '/api/v1/staff/reservations/auto-reject-expired',
+      );
+
+      expect(response.status).toBe(401);
+    });
+
+    it('menolak aksi auto-reject expired jika diakses role USER (403 Forbidden)', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/staff/reservations/auto-reject-expired')
+        .set('Authorization', `Bearer ${userToken}`);
+
+      expect(response.status).toBe(403);
+    });
+
+    it('menolak aksi auto-reject expired jika diakses role ADMIN (403 Forbidden)', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/staff/reservations/auto-reject-expired')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(403);
+    });
+
+    it('mengizinkan role STAFF memicu auto-reject expired (201 Created)', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/staff/reservations/auto-reject-expired')
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      expect(response.status).toBe(201);
+      expect(response.body).toHaveProperty('success', true);
+      expect(response.body.data).toHaveProperty('processedCount');
     });
   });
 });

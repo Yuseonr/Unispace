@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Query,
 } from '@nestjs/common';
 import { UserRole } from '../generated/prisma/client';
@@ -81,6 +82,21 @@ export class StaffReservationsController {
     @Body() dto: CancelStaffReservationDto,
   ) {
     return this.reservations.cancelByStaff(user.id, id, dto);
+  }
+
+  /**
+   * POST /api/v1/staff/reservations/auto-reject-expired
+   * Memicu evaluasi dan penolakan otomatis reservasi PENDING yang melewati batas SLA (FR-RES-08 & RULE-RES-04).
+   */
+  @Post('auto-reject-expired')
+  async autoRejectExpired() {
+    const processedCount =
+      await this.reservations.autoRejectExpiredReservations();
+    return {
+      success: true,
+      processedCount,
+      message: `Berhasil mengevaluasi dan menolak otomatis ${processedCount} permohonan reservasi yang melewati batas SLA.`,
+    };
   }
 }
 
