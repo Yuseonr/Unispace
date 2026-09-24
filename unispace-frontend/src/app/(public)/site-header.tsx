@@ -14,6 +14,7 @@ export function SiteHeader() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const isHome = pathname === "/";
   const isFacilities = pathname.startsWith("/facilities");
+  const isReservations = pathname.startsWith("/reservations");
 
   async function handleLogout() {
     setIsProfileOpen(false);
@@ -42,6 +43,20 @@ export function SiteHeader() {
           <Link className={`site-nav__link${isFacilities ? " is-active" : ""}`} href="/facilities" aria-current={isFacilities ? "page" : undefined}>
             Katalog fasilitas
           </Link>
+          {isReady && user?.role === "USER" ? (
+            <Link
+              className={`site-nav__link${isReservations ? " is-active" : ""}`}
+              href="/reservations"
+              aria-current={isReservations ? "page" : undefined}
+            >
+              Reservasi saya
+            </Link>
+          ) : null}
+          {isReady && user?.role === "ADMIN" ? (
+            <Link className="site-nav__link" href="/admin">
+              Panel Admin
+            </Link>
+          ) : null}
         </nav>
 
         <div className="header-actions">
@@ -69,6 +84,26 @@ export function SiteHeader() {
                     <strong>{user.name}</strong>
                     <span>{user.email}</span>
                   </div>
+                  {user.role === "USER" ? (
+                    <Link
+                      className="header-profile__item"
+                      href="/reservations"
+                      onClick={() => setIsProfileOpen(false)}
+                      role="menuitem"
+                    >
+                      Reservasi Saya
+                    </Link>
+                  ) : null}
+                  {user.role === "ADMIN" ? (
+                    <Link
+                      className="header-profile__item"
+                      href="/admin"
+                      onClick={() => setIsProfileOpen(false)}
+                      role="menuitem"
+                    >
+                      Panel Admin
+                    </Link>
+                  ) : null}
                   <button onClick={() => void handleLogout()} role="menuitem" type="button">
                     Keluar
                   </button>

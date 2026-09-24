@@ -455,7 +455,7 @@ export class ReservationsService {
       }
 
       finalFacilityId = facility.id;
-      finalFacilityGroupId = facility.facilityGroupId;
+      finalFacilityGroupId = null;
       finalQuantity = 1;
     }
 
