@@ -883,6 +883,42 @@ describe('ReservationsService - listStaff & getStaffDetail', () => {
     );
   });
 
+  it('mengambil antrean reservasi non-PENDING dengan urutan createdAt desc dan filter area/tanggal/search', async () => {
+    prismaMock.reservation.count.mockResolvedValue(0);
+    prismaMock.reservation.findMany.mockResolvedValue([]);
+
+    await service.listStaff({
+      status: ReservationStatus.APPROVED,
+      facilityAreaId: 'area-uuid-1',
+      usageDate: '2026-09-28',
+      search: 'Mahasiswa',
+      page: 2,
+      limit: 5,
+    });
+
+    expect(prismaMock.reservation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: ReservationStatus.APPROVED,
+          usageDate: expect.any(Date),
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              OR: expect.arrayContaining([
+                { facility: { facilityGroup: { facilityAreaId: 'area-uuid-1' } } },
+                { facilityGroup: { facilityAreaId: 'area-uuid-1' } },
+              ]),
+            }),
+          ]),
+        }),
+        orderBy: [{ usageDate: 'desc' }, { createdAt: 'desc' }],
+        skip: 5,
+        take: 5,
+      }),
+    );
+  });
+
+
+
   it('mengambil rincian reservasi untuk petugas dan mengembalikan alokasi aset jika APPROVED', async () => {
     const stubApprovedItem = {
       id: 'res-staff-approved',
@@ -1504,6 +1540,52 @@ describe('ReservationsService - cancelByStaff', () => {
     expect(result.status).toBe(ReservationStatus.CANCELLED_BY_STAFF);
     expect(result.decisionReason).toBe('Ruangan dialihkan mendadak untuk agenda kunjungan rektorat.');
   });
+
+  it('membatalkan reservasi PENDING oleh staf dengan alasan valid', async () => {
+    const stubPendingRes = {
+      id: 'res-cancel-pending',
+      status: ReservationStatus.PENDING,
+      facilityId: stubExclusiveFacility.id,
+      facility: stubExclusiveFacility,
+      facilityGroup: null,
+      user: stubActiveUser,
+      items: [],
+    };
+
+    prismaMock.reservation.findUnique
+      .mockResolvedValueOnce(stubPendingRes)
+      .mockResolvedValueOnce({
+        ...stubPendingRes,
+        status: ReservationStatus.CANCELLED_BY_STAFF,
+        decisionReason: 'Pemohon meminta pembatalan langsung via pusat bantuan.',
+        processedBy: { id: staffId, name: 'Petugas Unispace' },
+        cancelledAt: now,
+      });
+
+    prismaMock.reservation.update.mockResolvedValue({});
+    prismaMock.auditLog.create.mockResolvedValue({});
+
+    const result = await service.cancelByStaff(
+      staffId,
+      stubPendingRes.id,
+      { reason: 'Pemohon meminta pembatalan langsung via pusat bantuan.' },
+      now,
+    );
+
+    expect(prismaMock.reservation.update).toHaveBeenCalledWith({
+      where: { id: stubPendingRes.id },
+      data: {
+        status: ReservationStatus.CANCELLED_BY_STAFF,
+        decisionReason: 'Pemohon meminta pembatalan langsung via pusat bantuan.',
+        processedById: staffId,
+        cancelledAt: now,
+        decidedAt: now,
+      },
+    });
+
+    expect(result.status).toBe(ReservationStatus.CANCELLED_BY_STAFF);
+  });
 });
+
 
 
