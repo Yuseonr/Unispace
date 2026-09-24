@@ -107,13 +107,20 @@ export type UserReservationItem = {
     id: string;
     name: string;
     assetCode?: string;
-    location?: { id: string; name: string; detail?: string };
+    facilityGroup?: {
+      id: string;
+      name: string;
+      locationDetail?: string;
+      facilityArea?: { id: string; code?: string; name: string };
+      facilityType?: { id: string; name: string };
+    } | null;
   } | null;
   facilityGroup?: {
     id: string;
     name: string;
     reservationMode: ReservationMode;
-    location?: { id: string; name: string; detail?: string };
+    locationDetail?: string;
+    facilityArea?: { id: string; code?: string; name: string };
     facilityType?: { id: string; name: string };
   } | null;
   items?: Array<{

@@ -663,7 +663,15 @@ export class ReservationsService {
               id: true,
               name: true,
               assetCode: true,
-              location: { select: { id: true, name: true, detail: true } },
+              facilityGroup: {
+                select: {
+                  id: true,
+                  name: true,
+                  locationDetail: true,
+                  facilityArea: { select: { id: true, code: true, name: true } },
+                  facilityType: { select: { id: true, name: true } },
+                },
+              },
             },
           },
           facilityGroup: {
@@ -671,7 +679,8 @@ export class ReservationsService {
               id: true,
               name: true,
               reservationMode: true,
-              location: { select: { id: true, name: true, detail: true } },
+              locationDetail: true,
+              facilityArea: { select: { id: true, code: true, name: true } },
               facilityType: { select: { id: true, name: true } },
             },
           },
@@ -734,7 +743,15 @@ export class ReservationsService {
             id: true,
             name: true,
             assetCode: true,
-            location: { select: { id: true, name: true, detail: true } },
+            facilityGroup: {
+              select: {
+                id: true,
+                name: true,
+                locationDetail: true,
+                facilityArea: { select: { id: true, code: true, name: true } },
+                facilityType: { select: { id: true, name: true } },
+              },
+            },
           },
         },
         facilityGroup: {
@@ -742,7 +759,8 @@ export class ReservationsService {
             id: true,
             name: true,
             reservationMode: true,
-            location: { select: { id: true, name: true, detail: true } },
+            locationDetail: true,
+            facilityArea: { select: { id: true, code: true, name: true } },
             facilityType: { select: { id: true, name: true } },
           },
         },

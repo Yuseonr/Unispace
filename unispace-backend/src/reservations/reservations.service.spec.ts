@@ -31,6 +31,8 @@ const stubActiveUser = {
   accountStatus: AccountStatus.ACTIVE,
 };
 
+const stubArea = { id: 'area-1', code: 'FSM', name: 'Gedung Utama FSM' };
+
 const stubExclusiveFacility = {
   id: 'fac-uuid-1',
   facilityGroupId: 'grp-uuid-1',
@@ -41,20 +43,23 @@ const stubExclusiveFacility = {
     id: 'grp-uuid-1',
     name: 'Gedung Serbaguna',
     reservationMode: ReservationMode.EXCLUSIVE,
+    locationDetail: 'Lantai 1',
+    facilityArea: stubArea,
+    facilityType: { id: 'type-1', name: 'Ruang Seminar' },
   },
-  location: { id: 'loc-1', name: 'Gedung Utama', detail: 'Lantai 1' },
 };
 
 const stubQuantityGroup = {
   id: 'grp-qty-1',
   name: 'Proyektor Epson EB-X06',
   reservationMode: ReservationMode.QUANTITY,
+  locationDetail: 'Lantai 1',
+  facilityArea: stubArea,
   facilities: [
     { id: 'unit-1', assetCode: 'PRJ-001', status: FacilityStatus.ACTIVE },
     { id: 'unit-2', assetCode: 'PRJ-002', status: FacilityStatus.ACTIVE },
     { id: 'unit-3', assetCode: 'PRJ-003', status: FacilityStatus.ACTIVE },
   ],
-  location: { id: 'loc-1', name: 'Gedung Utama', detail: 'Lantai 1' },
   facilityType: { id: 'type-1', name: 'Alat Elektronik' },
 };
 
