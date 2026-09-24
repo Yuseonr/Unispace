@@ -32,11 +32,17 @@ export class ApiResponseInterceptor implements NestInterceptor<
 
     const response = context.switchToHttp().getResponse<Response>();
     return next.handle().pipe(
-      map((data): ApiSuccess<unknown> => ({
-        success: true,
-        ...responseMetadata(response, response.statusCode),
-        data: data ?? null,
-      })),
+      map((data): ApiSuccess<unknown> | unknown => {
+        if (response.headersSent) {
+          return data;
+        }
+
+        return {
+          success: true,
+          ...responseMetadata(response, response.statusCode),
+          data: data ?? null,
+        };
+      }),
     );
   }
 }
