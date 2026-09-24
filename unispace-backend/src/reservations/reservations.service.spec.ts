@@ -31,6 +31,8 @@ const stubActiveUser = {
   accountStatus: AccountStatus.ACTIVE,
 };
 
+const stubArea = { id: 'area-1', code: 'FSM', name: 'Gedung Utama FSM' };
+
 const stubExclusiveFacility = {
   id: 'fac-uuid-1',
   facilityGroupId: 'grp-uuid-1',
@@ -41,20 +43,23 @@ const stubExclusiveFacility = {
     id: 'grp-uuid-1',
     name: 'Gedung Serbaguna',
     reservationMode: ReservationMode.EXCLUSIVE,
+    locationDetail: 'Lantai 1',
+    facilityArea: stubArea,
+    facilityType: { id: 'type-1', name: 'Ruang Seminar' },
   },
-  location: { id: 'loc-1', name: 'Gedung Utama', detail: 'Lantai 1' },
 };
 
 const stubQuantityGroup = {
   id: 'grp-qty-1',
   name: 'Proyektor Epson EB-X06',
   reservationMode: ReservationMode.QUANTITY,
+  locationDetail: 'Lantai 1',
+  facilityArea: stubArea,
   facilities: [
     { id: 'unit-1', assetCode: 'PRJ-001', status: FacilityStatus.ACTIVE },
     { id: 'unit-2', assetCode: 'PRJ-002', status: FacilityStatus.ACTIVE },
     { id: 'unit-3', assetCode: 'PRJ-003', status: FacilityStatus.ACTIVE },
   ],
-  location: { id: 'loc-1', name: 'Gedung Utama', detail: 'Lantai 1' },
   facilityType: { id: 'type-1', name: 'Alat Elektronik' },
 };
 
@@ -67,6 +72,7 @@ const prismaMock = {
   facilityGroup: { findFirst: jest.fn() },
   reservation: {
     findFirst: jest.fn(),
+    findUnique: jest.fn(),
     findMany: jest.fn(),
     create: jest.fn(),
     count: jest.fn(),
@@ -814,6 +820,96 @@ describe('ReservationsService - cancelMy', () => {
 
     await expect(
       service.cancelMy(stubActiveUser.id, 'res-non-existent'),
+    ).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('ReservationsService - listStaff & getStaffDetail', () => {
+  let service: ReservationsService;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ReservationsService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
+    }).compile();
+
+    service = module.get<ReservationsService>(ReservationsService);
+  });
+
+  it('mengambil antrean reservasi petugas dengan paginasi dan filter status PENDING terurut decisionDeadline asc', async () => {
+    const stubItems = [
+      {
+        id: 'res-staff-1',
+        userId: stubActiveUser.id,
+        facilityId: stubExclusiveFacility.id,
+        facilityGroupId: null,
+        status: ReservationStatus.PENDING,
+        usageDate: new Date('2026-09-28'),
+        decisionDeadline: new Date('2026-09-24T20:00:00+07:00'),
+        user: stubActiveUser,
+        facility: stubExclusiveFacility,
+        facilityGroup: null,
+        processedBy: null,
+        items: [],
+      },
+    ];
+
+    prismaMock.reservation.count.mockResolvedValue(1);
+    prismaMock.reservation.findMany.mockResolvedValue(stubItems);
+
+    const result = await service.listStaff({
+      status: ReservationStatus.PENDING,
+      page: 1,
+      limit: 10,
+    });
+
+    expect(result.data).toHaveLength(1);
+    expect(result.meta.total).toBe(1);
+    expect(result.data[0].id).toBe('res-staff-1');
+    expect(prismaMock.reservation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ decisionDeadline: 'asc' }, { createdAt: 'asc' }],
+      }),
+    );
+  });
+
+  it('mengambil rincian reservasi untuk petugas dan mengembalikan alokasi aset jika APPROVED', async () => {
+    const stubApprovedItem = {
+      id: 'res-staff-approved',
+      userId: stubActiveUser.id,
+      facilityId: null,
+      facilityGroupId: stubQuantityGroup.id,
+      status: ReservationStatus.APPROVED,
+      usageDate: new Date('2026-09-28'),
+      user: stubActiveUser,
+      facility: null,
+      facilityGroup: stubQuantityGroup,
+      processedBy: { id: 'staff-1', name: 'Petugas Unispace', email: 'staff@kampus.ac.id' },
+      items: [
+        {
+          id: 'item-1',
+          facility: { id: 'unit-1', assetCode: 'PRJ-001', name: 'Proyektor 01' },
+        },
+      ],
+    };
+
+    prismaMock.reservation.findUnique.mockResolvedValue(stubApprovedItem);
+
+    const result = await service.getStaffDetail('res-staff-approved');
+
+    expect(result.id).toBe('res-staff-approved');
+    expect(result.allocatedAssets).toHaveLength(1);
+    expect(result.allocatedAssets[0].assetCode).toBe('PRJ-001');
+  });
+
+  it('melemparkan NotFoundException jika detail reservasi untuk staf tidak ditemukan', async () => {
+    prismaMock.reservation.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.getStaffDetail('res-not-found'),
     ).rejects.toThrow(NotFoundException);
   });
 });

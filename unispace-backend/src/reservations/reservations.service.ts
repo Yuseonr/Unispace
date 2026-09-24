@@ -7,6 +7,7 @@ import {
 import {
   AccountStatus,
   FacilityStatus,
+  Prisma,
   ReservationMode,
   ReservationStatus,
 } from '../generated/prisma/client';
@@ -14,6 +15,7 @@ import { PrismaService } from '../database/prisma.service';
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { GetAvailabilityDto } from './dto/get-availability.dto';
 import { ListMyReservationsDto } from './dto/list-my-reservations.dto';
+import { ListStaffReservationsDto } from './dto/list-staff-reservations.dto';
 import {
   calculateDecisionDeadline,
   formatToJakartaDateString,
@@ -663,7 +665,15 @@ export class ReservationsService {
               id: true,
               name: true,
               assetCode: true,
-              location: { select: { id: true, name: true, detail: true } },
+              facilityGroup: {
+                select: {
+                  id: true,
+                  name: true,
+                  locationDetail: true,
+                  facilityArea: { select: { id: true, code: true, name: true } },
+                  facilityType: { select: { id: true, name: true } },
+                },
+              },
             },
           },
           facilityGroup: {
@@ -671,7 +681,8 @@ export class ReservationsService {
               id: true,
               name: true,
               reservationMode: true,
-              location: { select: { id: true, name: true, detail: true } },
+              locationDetail: true,
+              facilityArea: { select: { id: true, code: true, name: true } },
               facilityType: { select: { id: true, name: true } },
             },
           },
@@ -734,7 +745,15 @@ export class ReservationsService {
             id: true,
             name: true,
             assetCode: true,
-            location: { select: { id: true, name: true, detail: true } },
+            facilityGroup: {
+              select: {
+                id: true,
+                name: true,
+                locationDetail: true,
+                facilityArea: { select: { id: true, code: true, name: true } },
+                facilityType: { select: { id: true, name: true } },
+              },
+            },
           },
         },
         facilityGroup: {
@@ -742,7 +761,8 @@ export class ReservationsService {
             id: true,
             name: true,
             reservationMode: true,
-            location: { select: { id: true, name: true, detail: true } },
+            locationDetail: true,
+            facilityArea: { select: { id: true, code: true, name: true } },
             facilityType: { select: { id: true, name: true } },
           },
         },
@@ -844,5 +864,235 @@ export class ReservationsService {
 
       return updated;
     });
+  }
+
+  /**
+   * Mengambil daftar antrean permohonan reservasi untuk petugas dan admin (FR-RES-05).
+   * Mendukung paginasi, filter status, tanggal, area fasilitas, dan pencarian nama.
+   * Mengurutkan berdasarkan urgensi batas waktu SLA (decisionDeadline asc) saat status PENDING.
+   */
+  async listStaff(query: ListStaffReservationsDto) {
+    const {
+      status,
+      usageDate,
+      facilityId,
+      facilityGroupId,
+      facilityAreaId,
+      search,
+      page = 1,
+      limit = 10,
+    } = query;
+    const skip = (page - 1) * limit;
+
+    let usageDateFilter: Date | undefined;
+    if (usageDate) {
+      const [y, m, d] = usageDate.split('-').map(Number);
+      usageDateFilter = new Date(Date.UTC(y, m - 1, d));
+    }
+
+    const where: Prisma.ReservationWhereInput = {
+      ...(status ? { status } : {}),
+      ...(usageDateFilter ? { usageDate: usageDateFilter } : {}),
+      ...(facilityId ? { facilityId } : {}),
+      ...(facilityGroupId ? { facilityGroupId } : {}),
+    };
+
+    const conditions: Prisma.ReservationWhereInput[] = [];
+
+    if (facilityAreaId) {
+      conditions.push({
+        OR: [
+          { facility: { facilityGroup: { facilityAreaId } } },
+          { facilityGroup: { facilityAreaId } },
+        ],
+      });
+    }
+
+    if (search) {
+      conditions.push({
+        OR: [
+          { user: { name: { contains: search, mode: 'insensitive' } } },
+          { user: { email: { contains: search, mode: 'insensitive' } } },
+          { user: { identityNumber: { contains: search, mode: 'insensitive' } } },
+          { facility: { name: { contains: search, mode: 'insensitive' } } },
+          { facility: { assetCode: { contains: search, mode: 'insensitive' } } },
+          { facilityGroup: { name: { contains: search, mode: 'insensitive' } } },
+          { purpose: { contains: search, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (conditions.length > 0) {
+      where.AND = conditions;
+    }
+
+    // Urutan prioritas: Jika PENDING, utamakan decisionDeadline terdekat (SLA paling kritis)
+    const orderBy: Prisma.ReservationOrderByWithRelationInput[] =
+      status === ReservationStatus.PENDING
+        ? [{ decisionDeadline: 'asc' }, { createdAt: 'asc' }]
+        : [{ usageDate: 'desc' }, { createdAt: 'desc' }];
+
+    const [total, items] = await Promise.all([
+      this.prisma.reservation.count({ where }),
+      this.prisma.reservation.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              identityNumber: true,
+            },
+          },
+          facility: {
+            select: {
+              id: true,
+              name: true,
+              assetCode: true,
+              facilityGroup: {
+                select: {
+                  id: true,
+                  name: true,
+                  locationDetail: true,
+                  facilityArea: { select: { id: true, code: true, name: true } },
+                  facilityType: { select: { id: true, name: true } },
+                },
+              },
+            },
+          },
+          facilityGroup: {
+            select: {
+              id: true,
+              name: true,
+              reservationMode: true,
+              locationDetail: true,
+              facilityArea: { select: { id: true, code: true, name: true } },
+              facilityType: { select: { id: true, name: true } },
+            },
+          },
+          processedBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+          items: {
+            include: {
+              facility: {
+                select: { id: true, assetCode: true, name: true },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const data = items.map((res) => {
+      const allocatedAssets =
+        res.status === ReservationStatus.APPROVED
+          ? res.items.map((item) => ({
+              id: item.facility.id,
+              assetCode: item.facility.assetCode,
+              name: item.facility.name,
+            }))
+          : [];
+
+      return {
+        ...res,
+        allocatedAssets,
+      };
+    });
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
+
+  /**
+   * Mengambil rincian lengkap satu permohonan reservasi untuk petugas dan admin (FR-RES-05).
+   */
+  async getStaffDetail(id: string) {
+    const reservation = await this.prisma.reservation.findUnique({
+      where: { id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            identityNumber: true,
+          },
+        },
+        facility: {
+          select: {
+            id: true,
+            name: true,
+            assetCode: true,
+            facilityGroup: {
+              select: {
+                id: true,
+                name: true,
+                locationDetail: true,
+                facilityArea: { select: { id: true, code: true, name: true } },
+                facilityType: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
+        facilityGroup: {
+          select: {
+            id: true,
+            name: true,
+            reservationMode: true,
+            locationDetail: true,
+            facilityArea: { select: { id: true, code: true, name: true } },
+            facilityType: { select: { id: true, name: true } },
+          },
+        },
+        processedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        items: {
+          include: {
+            facility: {
+              select: { id: true, assetCode: true, name: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!reservation) {
+      throw new NotFoundException('Reservasi tidak ditemukan.');
+    }
+
+    const allocatedAssets =
+      reservation.status === ReservationStatus.APPROVED
+        ? reservation.items.map((item) => ({
+            id: item.facility.id,
+            assetCode: item.facility.assetCode,
+            name: item.facility.name,
+          }))
+        : [];
+
+    return {
+      ...reservation,
+      allocatedAssets,
+    };
   }
 }
