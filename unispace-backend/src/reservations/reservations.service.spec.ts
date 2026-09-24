@@ -230,7 +230,7 @@ describe('ReservationsService - create', () => {
       id: 'res-uuid-1',
       userId: stubActiveUser.id,
       facilityId: stubExclusiveFacility.id,
-      facilityGroupId: stubExclusiveFacility.facilityGroup.id,
+      facilityGroupId: null,
       requestedQuantity: 1,
       usageDate: new Date('2026-09-25T00:00:00.000Z'),
       startTime: new Date(Date.UTC(1970, 0, 1, 8, 0, 0)),
@@ -259,7 +259,16 @@ describe('ReservationsService - create', () => {
       status: ReservationStatus.PENDING,
       requestedQuantity: 1,
     });
-    expect(prismaMock.reservation.create).toHaveBeenCalled();
+    expect(prismaMock.reservation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: stubActiveUser.id,
+          facilityId: stubExclusiveFacility.id,
+          facilityGroupId: null,
+          requestedQuantity: 1,
+        }),
+      }),
+    );
     expect(prismaMock.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
