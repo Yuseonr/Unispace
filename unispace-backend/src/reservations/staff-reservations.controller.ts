@@ -1,12 +1,17 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Query,
 } from '@nestjs/common';
 import { UserRole } from '../generated/prisma/client';
 import { Roles } from '../accounts/auth/decorators/roles.decorator';
+import { CurrentUser } from '../accounts/auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../accounts/auth/auth.types';
+import { ApproveReservationDto } from './dto/approve-reservation.dto';
 import { ListStaffReservationsDto } from './dto/list-staff-reservations.dto';
 import { ReservationsService } from './reservations.service';
 
@@ -34,4 +39,20 @@ export class StaffReservationsController {
   getDetail(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.reservations.getStaffDetail(id);
   }
+
+  /**
+   * PATCH /api/v1/staff/reservations/:id/approve
+   * Menyetujui permohonan reservasi secara atomik oleh petugas atau admin (FR-RES-05).
+   * - Untuk Ruang (EXCLUSIVE): mengunci slot & cascade auto-reject pengajuan PENDING yang bentrok.
+   * - Untuk Kelompok Alat (QUANTITY): mengalokasikan unit aset fisik & cascade auto-reject pengajuan PENDING yang kekurangan stok.
+   */
+  @Patch(':id/approve')
+  approve(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ApproveReservationDto,
+  ) {
+    return this.reservations.approve(user.id, id, dto);
+  }
 }
+

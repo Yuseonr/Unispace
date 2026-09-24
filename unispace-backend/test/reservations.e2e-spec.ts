@@ -76,8 +76,28 @@ const stubExclusiveFacility = {
   },
 };
 
+function getValidFutureOperationalDate(): string {
+
+  const date = new Date();
+  let count = 0;
+  while (count < 4) {
+    date.setDate(date.getDate() + 1);
+    const day = date.getDay();
+    if (day !== 0 && day !== 6) {
+      count++;
+    }
+  }
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${d}`;
+}
+
+const validFutureOperationalDate = getValidFutureOperationalDate();
+
 describe('Reservations HTTP Integration (E2E)', () => {
   let app: INestApplication<App>;
+
   let userToken: string;
   let staffToken: string;
   let prisma: Record<string, unknown>;
@@ -86,6 +106,15 @@ describe('Reservations HTTP Integration (E2E)', () => {
 
   beforeEach(async () => {
     const transaction = {
+      facility: {
+        findUnique: jest.fn(({ where }: { where: { id: string } }) => {
+          if (where.id === stubExclusiveFacility.id) {
+            return Promise.resolve(stubExclusiveFacility);
+          }
+          return Promise.resolve(null);
+        }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       reservation: {
         create: jest.fn(({ data }) =>
           Promise.resolve({
@@ -95,9 +124,23 @@ describe('Reservations HTTP Integration (E2E)', () => {
             facilityGroup: null,
           }),
         ),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      reservationItem: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      maintenancePeriod: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       auditLog: { create: jest.fn().mockResolvedValue({}) },
     };
+
 
     prisma = {
       user: {
@@ -293,7 +336,7 @@ describe('Reservations HTTP Integration (E2E)', () => {
         .set('Authorization', `Bearer ${userToken}`)
         .send({
           facilityId: stubExclusiveFacility.id,
-          usageDate: '2026-09-28',
+          usageDate: validFutureOperationalDate,
           startTime: '08:00',
           endTime: '10:00',
           purpose: 'Kegiatan praktikum mahasiswa semester 5',
@@ -382,5 +425,50 @@ describe('Reservations HTTP Integration (E2E)', () => {
 
       expect(response.status).toBe(400);
     });
+
+    it('menolak persetujuan reservasi jika unauthenticated (401 Unauthorized)', async () => {
+      const response = await request(app.getHttpServer()).patch(
+        '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/approve',
+      );
+
+      expect(response.status).toBe(401);
+    });
+
+    it('menolak persetujuan reservasi jika diakses role USER (403 Forbidden)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(
+          '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/approve',
+        )
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({});
+
+      expect(response.status).toBe(403);
+    });
+
+    it('menolak persetujuan reservasi jika ID bukan UUID valid (400 Bad Request)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch('/api/v1/staff/reservations/not-a-uuid/approve')
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({});
+
+      expect(response.status).toBe(400);
+    });
+
+    it('mengizinkan role STAFF menyetujui reservasi ruang eksklusif secara atomik (200 OK)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(
+          '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/approve',
+        )
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({});
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('success', true);
+      expect(response.body.data).toHaveProperty('id');
+      expect(response.body.data.id).toBe(
+        '70000000-0000-4000-8000-000000000001',
+      );
+    });
   });
 });
+

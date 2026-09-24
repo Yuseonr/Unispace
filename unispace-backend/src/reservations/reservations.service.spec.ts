@@ -68,7 +68,7 @@ const stubQuantityGroup = {
 // ---------------------------------------------------------------------------
 
 const prismaMock = {
-  facility: { findUnique: jest.fn() },
+  facility: { findUnique: jest.fn(), findMany: jest.fn() },
   facilityGroup: { findFirst: jest.fn() },
   reservation: {
     findFirst: jest.fn(),
@@ -77,12 +77,19 @@ const prismaMock = {
     create: jest.fn(),
     count: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
+  },
+  reservationItem: {
+    findFirst: jest.fn(),
+    create: jest.fn(),
+    createMany: jest.fn(),
   },
   maintenancePeriod: { findFirst: jest.fn(), findMany: jest.fn() },
   user: { findUnique: jest.fn() },
   auditLog: { create: jest.fn() },
   $transaction: jest.fn(),
 };
+
 
 describe('ReservationsService - getAvailability', () => {
   let service: ReservationsService;
@@ -913,3 +920,391 @@ describe('ReservationsService - listStaff & getStaffDetail', () => {
     ).rejects.toThrow(NotFoundException);
   });
 });
+
+describe('ReservationsService - approve', () => {
+  let service: ReservationsService;
+  const staffId = 'staff-uuid-001';
+  const now = new Date('2026-09-24T10:00:00+07:00');
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ReservationsService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
+    }).compile();
+
+    service = module.get<ReservationsService>(ReservationsService);
+    jest.clearAllMocks();
+
+    prismaMock.$transaction.mockImplementation((callback: (tx: typeof prismaMock) => unknown) =>
+      callback(prismaMock),
+    );
+  });
+
+  it('melemparkan NotFoundException jika reservasi tidak ditemukan', async () => {
+    prismaMock.reservation.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.approve(staffId, 'non-existent-id', {}),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('melemparkan BadRequestException jika reservasi bukan berstatus PENDING', async () => {
+    prismaMock.reservation.findUnique.mockResolvedValue({
+      id: 'res-already-approved',
+      status: ReservationStatus.APPROVED,
+    });
+
+    await expect(
+      service.approve(staffId, 'res-already-approved', {}),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  describe('Mode Ruang Eksklusif', () => {
+    const stubExclusiveRes = {
+      id: 'res-exc-1',
+      userId: stubActiveUser.id,
+      facilityId: stubExclusiveFacility.id,
+      facilityGroupId: null,
+      requestedQuantity: 1,
+      usageDate: new Date('2026-09-28T00:00:00.000Z'),
+      startTime: new Date(Date.UTC(1970, 0, 1, 9, 0, 0)),
+      endTime: new Date(Date.UTC(1970, 0, 1, 11, 0, 0)),
+      purpose: 'Seminar Nasional FSM',
+      status: ReservationStatus.PENDING,
+      facility: stubExclusiveFacility,
+      facilityGroup: null,
+    };
+
+    it('melemparkan BadRequestException jika allocatedAssetIds disertakan untuk mode ruang', async () => {
+      prismaMock.reservation.findUnique.mockResolvedValue(stubExclusiveRes);
+
+      await expect(
+        service.approve(staffId, stubExclusiveRes.id, {
+          allocatedAssetIds: ['some-asset-id'],
+        }),
+      ).rejects.toThrow(
+        'Alokasi unit aset fisik (allocatedAssetIds) hanya digunakan untuk kelompok alat (QUANTITY).',
+      );
+    });
+
+    it('melemparkan BadRequestException jika fasilitas sedang tidak aktif', async () => {
+      prismaMock.reservation.findUnique.mockResolvedValue({
+        ...stubExclusiveRes,
+        facility: { ...stubExclusiveFacility, status: FacilityStatus.NONACTIVE },
+      });
+
+      await expect(
+        service.approve(staffId, stubExclusiveRes.id, {}),
+      ).rejects.toThrow('Fasilitas sedang tidak aktif.');
+    });
+
+    it('melemparkan BadRequestException jika fasilitas sedang dalam masa pemeliharaan', async () => {
+      prismaMock.reservation.findUnique.mockResolvedValue(stubExclusiveRes);
+      prismaMock.maintenancePeriod.findFirst.mockResolvedValue({
+        id: 'maint-1',
+        facilityId: stubExclusiveFacility.id,
+      });
+
+      await expect(
+        service.approve(staffId, stubExclusiveRes.id, {}),
+      ).rejects.toThrow(
+        'Fasilitas sedang dalam periode pemeliharaan pada jadwal yang dipilih.',
+      );
+    });
+
+    it('melemparkan BadRequestException jika terdapat reservasi APPROVED lain yang bertumpukan', async () => {
+      prismaMock.reservation.findUnique.mockResolvedValue(stubExclusiveRes);
+      prismaMock.maintenancePeriod.findFirst.mockResolvedValue(null);
+      prismaMock.reservation.findFirst.mockResolvedValue({
+        id: 'res-other-approved',
+        status: ReservationStatus.APPROVED,
+      });
+
+      await expect(
+        service.approve(staffId, stubExclusiveRes.id, {}),
+      ).rejects.toThrow(
+        'Slot fasilitas pada jadwal tersebut sudah disetujui untuk reservasi lain.',
+      );
+    });
+
+    it('menyetujui reservasi ruang dan melakukan cascade auto-reject pada pengajuan PENDING yang bentrok', async () => {
+      prismaMock.reservation.findUnique
+        .mockResolvedValueOnce(stubExclusiveRes)
+        .mockResolvedValueOnce({
+          ...stubExclusiveRes,
+          status: ReservationStatus.APPROVED,
+          processedBy: { id: staffId, name: 'Petugas Unispace' },
+          items: [],
+        });
+      prismaMock.maintenancePeriod.findFirst.mockResolvedValue(null);
+      prismaMock.reservation.findFirst.mockResolvedValue(null);
+      prismaMock.reservation.update.mockResolvedValue({});
+      prismaMock.auditLog.create.mockResolvedValue({});
+
+      // Simulasikan ada 2 permohonan PENDING lain yang bentrok
+      prismaMock.reservation.findMany.mockResolvedValue([
+        { id: 'res-conflicting-pending-1' },
+        { id: 'res-conflicting-pending-2' },
+      ]);
+      prismaMock.reservation.updateMany.mockResolvedValue({ count: 2 });
+
+      const result = await service.approve(staffId, stubExclusiveRes.id, {}, now);
+
+      expect(prismaMock.reservation.update).toHaveBeenCalledWith({
+        where: { id: stubExclusiveRes.id },
+        data: {
+          status: ReservationStatus.APPROVED,
+          processedById: staffId,
+          decidedAt: now,
+        },
+      });
+
+      expect(prismaMock.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            actorId: staffId,
+            action: 'RESERVATION_APPROVED',
+            entityId: stubExclusiveRes.id,
+          }),
+        }),
+      );
+
+      // Verifikasi cascade auto-reject
+      expect(prismaMock.reservation.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['res-conflicting-pending-1', 'res-conflicting-pending-2'] } },
+        data: expect.objectContaining({
+          status: ReservationStatus.REJECTED,
+          processedById: staffId,
+          decidedAt: now,
+          decisionReason:
+            'Slot fasilitas telah disetujui untuk permohonan reservasi lain.',
+        }),
+      });
+
+      expect(prismaMock.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            actorId: staffId,
+            action: 'RESERVATION_AUTO_REJECTED',
+            entityId: 'res-conflicting-pending-1',
+          }),
+        }),
+      );
+
+      expect(result.status).toBe(ReservationStatus.APPROVED);
+      expect(result.allocatedAssets).toHaveLength(1);
+      expect(result.allocatedAssets[0].id).toBe(stubExclusiveFacility.id);
+    });
+  });
+
+  describe('Mode Kelompok Alat (QUANTITY)', () => {
+    const stubQuantityRes = {
+      id: 'res-qty-1',
+      userId: stubActiveUser.id,
+      facilityId: null,
+      facilityGroupId: stubQuantityGroup.id,
+      requestedQuantity: 2,
+      usageDate: new Date('2026-09-28T00:00:00.000Z'),
+      startTime: new Date(Date.UTC(1970, 0, 1, 9, 0, 0)),
+      endTime: new Date(Date.UTC(1970, 0, 1, 11, 0, 0)),
+      purpose: 'Peminjaman 2 Proyektor Workshop',
+      status: ReservationStatus.PENDING,
+      facility: null,
+      facilityGroup: stubQuantityGroup,
+    };
+
+    it('melemparkan BadRequestException jika allocatedAssetIds tidak disertakan atau kosong', async () => {
+      prismaMock.reservation.findUnique.mockResolvedValue(stubQuantityRes);
+
+      await expect(
+        service.approve(staffId, stubQuantityRes.id, {}),
+      ).rejects.toThrow(
+        'Alokasi unit aset fisik (allocatedAssetIds) wajib ditentukan untuk permohonan kelompok alat.',
+      );
+    });
+
+    it('melemparkan BadRequestException jika jumlah allocatedAssetIds tidak sama dengan requestedQuantity', async () => {
+      prismaMock.reservation.findUnique.mockResolvedValue(stubQuantityRes);
+
+      await expect(
+        service.approve(staffId, stubQuantityRes.id, {
+          allocatedAssetIds: ['unit-1'],
+        }),
+      ).rejects.toThrow(
+        'Jumlah aset yang dialokasikan (1) harus sama dengan kuantitas yang diajukan (2).',
+      );
+    });
+
+    it('melemparkan BadRequestException jika ada ID aset duplikat dalam daftar alokasi', async () => {
+      prismaMock.reservation.findUnique.mockResolvedValue(stubQuantityRes);
+
+      await expect(
+        service.approve(staffId, stubQuantityRes.id, {
+          allocatedAssetIds: ['unit-1', 'unit-1'],
+        }),
+      ).rejects.toThrow('Terdapat duplikasi ID aset dalam daftar alokasi.');
+    });
+
+    it('melemparkan BadRequestException jika aset yang dialokasikan tidak valid atau bukan milik kelompok', async () => {
+      prismaMock.reservation.findUnique.mockResolvedValue(stubQuantityRes);
+      prismaMock.facility.findMany.mockResolvedValue([
+        { id: 'unit-1', assetCode: 'PRJ-001' },
+      ]);
+
+      await expect(
+        service.approve(staffId, stubQuantityRes.id, {
+          allocatedAssetIds: ['unit-1', 'unit-invalid'],
+        }),
+      ).rejects.toThrow(
+        'Satu atau lebih aset yang dipilih tidak valid, tidak aktif, atau bukan bagian dari kelompok fasilitas ini.',
+      );
+    });
+
+    it('melemparkan BadRequestException jika aset yang dialokasikan sedang dalam pemeliharaan', async () => {
+      prismaMock.reservation.findUnique.mockResolvedValue(stubQuantityRes);
+      prismaMock.facility.findMany.mockResolvedValue([
+        { id: 'unit-1', assetCode: 'PRJ-001' },
+        { id: 'unit-2', assetCode: 'PRJ-002' },
+      ]);
+      prismaMock.maintenancePeriod.findFirst.mockResolvedValue({
+        id: 'maint-unit-1',
+        facilityId: 'unit-1',
+        facility: { assetCode: 'PRJ-001' },
+      });
+
+      await expect(
+        service.approve(staffId, stubQuantityRes.id, {
+          allocatedAssetIds: ['unit-1', 'unit-2'],
+        }),
+      ).rejects.toThrow(
+        'Aset PRJ-001 sedang dalam masa pemeliharaan pada jadwal tersebut.',
+      );
+    });
+
+    it('melemparkan BadRequestException jika aset yang dialokasikan sudah dialokasikan pada reservasi APPROVED lain', async () => {
+      prismaMock.reservation.findUnique.mockResolvedValue(stubQuantityRes);
+      prismaMock.facility.findMany.mockResolvedValue([
+        { id: 'unit-1', assetCode: 'PRJ-001' },
+        { id: 'unit-2', assetCode: 'PRJ-002' },
+      ]);
+      prismaMock.maintenancePeriod.findFirst.mockResolvedValue(null);
+      prismaMock.reservationItem.findFirst.mockResolvedValue({
+        id: 'item-conflict',
+        facilityId: 'unit-1',
+        facility: { assetCode: 'PRJ-001' },
+      });
+
+      await expect(
+        service.approve(staffId, stubQuantityRes.id, {
+          allocatedAssetIds: ['unit-1', 'unit-2'],
+        }),
+      ).rejects.toThrow(
+        'Aset PRJ-001 sudah dialokasikan untuk permohonan reservasi lain pada jadwal yang dipilih.',
+      );
+    });
+
+    it('menyetujui reservasi alat, mencatat ReservationItem, dan cascade auto-reject pengajuan PENDING yang kekurangan stok', async () => {
+      prismaMock.reservation.findUnique
+        .mockResolvedValueOnce(stubQuantityRes)
+        .mockResolvedValueOnce({
+          ...stubQuantityRes,
+          status: ReservationStatus.APPROVED,
+          processedBy: { id: staffId, name: 'Petugas Unispace' },
+          items: [
+            { id: 'item-1', facility: { id: 'unit-1', assetCode: 'PRJ-001', name: 'Proyektor 1' } },
+            { id: 'item-2', facility: { id: 'unit-2', assetCode: 'PRJ-002', name: 'Proyektor 2' } },
+          ],
+        });
+
+      prismaMock.facility.findMany
+        .mockResolvedValueOnce([
+          { id: 'unit-1', assetCode: 'PRJ-001' },
+          { id: 'unit-2', assetCode: 'PRJ-002' },
+        ])
+        .mockResolvedValueOnce([
+          { id: 'unit-1' },
+          { id: 'unit-2' },
+          { id: 'unit-3' },
+        ]);
+
+      prismaMock.maintenancePeriod.findFirst.mockResolvedValue(null);
+      prismaMock.reservationItem.findFirst.mockResolvedValue(null);
+      prismaMock.reservationItem.createMany.mockResolvedValue({ count: 2 });
+      prismaMock.reservation.update.mockResolvedValue({});
+      prismaMock.auditLog.create.mockResolvedValue({});
+
+      const candidatePendingList = [
+        {
+          id: 'res-pending-surplus',
+          requestedQuantity: 1,
+          startTime: new Date(Date.UTC(1970, 0, 1, 9, 30, 0)),
+          endTime: new Date(Date.UTC(1970, 0, 1, 10, 30, 0)),
+        },
+        {
+          id: 'res-pending-shortage',
+          requestedQuantity: 2,
+          startTime: new Date(Date.UTC(1970, 0, 1, 9, 0, 0)),
+          endTime: new Date(Date.UTC(1970, 0, 1, 11, 0, 0)),
+        },
+      ];
+
+      prismaMock.reservation.findMany
+        .mockResolvedValueOnce(candidatePendingList)
+        .mockResolvedValueOnce([
+          {
+            startTime: new Date(Date.UTC(1970, 0, 1, 9, 0, 0)),
+            endTime: new Date(Date.UTC(1970, 0, 1, 11, 0, 0)),
+            requestedQuantity: 2,
+          },
+        ]);
+
+      prismaMock.maintenancePeriod.findMany.mockResolvedValue([]);
+
+      const result = await service.approve(
+        staffId,
+        stubQuantityRes.id,
+        { allocatedAssetIds: ['unit-1', 'unit-2'] },
+        now,
+      );
+
+      expect(prismaMock.reservationItem.createMany).toHaveBeenCalledWith({
+        data: [
+          { reservationId: stubQuantityRes.id, facilityId: 'unit-1' },
+          { reservationId: stubQuantityRes.id, facilityId: 'unit-2' },
+        ],
+      });
+
+      expect(prismaMock.reservation.update).toHaveBeenCalledWith({
+        where: { id: stubQuantityRes.id },
+        data: {
+          status: ReservationStatus.APPROVED,
+          processedById: staffId,
+          decidedAt: now,
+        },
+      });
+
+      expect(prismaMock.reservation.update).toHaveBeenCalledWith({
+        where: { id: 'res-pending-shortage' },
+        data: expect.objectContaining({
+          status: ReservationStatus.REJECTED,
+          decisionReason:
+            'Ketersediaan unit fasilitas tidak lagi mencukupi untuk memenuhi jumlah yang diajukan.',
+        }),
+      });
+
+      expect(prismaMock.reservation.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'res-pending-surplus' },
+        }),
+      );
+
+      expect(result.status).toBe(ReservationStatus.APPROVED);
+      expect(result.allocatedAssets).toHaveLength(2);
+      expect(result.allocatedAssets[0].assetCode).toBe('PRJ-001');
+      expect(result.allocatedAssets[1].assetCode).toBe('PRJ-002');
+    });
+  });
+});
+
