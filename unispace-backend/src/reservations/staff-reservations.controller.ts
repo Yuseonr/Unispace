@@ -17,14 +17,14 @@ import { CancelStaffReservationDto } from './dto/cancel-staff-reservation.dto';
 import { ListStaffReservationsDto } from './dto/list-staff-reservations.dto';
 import { ReservationsService } from './reservations.service';
 
-@Roles(UserRole.STAFF, UserRole.ADMIN)
+@Roles(UserRole.STAFF)
 @Controller('staff/reservations')
 export class StaffReservationsController {
   constructor(private readonly reservations: ReservationsService) {}
 
   /**
    * GET /api/v1/staff/reservations
-   * Mengambil daftar antrean permohonan reservasi untuk petugas dan admin (FR-RES-05).
+   * Mengambil daftar antrean permohonan reservasi untuk petugas (FR-RES-05).
    * Mendukung paginasi, filter status, tanggal, area fasilitas, dan pencarian nama.
    * Mengurutkan berdasarkan urgensi batas waktu SLA (decisionDeadline asc) saat status PENDING.
    */
@@ -35,7 +35,7 @@ export class StaffReservationsController {
 
   /**
    * GET /api/v1/staff/reservations/:id
-   * Mengambil rincian lengkap satu permohonan reservasi untuk petugas dan admin (FR-RES-05).
+   * Mengambil rincian lengkap satu permohonan reservasi untuk petugas (FR-RES-05).
    */
   @Get(':id')
   getDetail(@Param('id', new ParseUUIDPipe()) id: string) {
@@ -44,7 +44,7 @@ export class StaffReservationsController {
 
   /**
    * PATCH /api/v1/staff/reservations/:id/approve
-   * Menyetujui permohonan reservasi secara atomik oleh petugas atau admin (FR-RES-05).
+   * Menyetujui permohonan reservasi secara atomik oleh petugas (FR-RES-04 & FR-RES-05).
    * - Untuk Ruang (EXCLUSIVE): mengunci slot & cascade auto-reject pengajuan PENDING yang bentrok.
    * - Untuk Kelompok Alat (QUANTITY): mengalokasikan unit aset fisik & cascade auto-reject pengajuan PENDING yang kekurangan stok.
    */
@@ -59,7 +59,7 @@ export class StaffReservationsController {
 
   /**
    * PATCH /api/v1/staff/reservations/:id/reject
-   * Menolak permohonan reservasi berstatus PENDING oleh petugas atau admin dengan alasan wajib (FR-RES-05 & RULE-RES-04).
+   * Menolak permohonan reservasi berstatus PENDING oleh petugas dengan alasan wajib (FR-RES-05 & RULE-RES-04).
    */
   @Patch(':id/reject')
   reject(
@@ -72,7 +72,7 @@ export class StaffReservationsController {
 
   /**
    * PATCH /api/v1/staff/reservations/:id/cancel
-   * Membatalkan permohonan reservasi aktif (PENDING atau APPROVED) oleh petugas atau admin dengan alasan wajib (FR-RES-05).
+   * Membatalkan permohonan reservasi aktif (PENDING atau APPROVED) oleh petugas dengan alasan wajib (FR-RES-07).
    */
   @Patch(':id/cancel')
   cancel(
@@ -83,5 +83,6 @@ export class StaffReservationsController {
     return this.reservations.cancelByStaff(user.id, id, dto);
   }
 }
+
 
 

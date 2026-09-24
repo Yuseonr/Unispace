@@ -48,6 +48,22 @@ const testStaff = {
   updatedAt: new Date(),
 };
 
+const testAdmin = {
+  id: '90000000-0000-4000-8000-000000000009',
+  name: 'Administrator Unispace',
+  identityNumber: '197501012000031001',
+  email: 'admin@unispace.test',
+  passwordHash: 'not-used',
+  refreshTokenHash: null,
+  role: UserRole.ADMIN,
+  accountStatus: AccountStatus.ACTIVE,
+  verificationReason: null,
+  verifiedById: null,
+  verifiedAt: new Date(),
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
 const stubExclusiveFacility = {
   id: '30000000-0000-4000-8000-000000000001',
   facilityGroupId: '40000000-0000-4000-8000-000000000001',
@@ -100,6 +116,7 @@ describe('Reservations HTTP Integration (E2E)', () => {
 
   let userToken: string;
   let staffToken: string;
+  let adminToken: string;
   let prisma: Record<string, unknown>;
 
   const jwtSecret = 'access-secret-for-reservations-e2e';
@@ -150,6 +167,9 @@ describe('Reservations HTTP Integration (E2E)', () => {
           }
           if (where.id === testStaff.id) {
             return Promise.resolve(testStaff);
+          }
+          if (where.id === testAdmin.id) {
+            return Promise.resolve(testAdmin);
           }
           return Promise.resolve(null);
         }),
@@ -261,6 +281,10 @@ describe('Reservations HTTP Integration (E2E)', () => {
       { sub: testStaff.id, type: 'access' },
       { secret: jwtSecret },
     );
+    adminToken = await jwt.signAsync(
+      { sub: testAdmin.id, type: 'access' },
+      { secret: jwtSecret },
+    );
   });
 
   afterEach(async () => {
@@ -330,6 +354,21 @@ describe('Reservations HTTP Integration (E2E)', () => {
       expect(response.status).toBe(403);
     });
 
+    it('menolak pengajuan reservasi jika dilakukan oleh role ADMIN (403 Forbidden)', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/reservations')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          facilityId: stubExclusiveFacility.id,
+          usageDate: '2026-09-28',
+          startTime: '08:00',
+          endTime: '10:00',
+          purpose: 'Kegiatan praktikum mahasiswa',
+        });
+
+      expect(response.status).toBe(403);
+    });
+
     it('mengizinkan USER mengajukan permohonan reservasi dengan payload valid (201 Created)', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/reservations')
@@ -367,6 +406,14 @@ describe('Reservations HTTP Integration (E2E)', () => {
 
       expect(response.status).toBe(403);
     });
+
+    it('menolak role ADMIN saat mengakses riwayat pengguna (GET /my -> 403 Forbidden)', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/reservations/my')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(403);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -389,6 +436,14 @@ describe('Reservations HTTP Integration (E2E)', () => {
       expect(response.status).toBe(403);
     });
 
+    it('menolak akses role ADMIN ke antrean staff (403 Forbidden)', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/api/v1/staff/reservations')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(403);
+    });
+
     it('mengizinkan role STAFF mengambil antrean reservasi (200 OK)', async () => {
       const response = await request(app.getHttpServer())
         .get('/api/v1/staff/reservations')
@@ -403,6 +458,16 @@ describe('Reservations HTTP Integration (E2E)', () => {
       expect(response.body.data.data[0].id).toBe(
         '70000000-0000-4000-8000-000000000001',
       );
+    });
+
+    it('menolak akses role ADMIN saat melihat rincian permohonan reservasi staf (403 Forbidden)', async () => {
+      const response = await request(app.getHttpServer())
+        .get(
+          '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001',
+        )
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(403);
     });
 
     it('mengizinkan role STAFF melihat rincian lengkap satu permohonan reservasi (200 OK)', async () => {
@@ -445,6 +510,17 @@ describe('Reservations HTTP Integration (E2E)', () => {
       expect(response.status).toBe(403);
     });
 
+    it('menolak persetujuan reservasi jika diakses role ADMIN (403 Forbidden)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(
+          '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/approve',
+        )
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({});
+
+      expect(response.status).toBe(403);
+    });
+
     it('menolak persetujuan reservasi jika ID bukan UUID valid (400 Bad Request)', async () => {
       const response = await request(app.getHttpServer())
         .patch('/api/v1/staff/reservations/not-a-uuid/approve')
@@ -481,6 +557,17 @@ describe('Reservations HTTP Integration (E2E)', () => {
       expect(response.status).toBe(400);
     });
 
+    it('menolak aksi reject jika diakses role ADMIN (403 Forbidden)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(
+          '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/reject',
+        )
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ reason: 'Fasilitas sedang dipersiapkan untuk kegiatan dinas kampus.' });
+
+      expect(response.status).toBe(403);
+    });
+
     it('mengizinkan role STAFF menolak permohonan reservasi PENDING dengan alasan valid (200 OK)', async () => {
       const response = await request(app.getHttpServer())
         .patch(
@@ -505,6 +592,16 @@ describe('Reservations HTTP Integration (E2E)', () => {
       expect(failResponse.status).toBe(400);
     });
 
+    it('menolak aksi cancel staf jika diakses role ADMIN (403 Forbidden)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(
+          '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/cancel',
+        )
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ reason: 'Agenda darurat institusi membutuhkan ruangan ini.' });
+
+      expect(response.status).toBe(403);
+    });
 
     it('mengizinkan role STAFF membatalkan reservasi aktif dengan alasan valid (200 OK)', async () => {
       const response = await request(app.getHttpServer())

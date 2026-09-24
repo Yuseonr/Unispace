@@ -890,7 +890,7 @@ export class ReservationsService {
   }
 
   /**
-   * Mengambil daftar antrean permohonan reservasi untuk petugas dan admin (FR-RES-05).
+   * Mengambil daftar antrean permohonan reservasi untuk petugas (STAFF) (FR-RES-03).
    * Mendukung paginasi, filter status, tanggal, area fasilitas, dan pencarian nama.
    * Mengurutkan berdasarkan urgensi batas waktu SLA (decisionDeadline asc) saat status PENDING.
    */
@@ -1053,7 +1053,7 @@ export class ReservationsService {
   }
 
   /**
-   * Mengambil rincian lengkap satu permohonan reservasi untuk petugas dan admin (FR-RES-05).
+   * Mengambil rincian lengkap satu permohonan reservasi untuk petugas (STAFF) (FR-RES-03).
    */
   async getStaffDetail(id: string) {
     const reservation = await this.prisma.reservation.findUnique({
@@ -1140,7 +1140,7 @@ export class ReservationsService {
   }
 
   /**
-   * Menyetujui permohonan reservasi secara atomik oleh petugas atau admin (FR-RES-05 & RULE-RES-04).
+   * Menyetujui permohonan reservasi secara atomik oleh petugas (STAFF) (FR-RES-04 & RULE-RES-05).
    * - Mode Ruang (EXCLUSIVE): Mengunci slot waktu & cascade auto-reject pengajuan PENDING yang bentrok.
    * - Mode Alat (QUANTITY): Mengalokasikan unit aset fisik ke ReservationItem & cascade auto-reject pengajuan PENDING yang kekurangan stok.
    */
@@ -1551,7 +1551,7 @@ export class ReservationsService {
   }
 
   /**
-   * Menolak permohonan reservasi berstatus PENDING oleh petugas atau admin (FR-RES-05 & RULE-RES-04).
+   * Menolak permohonan reservasi berstatus PENDING oleh petugas (STAFF) (FR-RES-05 & RULE-RES-08).
    * Alasan penolakan (reason) wajib diisi.
    */
   async reject(
@@ -1603,7 +1603,7 @@ export class ReservationsService {
   }
 
   /**
-   * Membatalkan permohonan reservasi aktif (PENDING atau APPROVED) oleh petugas atau admin (FR-RES-05).
+   * Membatalkan permohonan reservasi aktif (PENDING atau APPROVED) oleh petugas (STAFF) (FR-RES-07 & RULE-RES-08).
    * Alasan pembatalan (reason) wajib diisi.
    */
   async cancelByStaff(
