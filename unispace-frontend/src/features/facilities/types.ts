@@ -12,6 +12,7 @@ export type FacilityVisualTheme = "forest" | "sage" | "sun" | "mint";
 
 export type FacilityArea = {
   code: string;
+  id?: string;
   name: string;
 };
 
@@ -21,19 +22,24 @@ type ExclusiveAvailability = {
 };
 
 type QuantityAvailability = {
-  availableUnits: number;
+  activeUnits?: number;
+  availableUnits?: number;
   kind: "QUANTITY";
-  totalActiveUnits: number;
+  totalActiveUnits?: number;
 };
 
 export type CatalogFacility = {
   availability: ExclusiveAvailability | QuantityAvailability;
   capacity: number | null;
+  description?: string | null;
   facilityArea: FacilityArea;
+  facilityTypeId?: string;
   id: string;
+  kind?: "EXCLUSIVE" | "QUANTITY";
   locationDetail: string;
   name: string;
+  primaryImageUrl?: string | null;
   status: FacilityStatus;
-  type: FacilityType;
+  type: string;
   visualTheme: FacilityVisualTheme;
 };

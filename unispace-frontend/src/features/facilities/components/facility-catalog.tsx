@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { facilityTypes, type CatalogFacility, type FacilityType } from "../types";
+import { fetchPublicCatalog, type CatalogFilterOption } from "../data/catalog-api";
+import type { CatalogFacility } from "../types";
 import { FacilityCard } from "./facility-card";
 import { SiteFooter } from "./site-footer";
 
@@ -30,73 +31,83 @@ function toggleValue<Value>(values: Value[], value: Value) {
 }
 
 function matchesCapacity(capacity: number | null, filters: CapacityFilter[]) {
-  if (filters.length === 0) {
-    return true;
-  }
-
-  if (capacity === null) {
-    return false;
-  }
+  if (filters.length === 0) return true;
+  if (capacity === null) return false;
 
   return filters.some((filter) => {
-    if (filter === "small") {
-      return capacity <= 20;
-    }
-
-    if (filter === "medium") {
-      return capacity >= 21 && capacity <= 50;
-    }
-
+    if (filter === "small") return capacity <= 20;
+    if (filter === "medium") return capacity >= 21 && capacity <= 50;
     return capacity > 50;
   });
 }
 
-export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] }) {
-  const [query, setQuery] = useState("");
-  const [selectedTypes, setSelectedTypes] = useState<FacilityType[]>([]);
-  const [selectedAreaCodes, setSelectedAreaCodes] = useState<string[]>([]);
-  const [selectedCapacities, setSelectedCapacities] = useState<CapacityFilter[]>([]);
+function matchesType(facility: CatalogFacility, selectedTypes: string[]) {
+  if (selectedTypes.length === 0) return true;
+  return selectedTypes.includes(facility.facilityTypeId ?? facility.type);
+}
 
-  const facilityAreas = useMemo(
-    () =>
-      Array.from(
-        new Map(
-          facilities.map((facility) => [facility.facilityArea.code, facility.facilityArea]),
-        ).values(),
-      ).sort((first, second) => first.name.localeCompare(second.name, "id-ID")),
-    [facilities],
-  );
+function matchesArea(facility: CatalogFacility, selectedAreas: string[]) {
+  if (selectedAreas.length === 0) return true;
+  return selectedAreas.includes(facility.facilityArea.id ?? facility.facilityArea.code);
+}
+
+export function FacilityCatalog() {
+  const [facilities, setFacilities] = useState<CatalogFacility[]>([]);
+  const [facilityTypes, setFacilityTypes] = useState<CatalogFilterOption[]>([]);
+  const [facilityAreas, setFacilityAreas] = useState<CatalogFilterOption[]>([]);
+  const [query, setQuery] = useState("");
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [selectedAreas, setSelectedAreas] = useState<string[]>([]);
+  const [selectedCapacities, setSelectedCapacities] = useState<CapacityFilter[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    fetchPublicCatalog()
+      .then((catalog) => {
+        if (!isMounted) return;
+        setFacilities(catalog.facilities);
+        setFacilityTypes(catalog.types);
+        setFacilityAreas(catalog.areas);
+      })
+      .catch(() => {
+        if (isMounted) setError("Katalog fasilitas belum dapat dimuat. Coba lagi beberapa saat.");
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const visibleFacilities = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase("id-ID");
 
     return facilities.filter((facility) => {
-      const matchesQuery =
-        normalizedQuery.length === 0 ||
-        `${facility.name} ${facility.type} ${facility.facilityArea.name} ${facility.locationDetail}`
-          .toLocaleLowerCase("id-ID")
-          .includes(normalizedQuery);
+      const searchableText = `${facility.name} ${facility.type} ${facility.facilityArea.name} ${facility.locationDetail} ${facility.description ?? ""}`
+        .toLocaleLowerCase("id-ID");
+      const matchesQuery = normalizedQuery.length === 0 || searchableText.includes(normalizedQuery);
 
       return (
         matchesQuery &&
-        (selectedTypes.length === 0 || selectedTypes.includes(facility.type)) &&
-        (selectedAreaCodes.length === 0 ||
-          selectedAreaCodes.includes(facility.facilityArea.code)) &&
+        matchesType(facility, selectedTypes) &&
+        matchesArea(facility, selectedAreas) &&
         matchesCapacity(facility.capacity, selectedCapacities)
       );
     });
-  }, [facilities, query, selectedAreaCodes, selectedCapacities, selectedTypes]);
+  }, [facilities, query, selectedAreas, selectedCapacities, selectedTypes]);
 
   const hasActiveFilter =
-    query.length > 0 ||
-    selectedTypes.length > 0 ||
-    selectedAreaCodes.length > 0 ||
-    selectedCapacities.length > 0;
+    query.length > 0 || selectedTypes.length > 0 || selectedAreas.length > 0 || selectedCapacities.length > 0;
 
   function resetFilters() {
     setQuery("");
     setSelectedTypes([]);
-    setSelectedAreaCodes([]);
+    setSelectedAreas([]);
     setSelectedCapacities([]);
   }
 
@@ -104,10 +115,10 @@ export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] 
     <main className="landing catalog-page">
       <section className="catalog-directory" aria-labelledby="catalog-title">
         <form
+          aria-labelledby="catalog-title"
           className="catalog-search"
           onSubmit={(event) => event.preventDefault()}
           role="search"
-          aria-labelledby="catalog-title"
         >
           <h1 className="sr-only" id="catalog-title">
             Katalog fasilitas
@@ -126,7 +137,7 @@ export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] 
         </form>
 
         <div className="catalog-layout">
-          <aside className="catalog-sidebar" aria-label="Filter katalog">
+          <aside aria-label="Filter katalog" className="catalog-sidebar">
             <div className="catalog-sidebar__heading">
               <h2>Filter pencarian</h2>
               {hasActiveFilter ? (
@@ -138,7 +149,7 @@ export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] 
 
             <fieldset className="filter-group">
               <legend>Tipe fasilitas</legend>
-              <label key="all-types">
+              <label>
                 <input
                   checked={selectedTypes.length === 0}
                   onChange={() => setSelectedTypes([])}
@@ -147,36 +158,32 @@ export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] 
                 Semua tipe
               </label>
               {facilityTypes.map((facilityType) => (
-                <label key={facilityType}>
+                <label key={facilityType.id}>
                   <input
-                    checked={selectedTypes.includes(facilityType)}
-                    onChange={() =>
-                      setSelectedTypes((current) => toggleValue(current, facilityType))
-                    }
+                    checked={selectedTypes.includes(facilityType.id)}
+                    onChange={() => setSelectedTypes((current) => toggleValue(current, facilityType.id))}
                     type="checkbox"
                   />
-                  {facilityType}
+                  {facilityType.name}
                 </label>
               ))}
             </fieldset>
 
             <fieldset className="filter-group">
               <legend>Fakultas / area kampus</legend>
-              <label key="all-areas">
+              <label>
                 <input
-                  checked={selectedAreaCodes.length === 0}
-                  onChange={() => setSelectedAreaCodes([])}
+                  checked={selectedAreas.length === 0}
+                  onChange={() => setSelectedAreas([])}
                   type="checkbox"
                 />
                 Semua area
               </label>
               {facilityAreas.map((area) => (
-                <label key={area.code}>
+                <label key={area.id}>
                   <input
-                    checked={selectedAreaCodes.includes(area.code)}
-                    onChange={() =>
-                      setSelectedAreaCodes((current) => toggleValue(current, area.code))
-                    }
+                    checked={selectedAreas.includes(area.id)}
+                    onChange={() => setSelectedAreas((current) => toggleValue(current, area.id))}
                     type="checkbox"
                   />
                   {area.name}
@@ -186,7 +193,7 @@ export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] 
 
             <fieldset className="filter-group">
               <legend>Kapasitas</legend>
-              <label key="all-capacities">
+              <label>
                 <input
                   checked={selectedCapacities.length === 0}
                   onChange={() => setSelectedCapacities([])}
@@ -198,9 +205,7 @@ export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] 
                 <label key={option.value}>
                   <input
                     checked={selectedCapacities.includes(option.value)}
-                    onChange={() =>
-                      setSelectedCapacities((current) => toggleValue(current, option.value))
-                    }
+                    onChange={() => setSelectedCapacities((current) => toggleValue(current, option.value))}
                     type="checkbox"
                   />
                   {option.label}
@@ -209,18 +214,28 @@ export function FacilityCatalog({ facilities }: { facilities: CatalogFacility[] 
             </fieldset>
           </aside>
 
-          <section className="catalog-results" aria-labelledby="catalog-list-title">
-            <div className="catalog-results__meta" aria-live="polite">
+          <section aria-labelledby="catalog-list-title" className="catalog-results">
+            <div aria-live="polite" className="catalog-results__meta">
               <div>
-                <h2 id="catalog-list-title">{visibleFacilities.length} fasilitas ditemukan</h2>
+                <h2 id="catalog-list-title">
+                  {isLoading ? "Memuat katalog…" : `${visibleFacilities.length} fasilitas ditemukan`}
+                </h2>
               </div>
             </div>
 
             <div className="facility-grid">
-              {visibleFacilities.length > 0 ? (
-                visibleFacilities.map((facility) => (
-                  <FacilityCard facility={facility} key={facility.id} />
-                ))
+              {isLoading ? (
+                <div className="empty-state">
+                  <strong>Memuat fasilitas.</strong>
+                  <span>Mengambil katalog terbaru dari Unispace.</span>
+                </div>
+              ) : error ? (
+                <div className="empty-state">
+                  <strong>Katalog belum tersedia.</strong>
+                  <span>{error}</span>
+                </div>
+              ) : visibleFacilities.length > 0 ? (
+                visibleFacilities.map((facility) => <FacilityCard facility={facility} key={facility.id} />)
               ) : (
                 <div className="empty-state">
                   <strong>Belum menemukan fasilitas.</strong>
