@@ -285,19 +285,23 @@
 }
 
 .admin-profile-dropdown button {
-  background: #fff0f0;
+  background: transparent;
   border: 0;
-  border-radius: 10px;
   color: #d94d4d;
   font-size: 0.78rem;
-  padding: 0.75rem 0.84rem;
+  padding: 0.55rem 0;
   text-align: left;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.25rem;
+  width: 100%;
 }
 
 .admin-profile-dropdown button:hover,
 .admin-profile-dropdown button:focus-visible {
-  background: #ffe1e1;
+  background: transparent;
   color: #b93838;
+  text-decoration-color: currentColor;
 }
 
 .admin-empty-dashboard {
@@ -1416,6 +1420,129 @@ button {
   padding: 0 1.1rem;
 }
 
+.header-profile {
+  position: relative;
+}
+
+.header-profile__trigger {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--forest-deep);
+  display: inline-flex;
+  gap: 0.55rem;
+  max-width: 250px;
+  padding: 0.2rem 0;
+  text-align: left;
+}
+
+.header-profile__trigger:hover,
+.header-profile__trigger:focus-visible {
+  color: var(--forest);
+}
+
+.header-profile__avatar {
+  align-items: center;
+  background: var(--soft-green);
+  border: 1px solid #bdd8c2;
+  border-radius: 50%;
+  color: var(--forest);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 850;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.header-profile__copy {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.header-profile__copy strong,
+.header-profile__copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-profile__copy strong {
+  font-size: 0.73rem;
+  font-weight: 800;
+}
+
+.header-profile__copy small {
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.header-profile__trigger > svg {
+  fill: none;
+  flex: 0 0 auto;
+  height: 16px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 16px;
+}
+
+.header-profile__menu {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 36px rgb(6 52 49 / 12%);
+  min-width: 230px;
+  padding: 0.75rem;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.7rem);
+  z-index: 40;
+}
+
+.header-profile__identity {
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.25rem 0.35rem 0.7rem;
+}
+
+.header-profile__identity strong {
+  color: var(--forest-deep);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.header-profile__identity span {
+  color: var(--muted);
+  font-size: 0.63rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-profile__menu > button {
+  background: transparent;
+  border: 0;
+  color: #c94b4b;
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.7rem 0.35rem 0.2rem;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.25rem;
+  width: 100%;
+}
+
+.header-profile__menu > button:hover,
+.header-profile__menu > button:focus-visible {
+  text-decoration-color: currentColor;
+}
+
 .button-primary {
   background: var(--forest);
   color: var(--paper);
@@ -1835,6 +1962,14 @@ button {
   z-index: 1;
 }
 
+.facility-visual__image {
+  height: 100%;
+  object-fit: cover;
+  position: relative;
+  width: 100%;
+  z-index: 1;
+}
+
 .facility-card__body {
   display: flex;
   flex: 1;
@@ -2172,6 +2307,10 @@ button {
   padding: 0 1rem;
 }
 
+.catalog-loading {
+  color: var(--muted);
+}
+
 .auth-page {
   background: var(--cream);
   display: grid;
@@ -2403,6 +2542,14 @@ button {
   .header-button {
     min-height: 36px;
     padding: 0 0.9rem;
+  }
+
+  .header-profile__copy {
+    max-width: 150px;
+  }
+
+  .header-profile__menu {
+    right: -0.5rem;
   }
 
   .landing {

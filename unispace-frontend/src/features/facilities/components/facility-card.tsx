@@ -1,6 +1,11 @@
-import type { CatalogFacility, FacilityType } from "../types";
+"use client";
 
-function FacilityArtwork({ type }: { type: FacilityType }) {
+import Image from "next/image";
+import { useState } from "react";
+
+import type { CatalogFacility } from "../types";
+
+function FacilityArtwork({ type }: { type: string }) {
   if (type === "Lapangan") {
     return (
       <svg viewBox="0 0 100 100" fill="none" aria-hidden="true">
@@ -39,6 +44,27 @@ function FacilityArtwork({ type }: { type: FacilityType }) {
   );
 }
 
+function FacilityVisual({ facility }: { facility: CatalogFacility }) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  if (facility.primaryImageUrl && !imageFailed) {
+    return (
+      <Image
+        alt={`Foto ${facility.name}`}
+        className="facility-visual__image"
+        fill
+        loading="lazy"
+        onError={() => setImageFailed(true)}
+        src={facility.primaryImageUrl}
+        sizes="(max-width: 560px) 100vw, (max-width: 820px) 50vw, 33vw"
+        unoptimized
+      />
+    );
+  }
+
+  return <FacilityArtwork type={facility.type} />;
+}
+
 function PinIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -75,7 +101,9 @@ export function FacilityCard({ facility }: { facility: CatalogFacility }) {
   const isMaintenance = facility.status === "MAINTENANCE";
   const availabilityText =
     facility.availability.kind === "QUANTITY"
-      ? `${facility.availability.availableUnits}/${facility.availability.totalActiveUnits} unit tersedia`
+      ? "activeUnits" in facility.availability
+        ? `${facility.availability.activeUnits ?? 0} unit aktif`
+        : `${facility.availability.availableUnits ?? 0}/${facility.availability.totalActiveUnits ?? 0} unit tersedia`
       : facility.availability.label;
   const capacityText =
     facility.capacity === null ? "Kapasitas fleksibel" : `Hingga ${facility.capacity} orang`;
@@ -94,7 +122,7 @@ export function FacilityCard({ facility }: { facility: CatalogFacility }) {
         data-theme={facility.visualTheme}
         role="img"
       >
-        <FacilityArtwork type={facility.type} />
+        <FacilityVisual facility={facility} />
       </div>
       <div className="facility-card__body">
         <div className="facility-card__topline">
