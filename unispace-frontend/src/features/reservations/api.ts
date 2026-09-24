@@ -3,7 +3,11 @@ import { apiRequest } from "@/lib/api/client";
 import type {
   CreateReservationInput,
   FacilityAvailabilityData,
+  ListMyReservationsQuery,
+  MyReservationsResponse,
+  ReservationStatus,
   ReservationSummary,
+  UserReservationItem,
 } from "./types";
 
 export const TIMEZONE = "Asia/Jakarta";
@@ -194,21 +198,133 @@ export async function fetchSlotAvailability(params: {
   );
 }
 
+export type AuthenticatedRequestFn = <T>(
+  path: string,
+  options?: {
+    body?: BodyInit | Record<string, unknown> | null;
+    method?: string;
+  },
+) => Promise<T>;
+
 /**
  * Kirim permohonan reservasi baru via request terautentikasi
  */
 export async function createReservation(
   input: CreateReservationInput,
-  requestFn: <T>(
-    path: string,
-    options?: {
-      body?: BodyInit | Record<string, unknown> | null;
-      method?: string;
-    },
-  ) => Promise<T>,
+  requestFn: AuthenticatedRequestFn,
 ): Promise<ReservationSummary> {
   return requestFn<ReservationSummary>("/reservations", {
     body: input as Record<string, unknown>,
     method: "POST",
   });
 }
+
+/**
+ * Ambil daftar riwayat reservasi pengguna (mendukung filter status, tanggal, dan paginasi)
+ */
+export async function fetchMyReservations(
+  query: ListMyReservationsQuery = {},
+  requestFn: AuthenticatedRequestFn,
+): Promise<MyReservationsResponse> {
+  const searchParams = new URLSearchParams();
+  if (query.status) searchParams.set("status", query.status);
+  if (query.usageDate) searchParams.set("usageDate", query.usageDate);
+  if (query.page) searchParams.set("page", String(query.page));
+  if (query.limit) searchParams.set("limit", String(query.limit));
+
+  const qs = searchParams.toString();
+  return requestFn<MyReservationsResponse>(`/reservations/my${qs ? `?${qs}` : ""}`);
+}
+
+/**
+ * Batalkan reservasi mandiri oleh pemohon (hanya PENDING/APPROVED dan sebelum H-1 20.00 WIB)
+ */
+export async function cancelMyReservation(
+  id: string,
+  requestFn: AuthenticatedRequestFn,
+): Promise<UserReservationItem> {
+  return requestFn<UserReservationItem>(`/reservations/my/${id}/cancel`, {
+    method: "PATCH",
+  });
+}
+
+/**
+ * Format string jam HH:mm (mendukung format "08:00" maupun ISO Date "1970-01-01T08:00:00.000Z")
+ */
+export function formatSlotTime(timeStr: string): string {
+  if (!timeStr) return "--:--";
+  if (/^\d{2}:\d{2}$/.test(timeStr)) return timeStr;
+  if (/^\d{2}:\d{2}:/.test(timeStr)) return timeStr.slice(0, 5);
+  try {
+    const d = new Date(timeStr);
+    if (!isNaN(d.getTime())) {
+      const h = String(d.getUTCHours()).padStart(2, "0");
+      const m = String(d.getUTCMinutes()).padStart(2, "0");
+      return `${h}:${m}`;
+    }
+  } catch {
+    // fallback
+  }
+  return timeStr;
+}
+
+/**
+ * Konfigurasi badge status reservasi (label dalam Bahasa Indonesia dan varian visual)
+ */
+export function getReservationStatusConfig(status: ReservationStatus): {
+  badgeClass: string;
+  description: string;
+  label: string;
+} {
+  switch (status) {
+    case "PENDING":
+      return {
+        badgeClass: "badge--pending",
+        description: "Menunggu verifikasi dan persetujuan dari petugas kampus.",
+        label: "Menunggu Persetujuan",
+      };
+    case "APPROVED":
+      return {
+        badgeClass: "badge--approved",
+        description: "Permohonan telah disetujui. Fasilitas siap digunakan sesuai jadwal.",
+        label: "Disetujui",
+      };
+    case "REJECTED":
+      return {
+        badgeClass: "badge--rejected",
+        description: "Permohonan tidak dapat disetujui.",
+        label: "Ditolak",
+      };
+    case "CANCELLED_BY_USER":
+      return {
+        badgeClass: "badge--cancelled",
+        description: "Reservasi dibatalkan secara mandiri oleh pemohon.",
+        label: "Dibatalkan Pengguna",
+      };
+    case "CANCELLED_BY_STAFF":
+      return {
+        badgeClass: "badge--cancelled",
+        description: "Reservasi dibatalkan oleh pihak pengelola / petugas.",
+        label: "Dibatalkan Petugas",
+      };
+    case "CANCELLED_BY_SYSTEM":
+      return {
+        badgeClass: "badge--cancelled",
+        description: "Reservasi dibatalkan otomatis oleh sistem karena melewati tenggat waktu keputusan.",
+        label: "Dibatalkan Sistem",
+      };
+    case "COMPLETED":
+      return {
+        badgeClass: "badge--completed",
+        description: "Kegiatan peminjaman telah selesai dilaksanakan.",
+        label: "Selesai",
+      };
+    default:
+      return {
+        badgeClass: "badge--default",
+        description: "",
+        label: status,
+      };
+  }
+}
+
