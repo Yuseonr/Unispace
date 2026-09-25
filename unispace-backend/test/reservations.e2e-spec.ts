@@ -143,7 +143,7 @@ describe('Reservations HTTP Integration (E2E)', () => {
         findFirst: jest.fn().mockResolvedValue(null),
         findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn().mockResolvedValue({}),
-        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       reservationItem: {
         findFirst: jest.fn().mockResolvedValue(null),
@@ -174,6 +174,12 @@ describe('Reservations HTTP Integration (E2E)', () => {
       },
       facility: {
         findUnique: jest.fn(({ where }: { where: { id: string } }) => {
+          if (where.id === stubExclusiveFacility.id) {
+            return Promise.resolve(stubExclusiveFacility);
+          }
+          return Promise.resolve(null);
+        }),
+        findFirst: jest.fn(({ where }: { where: { id: string } }) => {
           if (where.id === stubExclusiveFacility.id) {
             return Promise.resolve(stubExclusiveFacility);
           }

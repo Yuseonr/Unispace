@@ -8,15 +8,12 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import {
   AccountStatus,
   FacilityStatus,
+  Prisma,
   ReservationMode,
   ReservationStatus,
 } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { ReservationsService } from './reservations.service';
-import {
-  addOperationalDays,
-  formatToJakartaDateString,
-} from './utils/reservation-time.util';
 
 // ---------------------------------------------------------------------------
 // Stub Data
@@ -89,126 +86,6 @@ const prismaMock = {
   auditLog: { create: jest.fn() },
   $transaction: jest.fn(),
 };
-
-describe('ReservationsService - getAvailability', () => {
-  let service: ReservationsService;
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ReservationsService,
-        { provide: PrismaService, useValue: prismaMock },
-      ],
-    }).compile();
-
-    service = module.get<ReservationsService>(ReservationsService);
-    jest.clearAllMocks();
-    prismaMock.$transaction.mockImplementation(
-      (callback: (tx: typeof prismaMock) => Promise<unknown>) =>
-        callback(prismaMock),
-    );
-  });
-
-  it('mengembalikan 26 slot 30 menit untuk ruang eksklusif', async () => {
-    const today = formatToJakartaDateString(new Date());
-    const testDate = addOperationalDays(today, 2);
-
-    prismaMock.facility.findUnique.mockResolvedValue(stubExclusiveFacility);
-    prismaMock.reservation.findMany.mockResolvedValue([]);
-    prismaMock.maintenancePeriod.findMany.mockResolvedValue([]);
-
-    const result = await service.getAvailability({
-      facilityId: stubExclusiveFacility.id,
-      usageDate: testDate,
-    });
-
-    expect(result.slots.length).toBe(26);
-    expect(result.slots[0].startTime).toBe('07:00');
-    expect(result.slots[0].endTime).toBe('07:30');
-    expect(result.slots[25].startTime).toBe('19:30');
-    expect(result.slots[25].endTime).toBe('20:00');
-    expect(result.slots.every((s: { available: boolean }) => s.available)).toBe(
-      true,
-    );
-  });
-
-  it('menandai slot tidak tersedia pada akhir pekan', async () => {
-    prismaMock.facility.findUnique.mockResolvedValue(stubExclusiveFacility);
-    prismaMock.reservation.findMany.mockResolvedValue([]);
-    prismaMock.maintenancePeriod.findMany.mockResolvedValue([]);
-
-    // 2026-09-20 adalah hari Minggu
-    const result = await service.getAvailability({
-      facilityId: stubExclusiveFacility.id,
-      usageDate: '2026-09-20',
-    });
-
-    expect(result.isOperationalDay).toBe(false);
-    expect(
-      result.slots.every((s: { available: boolean }) => !s.available),
-    ).toBe(true);
-    expect(result.slots[0].reason).toBe('NON_OPERATIONAL_DAY');
-  });
-
-  it('menghitung sisa kuantitas unit pada kelompok alat (QUANTITY)', async () => {
-    const today = formatToJakartaDateString(new Date());
-    const testDate = addOperationalDays(today, 2);
-
-    prismaMock.facilityGroup.findFirst.mockResolvedValue(stubQuantityGroup);
-    prismaMock.reservation.findMany.mockResolvedValue([
-      {
-        startTime: new Date(Date.UTC(1970, 0, 1, 8, 0, 0)),
-        endTime: new Date(Date.UTC(1970, 0, 1, 9, 0, 0)),
-        requestedQuantity: 2,
-      },
-    ]);
-    prismaMock.maintenancePeriod.findMany.mockResolvedValue([]);
-
-    const result = await service.getAvailability({
-      facilityGroupId: stubQuantityGroup.id,
-      usageDate: testDate,
-    });
-
-    expect(result.totalActiveUnits).toBe(3);
-    // Slot 08.00 - 08.30 (index 2): 3 - 2 = 1 unit tersedia
-    const slot8am = result.slots.find(
-      (s: { startTime: string }) => s.startTime === '08:00',
-    );
-    expect(slot8am.availableUnits).toBe(1);
-    expect(slot8am.available).toBe(true);
-
-    // Slot 07.00 - 07.30 (index 0): 3 unit tersedia
-    const slot7am = result.slots.find(
-      (s: { startTime: string }) => s.startTime === '07:00',
-    );
-    expect(slot7am.availableUnits).toBe(3);
-  });
-
-  it('menolak query jika tidak menyertakan target atau menyertakan keduanya', async () => {
-    await expect(
-      service.getAvailability({ usageDate: '2026-09-25' }),
-    ).rejects.toThrow(BadRequestException);
-
-    await expect(
-      service.getAvailability({
-        facilityId: 'fac-1',
-        facilityGroupId: 'grp-1',
-        usageDate: '2026-09-25',
-      }),
-    ).rejects.toThrow(BadRequestException);
-  });
-
-  it('melemparkan NotFoundException jika ruang atau kelompok tidak ditemukan', async () => {
-    prismaMock.facility.findUnique.mockResolvedValue(null);
-
-    await expect(
-      service.getAvailability({
-        facilityId: 'non-existent',
-        usageDate: '2026-09-25',
-      }),
-    ).rejects.toThrow(NotFoundException);
-  });
-});
 
 describe('ReservationsService - create', () => {
   let service: ReservationsService;
@@ -985,6 +862,7 @@ describe('ReservationsService - approve', () => {
     prismaMock.$transaction.mockImplementation(
       (callback: (tx: typeof prismaMock) => unknown) => callback(prismaMock),
     );
+    prismaMock.reservation.updateMany.mockResolvedValue({ count: 1 });
   });
 
   it('melemparkan NotFoundException jika reservasi tidak ditemukan', async () => {
@@ -1077,6 +955,40 @@ describe('ReservationsService - approve', () => {
       );
     });
 
+    it('mengulang approval bila PostgreSQL mendeteksi konflik serialisasi', async () => {
+      prismaMock.reservation.findUnique.mockResolvedValue(stubExclusiveRes);
+      prismaMock.maintenancePeriod.findFirst.mockResolvedValue(null);
+      prismaMock.reservation.findFirst.mockResolvedValue(null);
+      prismaMock.reservation.findMany.mockResolvedValue([]);
+      prismaMock.reservation.updateMany.mockResolvedValue({ count: 1 });
+      prismaMock.$transaction.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('serialization failure', {
+          code: 'P2034',
+          clientVersion: 'test',
+        }),
+      );
+
+      await service.approve(staffId, stubExclusiveRes.id, {}, now);
+
+      expect(prismaMock.$transaction).toHaveBeenCalledTimes(2);
+      expect(prismaMock.$transaction).toHaveBeenCalledWith(
+        expect.any(Function),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    });
+
+    it('does not approve when another staff has already changed the request status', async () => {
+      prismaMock.reservation.findUnique.mockResolvedValue(stubExclusiveRes);
+      prismaMock.maintenancePeriod.findFirst.mockResolvedValue(null);
+      prismaMock.reservation.findFirst.mockResolvedValue(null);
+      prismaMock.reservation.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.approve(staffId, stubExclusiveRes.id, {}, now),
+      ).rejects.toThrow('Reservasi sudah diproses oleh petugas lain.');
+      expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
+    });
+
     it('menyetujui reservasi ruang dan melakukan cascade auto-reject pada pengajuan PENDING yang bentrok', async () => {
       prismaMock.reservation.findUnique
         .mockResolvedValueOnce(stubExclusiveRes)
@@ -1096,7 +1008,9 @@ describe('ReservationsService - approve', () => {
         { id: 'res-conflicting-pending-1' },
         { id: 'res-conflicting-pending-2' },
       ]);
-      prismaMock.reservation.updateMany.mockResolvedValue({ count: 2 });
+      prismaMock.reservation.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValue({ count: 2 });
 
       const result = await service.approve(
         staffId,
@@ -1105,8 +1019,11 @@ describe('ReservationsService - approve', () => {
         now,
       );
 
-      expect(prismaMock.reservation.update).toHaveBeenCalledWith({
-        where: { id: stubExclusiveRes.id },
+      expect(prismaMock.reservation.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: stubExclusiveRes.id,
+          status: ReservationStatus.PENDING,
+        },
         data: {
           status: ReservationStatus.APPROVED,
           processedById: staffId,
@@ -1347,8 +1264,11 @@ describe('ReservationsService - approve', () => {
         ],
       });
 
-      expect(prismaMock.reservation.update).toHaveBeenCalledWith({
-        where: { id: stubQuantityRes.id },
+      expect(prismaMock.reservation.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: stubQuantityRes.id,
+          status: ReservationStatus.PENDING,
+        },
         data: {
           status: ReservationStatus.APPROVED,
           processedById: staffId,

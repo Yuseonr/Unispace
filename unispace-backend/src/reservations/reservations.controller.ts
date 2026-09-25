@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   Get,
   Param,
@@ -13,6 +14,8 @@ import { CurrentUser } from '../accounts/auth/decorators/current-user.decorator'
 import { Public } from '../accounts/auth/decorators/public.decorator';
 import { Roles } from '../accounts/auth/decorators/roles.decorator';
 import type { AuthenticatedUser } from '../accounts/auth/auth.types';
+import { FacilityAvailabilityService } from '../facilities/catalog/facility-availability.service';
+import { QueryAvailabilityDto } from '../facilities/dto/catalog';
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { GetAvailabilityDto } from './dto/get-availability.dto';
 import { ListMyReservationsDto } from './dto/list-my-reservations.dto';
@@ -20,7 +23,10 @@ import { ReservationsService } from './reservations.service';
 
 @Controller('reservations')
 export class ReservationsController {
-  constructor(private readonly reservations: ReservationsService) {}
+  constructor(
+    private readonly reservations: ReservationsService,
+    private readonly availability: FacilityAvailabilityService,
+  ) {}
 
   /**
    * GET /api/v1/reservations/availability
@@ -30,7 +36,21 @@ export class ReservationsController {
   @Public()
   @Get('availability')
   getAvailability(@Query() query: GetAvailabilityDto) {
-    return this.reservations.getAvailability(query);
+    const { facilityId, facilityGroupId, usageDate } = query;
+    if ((!facilityId && !facilityGroupId) || (facilityId && facilityGroupId)) {
+      throw new BadRequestException(
+        'Pilih salah satu: facilityId (ruang eksklusif) atau facilityGroupId (kelompok alat).',
+      );
+    }
+
+    const availabilityQuery: QueryAvailabilityDto = {
+      date: usageDate,
+      kind: facilityGroupId ? 'group' : 'unit',
+    };
+    return this.availability.getAvailability(
+      facilityId ?? facilityGroupId!,
+      availabilityQuery,
+    );
   }
 
   /**
