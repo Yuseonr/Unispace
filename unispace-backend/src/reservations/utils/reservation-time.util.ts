@@ -117,6 +117,22 @@ export function formatToJakartaDateString(date: Date): string {
 }
 
 /**
+ * Mengubah objek Date ke jumlah menit sejak tengah malam pada zona waktu Asia/Jakarta (WIB).
+ * Contoh: 2026-01-12T20:00 WIB -> 1200.
+ */
+export function toJakartaMinutesOfDay(date: Date): number {
+  const jakartaTime = new Intl.DateTimeFormat('en-GB', {
+    timeZone: TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(date);
+
+  const [hour, minute] = jakartaTime.split(':').map(Number);
+  return hour * 60 + minute;
+}
+
+/**
  * Mendapatkan nomor hari dalam sepekan di zona Jakarta:
  * 0 = Minggu, 1 = Senin, ..., 5 = Jumat, 6 = Sabtu
  */
