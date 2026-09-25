@@ -446,7 +446,7 @@ export function getReservationStatusConfig(status: ReservationStatus): {
       return {
         badgeClass: "badge--pending",
         description: "Menunggu verifikasi dan persetujuan dari petugas kampus.",
-        label: "Menunggu Persetujuan",
+        label: "Menunggu",
       };
     case "APPROVED":
       return {
