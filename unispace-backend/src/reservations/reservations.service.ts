@@ -87,6 +87,103 @@ export class ReservationsService {
     }
   }
 
+  private async lockQuantityApprovalContext(
+    transaction: Pick<Prisma.TransactionClient, '$executeRaw'>,
+    facilityGroupId: string,
+    usageDate: Date,
+  ) {
+    const usageDateKey = [
+      usageDate.getUTCFullYear(),
+      String(usageDate.getUTCMonth() + 1).padStart(2, '0'),
+      String(usageDate.getUTCDate()).padStart(2, '0'),
+    ].join('-');
+
+    await transaction.$executeRaw`
+      SELECT pg_advisory_xact_lock(
+        hashtext(${facilityGroupId}),
+        hashtext(${usageDateKey})
+      )
+    `;
+  }
+
+  private selectAvailableQuantityUnits(
+    transaction: Pick<Prisma.TransactionClient, 'facility'>,
+    params: {
+      facilityGroupId: string;
+      usageDate: Date;
+      startTime: Date;
+      endTime: Date;
+      startUtc: Date;
+      endUtc: Date;
+      requestedQuantity: number;
+    },
+  ) {
+    return transaction.facility.findMany({
+      where: {
+        facilityGroupId: params.facilityGroupId,
+        status: { not: FacilityStatus.NONACTIVE },
+        maintenancePeriods: {
+          none: {
+            startAt: { lt: params.endUtc },
+            endAt: { gt: params.startUtc },
+          },
+        },
+        reservationItems: {
+          none: {
+            reservation: {
+              status: ReservationStatus.APPROVED,
+              usageDate: params.usageDate,
+              startTime: { lt: params.endTime },
+              endTime: { gt: params.startTime },
+            },
+          },
+        },
+      },
+      select: { id: true, assetCode: true },
+      orderBy: [{ assetCode: 'asc' }, { id: 'asc' }],
+      take: params.requestedQuantity,
+    });
+  }
+
+  private async rejectPendingReservation(
+    transaction: Pick<Prisma.TransactionClient, 'reservation' | 'auditLog'>,
+    params: {
+      reservationId: string;
+      staffId: string;
+      decidedAt: Date;
+      reason: string;
+      action: 'RESERVATION_REJECTED' | 'RESERVATION_AUTO_REJECTED';
+      metadata: Prisma.InputJsonObject;
+    },
+  ) {
+    const result = await transaction.reservation.updateMany({
+      where: {
+        id: params.reservationId,
+        status: ReservationStatus.PENDING,
+      },
+      data: {
+        status: ReservationStatus.REJECTED,
+        processedById: params.staffId,
+        decidedAt: params.decidedAt,
+        decisionReason: params.reason,
+      },
+    });
+
+    if (result.count === 1) {
+      await transaction.auditLog.create({
+        data: {
+          actorId: params.staffId,
+          action: params.action,
+          entityType: 'RESERVATION',
+          entityId: params.reservationId,
+          metadata: params.metadata,
+        },
+      });
+    }
+
+    return result.count === 1;
+  }
+
   /**
    * Mengajukan permohonan reservasi baru oleh pengguna terautentikasi (FR-RES-01).
    * Melakukan validasi izin akun, aturan waktu Jakarta, ketersediaan slot,
@@ -938,45 +1035,49 @@ export class ReservationsService {
     dto: ApproveReservationDto,
     now: Date = new Date(),
   ) {
-    const reservation = await this.prisma.reservation.findUnique({
-      where: { id },
-      include: {
-        facility: {
-          select: {
-            id: true,
-            name: true,
-            assetCode: true,
-            status: true,
-            facilityGroupId: true,
-          },
-        },
-        facilityGroup: {
-          select: {
-            id: true,
-            name: true,
-            reservationMode: true,
-          },
-        },
-      },
-    });
-
-    if (!reservation) {
-      throw new NotFoundException('Reservasi tidak ditemukan.');
-    }
-
-    if (reservation.status !== ReservationStatus.PENDING) {
-      throw new BadRequestException(
-        'Hanya reservasi berstatus PENDING yang dapat disetujui.',
-      );
-    }
-
-    if (reservation.decisionDeadline && reservation.decisionDeadline <= now) {
-      throw new BadRequestException(
-        'Permohonan reservasi tidak dapat disetujui karena telah melewati batas tenggat evaluasi petugas (SLA Expired).',
-      );
-    }
+    // Kompatibilitas sementara: field lama tetap diterima, tetapi keputusan
+    // pemilihan unit fisik selalu dibuat oleh backend.
+    void dto;
 
     await this.runSerializableTransaction(async (tx) => {
+      const reservation = await tx.reservation.findUnique({
+        where: { id },
+        include: {
+          facility: {
+            select: {
+              id: true,
+              name: true,
+              assetCode: true,
+              status: true,
+              facilityGroupId: true,
+            },
+          },
+          facilityGroup: {
+            select: {
+              id: true,
+              name: true,
+              reservationMode: true,
+            },
+          },
+        },
+      });
+
+      if (!reservation) {
+        throw new NotFoundException('Reservasi tidak ditemukan.');
+      }
+
+      if (reservation.status !== ReservationStatus.PENDING) {
+        throw new BadRequestException(
+          'Hanya reservasi berstatus PENDING yang dapat disetujui.',
+        );
+      }
+
+      if (reservation.decisionDeadline && reservation.decisionDeadline <= now) {
+        throw new BadRequestException(
+          'Permohonan reservasi tidak dapat disetujui karena telah melewati batas tenggat evaluasi petugas (SLA Expired).',
+        );
+      }
+
       const uYear = reservation.usageDate.getUTCFullYear();
       const uMonth = reservation.usageDate.getUTCMonth();
       const uDay = reservation.usageDate.getUTCDate();
@@ -992,12 +1093,6 @@ export class ReservationsService {
         // =====================================================================
         // A. Mode Ruang Tunggal (EXCLUSIVE)
         // =====================================================================
-        if (dto.allocatedAssetIds && dto.allocatedAssetIds.length > 0) {
-          throw new BadRequestException(
-            'Alokasi unit aset fisik (allocatedAssetIds) hanya digunakan untuk kelompok alat (QUANTITY).',
-          );
-        }
-
         if (reservation.facility?.status === FacilityStatus.NONACTIVE) {
           throw new BadRequestException('Fasilitas sedang tidak aktif.');
         }
@@ -1062,30 +1157,18 @@ export class ReservationsService {
         });
 
         if (conflictingPending.length > 0) {
-          const pendingIds = conflictingPending.map((p) => p.id);
-          await tx.reservation.updateMany({
-            where: { id: { in: pendingIds } },
-            data: {
-              status: ReservationStatus.REJECTED,
-              processedById: staffId,
+          for (const pending of conflictingPending) {
+            await this.rejectPendingReservation(tx, {
+              reservationId: pending.id,
+              staffId,
               decidedAt: now,
-              decisionReason:
+              reason:
                 'Slot fasilitas telah disetujui untuk permohonan reservasi lain.',
-            },
-          });
-
-          for (const pendingId of pendingIds) {
-            await tx.auditLog.create({
-              data: {
-                actorId: staffId,
-                action: 'RESERVATION_AUTO_REJECTED',
-                entityType: 'RESERVATION',
-                entityId: pendingId,
-                metadata: {
-                  reason:
-                    'Slot fasilitas telah disetujui untuk permohonan reservasi lain.',
-                  conflictingApprovedReservationId: reservation.id,
-                },
+              action: 'RESERVATION_AUTO_REJECTED',
+              metadata: {
+                reason:
+                  'Slot fasilitas telah disetujui untuk permohonan reservasi lain.',
+                conflictingApprovedReservationId: reservation.id,
               },
             });
           }
@@ -1094,73 +1177,56 @@ export class ReservationsService {
         // =====================================================================
         // B. Mode Kelompok Alat (QUANTITY)
         // =====================================================================
-        const allocatedAssetIds = dto.allocatedAssetIds ?? [];
-        if (allocatedAssetIds.length === 0) {
-          throw new BadRequestException(
-            'Alokasi unit aset fisik (allocatedAssetIds) wajib ditentukan untuk permohonan kelompok alat.',
-          );
-        }
+        await this.lockQuantityApprovalContext(
+          tx,
+          reservation.facilityGroupId,
+          reservation.usageDate,
+        );
 
-        if (allocatedAssetIds.length !== reservation.requestedQuantity) {
-          throw new BadRequestException(
-            `Jumlah aset yang dialokasikan (${allocatedAssetIds.length}) harus sama dengan kuantitas yang diajukan (${reservation.requestedQuantity}).`,
-          );
-        }
-
-        const uniqueAssetIds = new Set(allocatedAssetIds);
-        if (uniqueAssetIds.size !== allocatedAssetIds.length) {
-          throw new BadRequestException(
-            'Terdapat duplikasi ID aset dalam daftar alokasi.',
-          );
-        }
-
-        const validFacilities = await tx.facility.findMany({
-          where: {
-            id: { in: allocatedAssetIds },
+        const allocatedFacilities = await this.selectAvailableQuantityUnits(
+          tx,
+          {
             facilityGroupId: reservation.facilityGroupId,
-            status: { not: FacilityStatus.NONACTIVE },
+            usageDate: reservation.usageDate,
+            startTime: reservation.startTime,
+            endTime: reservation.endTime,
+            startUtc,
+            endUtc,
+            requestedQuantity: reservation.requestedQuantity,
           },
-          select: { id: true, assetCode: true },
-        });
+        );
 
-        if (validFacilities.length !== allocatedAssetIds.length) {
-          throw new BadRequestException(
-            'Satu atau lebih aset yang dipilih tidak valid, tidak aktif, atau bukan bagian dari kelompok fasilitas ini.',
-          );
-        }
-
-        const maintenance = await tx.maintenancePeriod.findFirst({
-          where: {
-            facilityId: { in: allocatedAssetIds },
-            startAt: { lt: endUtc },
-            endAt: { gt: startUtc },
-          },
-          include: { facility: { select: { assetCode: true } } },
-        });
-        if (maintenance) {
-          throw new BadRequestException(
-            `Aset ${maintenance.facility.assetCode} sedang dalam masa pemeliharaan pada jadwal tersebut.`,
-          );
-        }
-
-        const conflictingItem = await tx.reservationItem.findFirst({
-          where: {
-            facilityId: { in: allocatedAssetIds },
-            reservation: {
-              id: { not: reservation.id },
-              status: ReservationStatus.APPROVED,
-              usageDate: reservation.usageDate,
-              startTime: { lt: reservation.endTime },
-              endTime: { gt: reservation.startTime },
+        if (allocatedFacilities.length !== reservation.requestedQuantity) {
+          const rejectionReason =
+            'Ketersediaan unit fasilitas berubah dan tidak lagi mencukupi untuk memenuhi jumlah yang diajukan.';
+          const wasRejected = await this.rejectPendingReservation(tx, {
+            reservationId: reservation.id,
+            staffId,
+            decidedAt: now,
+            reason: rejectionReason,
+            action: 'RESERVATION_REJECTED',
+            metadata: {
+              reason: rejectionReason,
+              requestedQuantity: reservation.requestedQuantity,
+              availableQuantity: allocatedFacilities.length,
+              rejectionSource: 'APPROVAL_STOCK_RECONCILIATION',
             },
-          },
-          include: { facility: { select: { assetCode: true } } },
-        });
-        if (conflictingItem) {
-          throw new BadRequestException(
-            `Aset ${conflictingItem.facility.assetCode} sudah dialokasikan untuk permohonan reservasi lain pada jadwal yang dipilih.`,
-          );
+          });
+
+          if (!wasRejected) {
+            throw new BadRequestException(
+              'Reservasi sudah diproses oleh petugas lain.',
+            );
+          }
+
+          return;
         }
+
+        const allocatedAssetIds = allocatedFacilities.map(
+          (facility) => facility.id,
+        );
+
+        await this.markReservationApproved(tx, reservation.id, staffId, now);
 
         await tx.reservationItem.createMany({
           data: allocatedAssetIds.map((assetId) => ({
@@ -1168,8 +1234,6 @@ export class ReservationsService {
             facilityId: assetId,
           })),
         });
-
-        await this.markReservationApproved(tx, reservation.id, staffId, now);
 
         await tx.auditLog.create({
           data: {
@@ -1297,33 +1361,26 @@ export class ReservationsService {
             }
 
             if (hasInsufficientStock) {
-              await tx.reservation.update({
-                where: { id: pending.id },
-                data: {
-                  status: ReservationStatus.REJECTED,
-                  processedById: staffId,
-                  decidedAt: now,
-                  decisionReason:
+              await this.rejectPendingReservation(tx, {
+                reservationId: pending.id,
+                staffId,
+                decidedAt: now,
+                reason:
+                  'Ketersediaan unit fasilitas tidak lagi mencukupi untuk memenuhi jumlah yang diajukan.',
+                action: 'RESERVATION_AUTO_REJECTED',
+                metadata: {
+                  reason:
                     'Ketersediaan unit fasilitas tidak lagi mencukupi untuk memenuhi jumlah yang diajukan.',
-                },
-              });
-
-              await tx.auditLog.create({
-                data: {
-                  actorId: staffId,
-                  action: 'RESERVATION_AUTO_REJECTED',
-                  entityType: 'RESERVATION',
-                  entityId: pending.id,
-                  metadata: {
-                    reason:
-                      'Ketersediaan unit fasilitas tidak lagi mencukupi untuk memenuhi jumlah yang diajukan.',
-                    approvedReservationId: reservation.id,
-                  },
+                  approvedReservationId: reservation.id,
                 },
               });
             }
           }
         }
+      } else {
+        throw new BadRequestException(
+          'Reservasi tidak memiliki target fasilitas yang valid.',
+        );
       }
     });
 
