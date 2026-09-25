@@ -1,6 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
-  IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -67,7 +67,7 @@ export class UpdateFacilityUnitDto {
 
 /** Lifecycle unit terpisah agar tidak tercampur dengan pembaruan metadata. */
 export class UpdateFacilityStatusDto {
-  @IsEnum(FacilityStatus, {
+  @IsIn([FacilityStatus.ACTIVE, FacilityStatus.NONACTIVE], {
     message: 'status harus berupa ACTIVE atau NONACTIVE',
   })
   status!: FacilityStatus;

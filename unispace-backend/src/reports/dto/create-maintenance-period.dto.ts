@@ -46,14 +46,15 @@ export class MaintenanceSlotConstraint implements ValidatorConstraintInterface {
 }
 
 @ValidatorConstraint({ name: 'maintenanceRange', async: false })
-export class MaintenanceRangeConstraint
-  implements ValidatorConstraintInterface
-{
+export class MaintenanceRangeConstraint implements ValidatorConstraintInterface {
   validate(_value: unknown, args: ValidationArguments): boolean {
     const dto = args.object as CreateMaintenancePeriodDto;
 
     if (dto.mode === MaintenanceMode.DATE_RANGE) {
-      if (typeof dto.startDate !== 'string' || typeof dto.endDate !== 'string') {
+      if (
+        typeof dto.startDate !== 'string' ||
+        typeof dto.endDate !== 'string'
+      ) {
         return true;
       }
       if (
@@ -74,10 +75,7 @@ export class MaintenanceRangeConstraint
       ) {
         return true;
       }
-      if (
-        dto.startDate !== undefined ||
-        dto.endDate !== undefined
-      ) {
+      if (dto.startDate !== undefined || dto.endDate !== undefined) {
         return false;
       }
       if (
@@ -86,7 +84,9 @@ export class MaintenanceRangeConstraint
       ) {
         return true;
       }
-      return parseTimeToMinutes(dto.startTime) < parseTimeToMinutes(dto.endTime);
+      return (
+        parseTimeToMinutes(dto.startTime) < parseTimeToMinutes(dto.endTime)
+      );
     }
 
     return true;
@@ -103,28 +103,43 @@ export class CreateMaintenancePeriodDto {
   @Validate(MaintenanceRangeConstraint)
   mode: MaintenanceMode;
 
-  @ValidateIf((dto: CreateMaintenancePeriodDto) => dto.mode === MaintenanceMode.DATE_RANGE)
+  @ValidateIf(
+    (dto: CreateMaintenancePeriodDto) =>
+      dto.mode === MaintenanceMode.DATE_RANGE,
+  )
   @IsDefined({ message: 'startDate is required for DATE_RANGE mode.' })
   @IsDateString()
   startDate?: string;
 
-  @ValidateIf((dto: CreateMaintenancePeriodDto) => dto.mode === MaintenanceMode.DATE_RANGE)
+  @ValidateIf(
+    (dto: CreateMaintenancePeriodDto) =>
+      dto.mode === MaintenanceMode.DATE_RANGE,
+  )
   @IsDefined({ message: 'endDate is required for DATE_RANGE mode.' })
   @IsDateString()
   endDate?: string;
 
-  @ValidateIf((dto: CreateMaintenancePeriodDto) => dto.mode === MaintenanceMode.TIME_RANGE)
+  @ValidateIf(
+    (dto: CreateMaintenancePeriodDto) =>
+      dto.mode === MaintenanceMode.TIME_RANGE,
+  )
   @IsDefined({ message: 'date is required for TIME_RANGE mode.' })
   @IsDateString()
   date?: string;
 
-  @ValidateIf((dto: CreateMaintenancePeriodDto) => dto.mode === MaintenanceMode.TIME_RANGE)
+  @ValidateIf(
+    (dto: CreateMaintenancePeriodDto) =>
+      dto.mode === MaintenanceMode.TIME_RANGE,
+  )
   @IsDefined({ message: 'startTime is required for TIME_RANGE mode.' })
   @Transform(trimValue)
   @Validate(MaintenanceSlotConstraint)
   startTime?: string;
 
-  @ValidateIf((dto: CreateMaintenancePeriodDto) => dto.mode === MaintenanceMode.TIME_RANGE)
+  @ValidateIf(
+    (dto: CreateMaintenancePeriodDto) =>
+      dto.mode === MaintenanceMode.TIME_RANGE,
+  )
   @IsDefined({ message: 'endTime is required for TIME_RANGE mode.' })
   @Transform(trimValue)
   @Validate(MaintenanceSlotConstraint)

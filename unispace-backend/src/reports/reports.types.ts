@@ -74,8 +74,19 @@ export type PaginatedReportsResponse = {
 export type MaintenanceImpactResponse = {
   reportId: string;
   facilityId: string;
-  approvedReservations: Array<{ id: string; usageDate: string; startTime: string; endTime: string }>;
-  pendingReservations: Array<{ id: string; usageDate: string; startTime: string; endTime: string; requestedQuantity: number }>;
+  approvedReservations: Array<{
+    id: string;
+    usageDate: string;
+    startTime: string;
+    endTime: string;
+  }>;
+  pendingReservations: Array<{
+    id: string;
+    usageDate: string;
+    startTime: string;
+    endTime: string;
+    requestedQuantity: number;
+  }>;
 };
 
 export type ReportAuditLogResponse = {

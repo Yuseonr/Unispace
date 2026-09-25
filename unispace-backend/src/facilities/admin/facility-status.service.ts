@@ -17,6 +17,12 @@ export class FacilityStatusService {
     facilityId: string,
     newStatus: FacilityStatus,
   ) {
+    if (newStatus === FacilityStatus.IN_MAINTENANCE) {
+      throw new BadRequestException(
+        'Status IN_MAINTENANCE ditentukan otomatis dari periode perbaikan.',
+      );
+    }
+
     const facility = await this.prisma.facility.findUnique({
       where: { id: facilityId },
       include: {

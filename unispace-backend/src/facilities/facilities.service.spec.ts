@@ -908,6 +908,18 @@ describe('facility domain services', () => {
     const adminId = 'admin-uuid-1';
     const facilityId = 'fac-1';
 
+    it('menolak status IN_MAINTENANCE yang ditetapkan langsung oleh admin', async () => {
+      await expect(
+        status.adminUpdateUnitStatus(
+          adminId,
+          facilityId,
+          FacilityStatus.IN_MAINTENANCE,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(prismaMock.facility.findUnique).not.toHaveBeenCalled();
+    });
+
     it('menolak penonaktifan fasilitas bila masih ada reservasi APPROVED yang belum selesai', async () => {
       prismaMock.facility.findUnique.mockResolvedValue({
         id: facilityId,

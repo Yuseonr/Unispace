@@ -106,8 +106,8 @@ describe('ReportsService lifecycle', () => {
     });
     prisma.reservation.findMany.mockResolvedValue([]);
     prisma.maintenancePeriod.findMany.mockResolvedValue([]);
-    prisma.$transaction.mockImplementation(async (callback: (tx: MockPrisma) => unknown) =>
-      callback(prisma),
+    prisma.$transaction.mockImplementation(
+      async (callback: (tx: MockPrisma) => unknown) => callback(prisma),
     );
   });
 
@@ -118,8 +118,18 @@ describe('ReportsService lifecycle', () => {
       createMockReport({
         status: ReportStatus.IN_PROGRESS,
         acceptedAt: new Date('2026-01-10T09:00:00.000Z'),
-        acceptedBy: { id: 'staff-1', name: 'Staff A', identityNumber: 'STAFF-1', email: 'staff@example.test' },
-        processedBy: { id: 'staff-1', name: 'Staff A', identityNumber: 'STAFF-1', email: 'staff@example.test' },
+        acceptedBy: {
+          id: 'staff-1',
+          name: 'Staff A',
+          identityNumber: 'STAFF-1',
+          email: 'staff@example.test',
+        },
+        processedBy: {
+          id: 'staff-1',
+          name: 'Staff A',
+          identityNumber: 'STAFF-1',
+          email: 'staff@example.test',
+        },
       }),
     );
 
@@ -181,7 +191,10 @@ describe('ReportsService lifecycle', () => {
         where: expect.objectContaining({
           OR: expect.arrayContaining([
             { entityType: 'FACILITY_REPORT', entityId: 'report-1' },
-            { entityType: 'MAINTENANCE_PERIOD', entityId: { in: ['period-1'] } },
+            {
+              entityType: 'MAINTENANCE_PERIOD',
+              entityId: { in: ['period-1'] },
+            },
             { entityType: 'FACILITY', entityId: 'facility-1' },
           ]),
         }),
@@ -197,12 +210,26 @@ describe('ReportsService lifecycle', () => {
         status: ReportStatus.REJECTED,
         decisionReason: 'Konten tidak valid',
         acceptedAt: new Date('2026-01-10T09:00:00.000Z'),
-        acceptedBy: { id: 'staff-1', name: 'Staff A', identityNumber: 'STAFF-1', email: 'staff@example.test' },
-        processedBy: { id: 'staff-1', name: 'Staff A', identityNumber: 'STAFF-1', email: 'staff@example.test' },
+        acceptedBy: {
+          id: 'staff-1',
+          name: 'Staff A',
+          identityNumber: 'STAFF-1',
+          email: 'staff@example.test',
+        },
+        processedBy: {
+          id: 'staff-1',
+          name: 'Staff A',
+          identityNumber: 'STAFF-1',
+          email: 'staff@example.test',
+        },
       }),
     );
 
-    const result = await service.reject('staff-1', 'report-1', 'Konten tidak valid');
+    const result = await service.reject(
+      'staff-1',
+      'report-1',
+      'Konten tidak valid',
+    );
 
     expect(prisma.facilityReport.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -224,12 +251,26 @@ describe('ReportsService lifecycle', () => {
         status: ReportStatus.RESOLVED,
         resolutionNote: 'AC sudah diperbaiki',
         resolvedAt: new Date('2026-01-10T09:30:00.000Z'),
-        resolvedBy: { id: 'staff-1', name: 'Staff A', identityNumber: 'STAFF-1', email: 'staff@example.test' },
-        processedBy: { id: 'staff-1', name: 'Staff A', identityNumber: 'STAFF-1', email: 'staff@example.test' },
+        resolvedBy: {
+          id: 'staff-1',
+          name: 'Staff A',
+          identityNumber: 'STAFF-1',
+          email: 'staff@example.test',
+        },
+        processedBy: {
+          id: 'staff-1',
+          name: 'Staff A',
+          identityNumber: 'STAFF-1',
+          email: 'staff@example.test',
+        },
       }),
     );
 
-    const result = await service.resolve('staff-1', 'report-1', 'AC sudah diperbaiki');
+    const result = await service.resolve(
+      'staff-1',
+      'report-1',
+      'AC sudah diperbaiki',
+    );
 
     expect(prisma.facilityReport.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -253,9 +294,9 @@ describe('ReportsService lifecycle', () => {
     await expect(service.accept('staff-1', 'report-1')).rejects.toBeInstanceOf(
       ConflictException,
     );
-    await expect(service.resolve('staff-1', 'report-1', 'note')).rejects.toBeInstanceOf(
-      ConflictException,
-    );
+    await expect(
+      service.resolve('staff-1', 'report-1', 'note'),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('blocks resolution only while maintenance belongs to the same report', async () => {
@@ -305,14 +346,18 @@ describe('ReportsService lifecycle', () => {
       note: 'Pemeliharaan AC',
     });
 
-    const result = await service.confirmMaintenancePeriod('staff-1', 'report-1', {
-      mode: 'DATE_RANGE',
-      startDate: '2026-01-12',
-      endDate: '2026-01-12',
-      cancelImpactedReservations: true,
-      cancellationReason: 'Pemeliharaan AC',
-      note: 'Pemeliharaan AC',
-    });
+    const result = await service.confirmMaintenancePeriod(
+      'staff-1',
+      'report-1',
+      {
+        mode: 'DATE_RANGE',
+        startDate: '2026-01-12',
+        endDate: '2026-01-12',
+        cancelImpactedReservations: true,
+        cancellationReason: 'Pemeliharaan AC',
+        note: 'Pemeliharaan AC',
+      },
+    );
 
     expect(prisma.maintenancePeriod.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -359,7 +404,11 @@ describe('ReportsService lifecycle', () => {
       note: 'Pemeliharaan AC',
     });
 
-    const result = await service.endMaintenancePeriod('staff-1', 'period-1', new Date('2026-01-12T09:00:00.000Z'));
+    const result = await service.endMaintenancePeriod(
+      'staff-1',
+      'period-1',
+      new Date('2026-01-12T09:00:00.000Z'),
+    );
 
     expect(prisma.maintenancePeriod.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -369,14 +418,20 @@ describe('ReportsService lifecycle', () => {
         }),
       }),
     );
-    expect(result.endAt).toBe(new Date('2026-01-12T09:00:00.000Z').toISOString());
+    expect(result.endAt).toBe(
+      new Date('2026-01-12T09:00:00.000Z').toISOString(),
+    );
   });
 
   it('throws when the maintenance period does not exist', async () => {
     prisma.maintenancePeriod.findUnique.mockResolvedValue(null);
 
     await expect(
-      service.endMaintenancePeriod('staff-1', 'missing-period', new Date('2026-01-12T09:00:00.000Z')),
+      service.endMaintenancePeriod(
+        'staff-1',
+        'missing-period',
+        new Date('2026-01-12T09:00:00.000Z'),
+      ),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -409,7 +464,9 @@ describe('ReportsService lifecycle', () => {
 
     expect(result.approvedReservations.map((r) => r.id)).toContain('res-early');
     expect(result.approvedReservations).toHaveLength(1);
-    expect(result.pendingReservations.map((r) => r.id)).not.toContain('res-midday');
+    expect(result.pendingReservations.map((r) => r.id)).not.toContain(
+      'res-midday',
+    );
   });
 
   it('returns impacted reservations for a maintenance window', async () => {
@@ -481,13 +538,17 @@ describe('ReportsService lifecycle', () => {
       note: 'Pemeliharaan AC',
     });
 
-    const result = await service.confirmMaintenancePeriod('staff-1', 'report-1', {
-      mode: 'DATE_RANGE',
-      startDate: '2026-01-12',
-      endDate: '2026-01-12',
-      cancelImpactedReservations: true,
-      cancellationReason: 'Pemeliharaan AC',
-    });
+    const result = await service.confirmMaintenancePeriod(
+      'staff-1',
+      'report-1',
+      {
+        mode: 'DATE_RANGE',
+        startDate: '2026-01-12',
+        endDate: '2026-01-12',
+        cancelImpactedReservations: true,
+        cancellationReason: 'Pemeliharaan AC',
+      },
+    );
 
     expect(prisma.reservation.updateMany).toHaveBeenCalledTimes(2);
     expect(result.approvedCancelled).toBe(1);
@@ -544,17 +605,24 @@ describe('ReportsService lifecycle', () => {
     });
     prisma.reservation.updateMany.mockResolvedValue({ count: 1 });
 
-    const result = await service.confirmMaintenancePeriod('staff-1', 'report-1', {
-      mode: 'DATE_RANGE',
-      startDate: '2026-01-12',
-      endDate: '2026-01-12',
-      cancelImpactedReservations: true,
-      cancellationReason: 'Pemeliharaan AC',
-    });
+    const result = await service.confirmMaintenancePeriod(
+      'staff-1',
+      'report-1',
+      {
+        mode: 'DATE_RANGE',
+        startDate: '2026-01-12',
+        endDate: '2026-01-12',
+        cancelImpactedReservations: true,
+        cancellationReason: 'Pemeliharaan AC',
+      },
+    );
 
     expect(prisma.maintenancePeriod.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ reportId: 'report-1', facilityId: 'facility-1' }),
+        data: expect.objectContaining({
+          reportId: 'report-1',
+          facilityId: 'facility-1',
+        }),
       }),
     );
     expect(prisma.reservation.updateMany).toHaveBeenCalledTimes(1);
@@ -769,7 +837,11 @@ describe('CreateMaintenancePeriodDto validation', () => {
     ];
     for (const input of cases) {
       const dto = new CreateMaintenancePeriodDto();
-      Object.assign(dto, { mode: MaintenanceMode.TIME_RANGE, ...input, ...base });
+      Object.assign(dto, {
+        mode: MaintenanceMode.TIME_RANGE,
+        ...input,
+        ...base,
+      });
       const errors = await validate(dto);
       expect(errors.length).toBeGreaterThan(0);
     }

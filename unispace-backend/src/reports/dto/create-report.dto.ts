@@ -1,5 +1,11 @@
 import { Transform } from 'class-transformer';
-import { IsEnum, IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 import { ReportCategory } from '../../generated/prisma/client';
 
 const trimValue = ({ value }: { value: unknown }) =>

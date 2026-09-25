@@ -20,20 +20,18 @@ describe('Reports endpoints (e2e)', () => {
   });
 
   it('requires authentication to read the staff reports queue', async () => {
-    await request(app.getHttpServer())
-      .get('/api/v1/staff/reports')
-      .expect(401);
+    await request(app.getHttpServer()).get('/api/v1/staff/reports').expect(401);
   });
 
   it('requires authentication to read my own reports', async () => {
-    await request(app.getHttpServer())
-      .get('/api/v1/reports/me')
-      .expect(401);
+    await request(app.getHttpServer()).get('/api/v1/reports/me').expect(401);
   });
 
   it('requires authentication to confirm a maintenance period', async () => {
     await request(app.getHttpServer())
-      .post('/api/v1/staff/reports/00000000-0000-4000-8000-000000000000/maintenance')
+      .post(
+        '/api/v1/staff/reports/00000000-0000-4000-8000-000000000000/maintenance',
+      )
       .send({
         mode: 'DATE_RANGE',
         startDate: '2027-01-11',
