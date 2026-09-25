@@ -1,6 +1,7 @@
 import { Transform } from 'class-transformer';
 import {
   IsInt,
+  IsISO8601,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -45,6 +46,10 @@ export class CreateReservationDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, {
     message: 'usageDate must be in YYYY-MM-DD format',
   })
+  @IsISO8601(
+    { strict: true },
+    { message: 'usageDate must be a valid calendar date' },
+  )
   usageDate: string;
 
   @Transform(trimValue)

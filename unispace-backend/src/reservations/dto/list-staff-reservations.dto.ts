@@ -5,6 +5,8 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -42,7 +44,11 @@ export class ListStaffReservationsDto {
   facilityAreaId?: string;
 
   @IsOptional()
+  @Type(() => String)
   @IsString({ message: 'Kata kunci pencarian harus berupa teks.' })
+  @MaxLength(320, {
+    message: 'Kata kunci pencarian maksimal 320 karakter.',
+  })
   search?: string;
 
   @IsOptional()
@@ -55,5 +61,6 @@ export class ListStaffReservationsDto {
   @Type(() => Number)
   @IsInt({ message: 'Batas (limit) harus berupa bilangan bulat.' })
   @Min(1, { message: 'Batas (limit) minimal bernilai 1.' })
+  @Max(100, { message: 'Batas (limit) maksimal bernilai 100.' })
   limit?: number = 10;
 }
