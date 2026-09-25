@@ -62,13 +62,18 @@ const mockDelegates = () => ({
     update: jest.fn(),
   },
   reservation: { findMany: jest.fn(), updateMany: jest.fn() },
-  facility: { findUnique: jest.fn(), update: jest.fn() },
+  facility: { findUnique: jest.fn(), findMany: jest.fn(), update: jest.fn() },
   facilityStatusHistory: { create: jest.fn() },
   auditLog: { create: jest.fn(), findMany: jest.fn(), count: jest.fn() },
 });
 
 type MockPrisma = ReturnType<typeof mockDelegates> & {
   $transaction: jest.Mock;
+};
+
+const storage = {
+  uploadReportPhoto: jest.fn(),
+  remove: jest.fn(),
 };
 
 describe('ReportsService lifecycle', () => {
@@ -82,6 +87,7 @@ describe('ReportsService lifecycle', () => {
   };
 
   beforeEach(async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-01-10T08:00:00.000Z'));
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReportsService,
@@ -91,7 +97,7 @@ describe('ReportsService lifecycle', () => {
         },
         {
           provide: ObjectStorageService,
-          useValue: {},
+          useValue: storage,
         },
       ],
     }).compile();
@@ -106,9 +112,16 @@ describe('ReportsService lifecycle', () => {
     });
     prisma.reservation.findMany.mockResolvedValue([]);
     prisma.maintenancePeriod.findMany.mockResolvedValue([]);
+    prisma.facility.findMany.mockResolvedValue([]);
+    storage.uploadReportPhoto.mockReset();
+    storage.remove.mockReset();
     prisma.$transaction.mockImplementation(
       async (callback: (tx: MockPrisma) => unknown) => callback(prisma),
     );
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it('accepts a new report and records the first processing staff', async () => {
@@ -378,6 +391,23 @@ describe('ReportsService lifecycle', () => {
     expect(result.note).toBe('Pemeliharaan AC');
   });
 
+  it('rejects a maintenance period that is entirely in the past', async () => {
+    prisma.facilityReport.findUnique.mockResolvedValue(
+      createMockReport({ status: ReportStatus.IN_PROGRESS }),
+    );
+
+    await expect(
+      service.confirmMaintenancePeriod('staff-1', 'report-1', {
+        mode: 'DATE_RANGE',
+        startDate: '2026-01-09',
+        endDate: '2026-01-09',
+        cancelImpactedReservations: true,
+        cancellationReason: 'Pemeliharaan AC',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it('rejects maintenance creation when the report is not in progress', async () => {
     prisma.facilityReport.findUnique.mockResolvedValue(
       createMockReport({ status: ReportStatus.NEW }),
@@ -428,6 +458,26 @@ describe('ReportsService lifecycle', () => {
     expect(result.endAt).toBe(
       new Date('2026-01-12T09:00:00.000Z').toISOString(),
     );
+  });
+
+  it('rejects an early-end override for a maintenance period that has already ended', async () => {
+    prisma.maintenancePeriod.findUnique.mockResolvedValue({
+      id: 'period-1',
+      facilityId: 'facility-1',
+      reportId: 'report-1',
+      startAt: new Date('2026-01-09T07:00:00.000Z'),
+      endAt: new Date('2026-01-09T20:00:00.000Z'),
+      note: 'Pemeliharaan AC',
+    });
+
+    await expect(
+      service.endMaintenancePeriod(
+        'staff-1',
+        'period-1',
+        new Date('2026-01-10T08:00:00.000Z'),
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.maintenancePeriod.update).not.toHaveBeenCalled();
   });
 
   it('throws when the maintenance period does not exist', async () => {
@@ -676,6 +726,35 @@ describe('ReportsService lifecycle', () => {
     expect(result.reportNumber).toBe('RPT-20260923T153045-ABC123');
   });
 
+  it('removes files already uploaded when a later report photo upload fails', async () => {
+    const attachment = {
+      storageProvider: 'MINIO',
+      objectKey: 'reports/uploaded-first.jpg',
+      objectUrl: 'https://storage.example.test/reports/uploaded-first.jpg',
+      originalFilename: 'uploaded-first.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 10,
+    };
+    storage.uploadReportPhoto
+      .mockResolvedValueOnce(attachment)
+      .mockRejectedValueOnce(new Error('storage unavailable'));
+
+    await expect(
+      service.create(
+        'user-1',
+        {
+          facilityId: 'facility-1',
+          category: ReportCategory.PHYSICAL_DAMAGE,
+          description: 'Kursi rusak',
+        },
+        [{} as Express.Multer.File, {} as Express.Multer.File],
+      ),
+    ).rejects.toThrow('storage unavailable');
+
+    expect(storage.remove).toHaveBeenCalledWith(attachment.objectKey);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it('records the maintenance impact confirmation on the audit timeline', async () => {
     prisma.facilityReport.findUnique.mockResolvedValue(
       createMockReport({ status: ReportStatus.IN_PROGRESS }),
@@ -727,9 +806,9 @@ describe('ReportsService lifecycle', () => {
   });
 
   it('automatically syncs facility status for started and ended maintenance periods', async () => {
-    prisma.maintenancePeriod.findMany.mockResolvedValue([
-      { facilityId: 'facility-1' },
-      { facilityId: 'facility-2' },
+    prisma.facility.findMany.mockResolvedValue([
+      { id: 'facility-1' },
+      { id: 'facility-2' },
     ]);
     const now = new Date('2026-01-12T09:00:00.000Z');
 
@@ -740,7 +819,7 @@ describe('ReportsService lifecycle', () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ id: 'active-period' });
 
-    const result = await service.syncExpiredMaintenancePeriods(now);
+    const result = await service.syncEffectiveFacilityStatuses(now);
 
     expect(result.facilitiesChecked).toBe(2);
     expect(result.facilitiesUpdated).toBe(2);
@@ -766,13 +845,11 @@ describe('ReportsService lifecycle', () => {
   });
 
   it('skips automatic sync when the facility is already in the effective status', async () => {
-    prisma.maintenancePeriod.findMany.mockResolvedValue([
-      { facilityId: 'facility-1' },
-    ]);
+    prisma.facility.findMany.mockResolvedValue([{ id: 'facility-1' }]);
     prisma.facility.findUnique.mockResolvedValue({ status: 'ACTIVE' });
     prisma.maintenancePeriod.findFirst.mockResolvedValue(null);
 
-    const result = await service.syncExpiredMaintenancePeriods(
+    const result = await service.syncEffectiveFacilityStatuses(
       new Date('2026-01-12T09:00:00.000Z'),
     );
 
