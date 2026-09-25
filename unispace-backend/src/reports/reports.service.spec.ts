@@ -297,6 +297,13 @@ describe('ReportsService lifecycle', () => {
     await expect(
       service.resolve('staff-1', 'report-1', 'note'),
     ).rejects.toBeInstanceOf(ConflictException);
+
+    prisma.facilityReport.findUnique.mockResolvedValue(
+      createMockReport({ status: ReportStatus.NEW }),
+    );
+    await expect(
+      service.resolve('staff-1', 'report-1', 'note'),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('blocks resolution only while maintenance belongs to the same report', async () => {

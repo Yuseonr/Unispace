@@ -577,10 +577,7 @@ export class ReportsService {
       });
     }
 
-    if (
-      report.status !== ReportStatus.IN_PROGRESS &&
-      report.status !== ReportStatus.NEW
-    ) {
+    if (report.status !== ReportStatus.IN_PROGRESS) {
       throw new ConflictException({
         code: 'REPORT_INVALID_TRANSITION',
         message: 'Only a report in progress can be resolved.',
