@@ -140,6 +140,7 @@ describe('Reservations HTTP Integration (E2E)', () => {
             facilityGroup: null,
           }),
         ),
+        findUnique: jest.fn(),
         findFirst: jest.fn().mockResolvedValue(null),
         findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn().mockResolvedValue({}),
@@ -241,6 +242,10 @@ describe('Reservations HTTP Integration (E2E)', () => {
         callback(transaction),
       ),
     };
+
+    transaction.reservation.findUnique.mockImplementation((args: unknown) =>
+      (prisma.reservation as { findUnique: jest.Mock }).findUnique(args),
+    );
 
     const config = {
       get: jest.fn(
@@ -579,6 +584,18 @@ describe('Reservations HTTP Integration (E2E)', () => {
       expect(response.body.data.id).toBe(
         '70000000-0000-4000-8000-000000000001',
       );
+    });
+
+    it('menerima field allocatedAssetIds lama tanpa menjadikannya dasar keputusan (200 OK)', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(
+          '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/approve',
+        )
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({ allocatedAssetIds: ['nilai-frontend-lama'] });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('success', true);
     });
 
     it('menolak persetujuan reservasi jika batas tenggat keputusan telah terlewati (400 Bad Request / SLA Expired)', async () => {
