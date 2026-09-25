@@ -174,11 +174,14 @@ export class ReportsService {
       });
     }
 
-    const uploaded = await Promise.all(
-      files.map((file) => this.storage.uploadReportPhoto(file)),
-    );
-
+    const uploaded: Awaited<
+      ReturnType<ObjectStorageService['uploadReportPhoto']>
+    >[] = [];
     try {
+      for (const file of files) {
+        uploaded.push(await this.storage.uploadReportPhoto(file));
+      }
+
       const report = await this.prisma.$transaction(async (transaction) => {
         const created = await transaction.facilityReport.create({
           data: {
@@ -577,10 +580,7 @@ export class ReportsService {
       });
     }
 
-    if (
-      report.status !== ReportStatus.IN_PROGRESS &&
-      report.status !== ReportStatus.NEW
-    ) {
+    if (report.status !== ReportStatus.IN_PROGRESS) {
       throw new ConflictException({
         code: 'REPORT_INVALID_TRANSITION',
         message: 'Only a report in progress can be resolved.',
@@ -755,6 +755,12 @@ export class ReportsService {
     }
 
     const { dateStart, dateEnd } = this.maintenanceDates(input);
+    if (dateEnd <= new Date()) {
+      throw new ConflictException({
+        code: 'MAINTENANCE_PERIOD_IN_PAST',
+        message: 'Maintenance must be current or scheduled for the future.',
+      });
+    }
     const reason = input.cancellationReason.trim();
 
     return this.prisma.$transaction(async (tx) => {
@@ -873,10 +879,15 @@ export class ReportsService {
       });
     }
 
-    if (endAt <= maintenance.startAt) {
+    if (
+      endAt <= maintenance.startAt ||
+      maintenance.startAt > endAt ||
+      maintenance.endAt <= endAt
+    ) {
       throw new ConflictException({
         code: 'MAINTENANCE_INVALID_OVERRIDE',
-        message: 'Maintenance end time must be after the original start time.',
+        message:
+          'Only an active maintenance period can be ended before its scheduled end time.',
       });
     }
 
@@ -921,17 +932,26 @@ export class ReportsService {
     };
   }
 
-  async syncExpiredMaintenancePeriods(
+  async syncEffectiveFacilityStatuses(
     now = new Date(),
   ): Promise<MaintenanceSyncResult> {
-    const affected = await this.prisma.maintenancePeriod.findMany({
-      where: { startAt: { lte: now } },
-      select: { facilityId: true },
-      distinct: ['facilityId'],
+    const affected = await this.prisma.facility.findMany({
+      where: {
+        OR: [
+          { status: FacilityStatus.IN_MAINTENANCE },
+          {
+            status: FacilityStatus.ACTIVE,
+            maintenancePeriods: {
+              some: { startAt: { lte: now }, endAt: { gt: now } },
+            },
+          },
+        ],
+      },
+      select: { id: true },
     });
 
     let facilitiesUpdated = 0;
-    for (const { facilityId } of affected) {
+    for (const { id: facilityId } of affected) {
       const changed = await this.syncEffectiveFacilityStatus(
         this.prisma,
         facilityId,

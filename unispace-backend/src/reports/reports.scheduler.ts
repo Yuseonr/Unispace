@@ -22,7 +22,7 @@ export class ReportsScheduler {
   })
   async syncEffectiveFacilityStatus() {
     try {
-      const result = await this.reports.syncExpiredMaintenancePeriods();
+      const result = await this.reports.syncEffectiveFacilityStatuses();
       if (result.facilitiesUpdated > 0) {
         this.logger.log(
           `Automatic maintenance sync updated ${result.facilitiesUpdated} of ${result.facilitiesChecked} facilities.`,

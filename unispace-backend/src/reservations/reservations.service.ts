@@ -2,10 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
-  OnModuleDestroy,
-  OnModuleInit,
 } from '@nestjs/common';
 import {
   AccountStatus,
@@ -16,7 +13,6 @@ import {
 } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CreateReservationDto } from './dto/create-reservation.dto';
-import { GetAvailabilityDto } from './dto/get-availability.dto';
 import { ListMyReservationsDto } from './dto/list-my-reservations.dto';
 import { ListStaffReservationsDto } from './dto/list-staff-reservations.dto';
 import { ApproveReservationDto } from './dto/approve-reservation.dto';
@@ -34,308 +30,61 @@ import {
 } from './utils/reservation-time.util';
 
 @Injectable()
-export class ReservationsService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(ReservationsService.name);
-  private autoRejectInterval: NodeJS.Timeout | null = null;
-
+export class ReservationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  onModuleInit() {
-    // Jalankan periodic background worker evaluasi SLA auto-reject setiap 60 detik (hanya di non-test)
-    if (process.env.NODE_ENV !== 'test') {
-      this.autoRejectInterval = setInterval(async () => {
-        try {
-          await this.autoRejectExpiredReservations();
-        } catch (err) {
-          this.logger.error('Gagal mengeksekusi auto-reject SLA reservasi:', err);
+  private async runSerializableTransaction<T>(
+    operation: (transaction: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await this.prisma.$transaction(operation, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error) {
+        const isSerializationConflict =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034';
+
+        if (!isSerializationConflict) {
+          throw error;
         }
-      }, 60_000);
-      this.autoRejectInterval.unref();
+
+        if (attempt === maxAttempts) {
+          throw new BadRequestException(
+            'Persetujuan reservasi berubah karena ada proses lain. Silakan muat ulang data dan coba kembali.',
+          );
+        }
+      }
     }
+
+    throw new BadRequestException(
+      'Persetujuan reservasi tidak dapat diproses.',
+    );
   }
 
-  onModuleDestroy() {
-    if (this.autoRejectInterval) {
-      clearInterval(this.autoRejectInterval);
-      this.autoRejectInterval = null;
-    }
-  }
-
-  /**
-   * Mengembalikan daftar 26 slot 30 menit (07.00–20.00 WIB) untuk tanggal yang diminta.
-   * Terbuka untuk umum tanpa mengekspos data pribadi pemesan.
-   */
-  async getAvailability(dto: GetAvailabilityDto) {
-    const { facilityId, facilityGroupId, usageDate } = dto;
-
-    if ((!facilityId && !facilityGroupId) || (facilityId && facilityGroupId)) {
-      throw new BadRequestException(
-        'Pilih salah satu: facilityId (ruang eksklusif) atau facilityGroupId (kelompok alat).',
-      );
-    }
-
-    const [year, month, day] = usageDate.split('-').map(Number);
-    const usageDateObj = new Date(Date.UTC(year, month - 1, day));
-    const isOperDay = isOperationalDay(usageDate);
-
-    // Rentang satu hari penuh (07.00 - 20.00 WIB => UTC 00.00 - 13.00)
-    const dayStartUtc = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
-    const dayEndUtc = new Date(Date.UTC(year, month - 1, day, 13, 0, 0));
-
-    // A. Mode Ruang Eksklusif
-    if (facilityId) {
-      const facility = await this.prisma.facility.findUnique({
-        where: { id: facilityId },
-        include: {
-          facilityGroup: {
-            select: { id: true, name: true, reservationMode: true },
-          },
-        },
-      });
-
-      if (!facility) {
-        throw new NotFoundException('Fasilitas tidak ditemukan.');
-      }
-      if (
-        facility.facilityGroup.reservationMode !== ReservationMode.EXCLUSIVE
-      ) {
-        throw new BadRequestException(
-          'Fasilitas ini bukan untuk mode peminjaman eksklusif.',
-        );
-      }
-
-      const isFacilityActive = facility.status === FacilityStatus.ACTIVE;
-
-      const [approvedReservations, maintenancePeriods] = await Promise.all([
-        this.prisma.reservation.findMany({
-          where: {
-            facilityId,
-            usageDate: usageDateObj,
-            status: ReservationStatus.APPROVED,
-          },
-          select: { startTime: true, endTime: true },
-        }),
-        this.prisma.maintenancePeriod.findMany({
-          where: {
-            facilityId,
-            startAt: { lt: dayEndUtc },
-            endAt: { gt: dayStartUtc },
-          },
-          select: { startAt: true, endAt: true },
-        }),
-      ]);
-
-      const slots = Array.from({ length: 26 }, (_, i) => {
-        const startHour = 7 + Math.floor(i / 2);
-        const startMin = (i % 2) * 30;
-        const endHour = 7 + Math.floor((i + 1) / 2);
-        const endMin = ((i + 1) % 2) * 30;
-
-        const pad = (n: number) => n.toString().padStart(2, '0');
-        const startTimeStr = `${pad(startHour)}:${pad(startMin)}`;
-        const endTimeStr = `${pad(endHour)}:${pad(endMin)}`;
-
-        if (!isOperDay) {
-          return {
-            slotIndex: i,
-            startTime: startTimeStr,
-            endTime: endTimeStr,
-            available: false,
-            reason: 'NON_OPERATIONAL_DAY',
-          };
-        }
-
-        if (!isFacilityActive) {
-          return {
-            slotIndex: i,
-            startTime: startTimeStr,
-            endTime: endTimeStr,
-            available: false,
-            reason: 'FACILITY_INACTIVE',
-          };
-        }
-
-        const slotStartTimeDate = new Date(
-          Date.UTC(1970, 0, 1, startHour, startMin, 0),
-        );
-        const slotEndTimeDate = new Date(
-          Date.UTC(1970, 0, 1, endHour, endMin, 0),
-        );
-        const slotStartUtc = new Date(
-          Date.UTC(year, month - 1, day, startHour - 7, startMin, 0),
-        );
-        const slotEndUtc = new Date(
-          Date.UTC(year, month - 1, day, endHour - 7, endMin, 0),
-        );
-
-        const isUnderMaintenance = maintenancePeriods.some(
-          (m) => m.startAt < slotEndUtc && m.endAt > slotStartUtc,
-        );
-        if (isUnderMaintenance) {
-          return {
-            slotIndex: i,
-            startTime: startTimeStr,
-            endTime: endTimeStr,
-            available: false,
-            reason: 'MAINTENANCE',
-          };
-        }
-
-        const isBooked = approvedReservations.some(
-          (r) => r.startTime < slotEndTimeDate && r.endTime > slotStartTimeDate,
-        );
-        if (isBooked) {
-          return {
-            slotIndex: i,
-            startTime: startTimeStr,
-            endTime: endTimeStr,
-            available: false,
-            reason: 'BOOKED',
-          };
-        }
-
-        return {
-          slotIndex: i,
-          startTime: startTimeStr,
-          endTime: endTimeStr,
-          available: true,
-        };
-      });
-
-      return {
-        facilityId,
-        facilityName: facility.name,
-        reservationMode: ReservationMode.EXCLUSIVE,
-        usageDate,
-        isOperationalDay: isOperDay,
-        slots,
-      };
-    }
-
-    // B. Mode Kelompok Alat (QUANTITY)
-    const group = await this.prisma.facilityGroup.findFirst({
-      where: { id: facilityGroupId, reservationMode: ReservationMode.QUANTITY },
-      include: {
-        facilities: {
-          where: { status: FacilityStatus.ACTIVE },
-          select: { id: true, assetCode: true },
-        },
+  private async markReservationApproved(
+    transaction: Pick<Prisma.TransactionClient, 'reservation'>,
+    reservationId: string,
+    staffId: string,
+    decidedAt: Date,
+  ) {
+    const result = await transaction.reservation.updateMany({
+      where: { id: reservationId, status: ReservationStatus.PENDING },
+      data: {
+        status: ReservationStatus.APPROVED,
+        processedById: staffId,
+        decidedAt,
       },
     });
 
-    if (!group) {
-      throw new NotFoundException('Kelompok alat tidak ditemukan.');
+    if (result.count !== 1) {
+      throw new BadRequestException(
+        'Reservasi sudah diproses oleh petugas lain.',
+      );
     }
-
-    const totalActiveUnits = group.facilities.length;
-    const activeUnitIds = group.facilities.map((f) => f.id);
-
-    const [approvedReservations, maintenancePeriods] = await Promise.all([
-      this.prisma.reservation.findMany({
-        where: {
-          facilityGroupId,
-          usageDate: usageDateObj,
-          status: ReservationStatus.APPROVED,
-        },
-        select: {
-          startTime: true,
-          endTime: true,
-          requestedQuantity: true,
-        },
-      }),
-      activeUnitIds.length > 0
-        ? this.prisma.maintenancePeriod.findMany({
-            where: {
-              facilityId: { in: activeUnitIds },
-              startAt: { lt: dayEndUtc },
-              endAt: { gt: dayStartUtc },
-            },
-            select: {
-              facilityId: true,
-              startAt: true,
-              endAt: true,
-            },
-          })
-        : [],
-    ]);
-
-    const slots = Array.from({ length: 26 }, (_, i) => {
-      const startHour = 7 + Math.floor(i / 2);
-      const startMin = (i % 2) * 30;
-      const endHour = 7 + Math.floor((i + 1) / 2);
-      const endMin = ((i + 1) % 2) * 30;
-
-      const pad = (n: number) => n.toString().padStart(2, '0');
-      const startTimeStr = `${pad(startHour)}:${pad(startMin)}`;
-      const endTimeStr = `${pad(endHour)}:${pad(endMin)}`;
-
-      if (!isOperDay) {
-        return {
-          slotIndex: i,
-          startTime: startTimeStr,
-          endTime: endTimeStr,
-          available: false,
-          availableUnits: 0,
-          totalUnits: totalActiveUnits,
-          reason: 'NON_OPERATIONAL_DAY',
-        };
-      }
-
-      const slotStartTimeDate = new Date(
-        Date.UTC(1970, 0, 1, startHour, startMin, 0),
-      );
-      const slotEndTimeDate = new Date(
-        Date.UTC(1970, 0, 1, endHour, endMin, 0),
-      );
-      const slotStartUtc = new Date(
-        Date.UTC(year, month - 1, day, startHour - 7, startMin, 0),
-      );
-      const slotEndUtc = new Date(
-        Date.UTC(year, month - 1, day, endHour - 7, endMin, 0),
-      );
-
-      const maintenanceCount = new Set(
-        maintenancePeriods
-          .filter((m) => m.startAt < slotEndUtc && m.endAt > slotStartUtc)
-          .map((m) => m.facilityId),
-      ).size;
-
-      const reservedCount = approvedReservations
-        .filter(
-          (r) => r.startTime < slotEndTimeDate && r.endTime > slotStartTimeDate,
-        )
-        .reduce((sum, r) => sum + r.requestedQuantity, 0);
-
-      const availableUnits = Math.max(
-        0,
-        totalActiveUnits - maintenanceCount - reservedCount,
-      );
-
-      return {
-        slotIndex: i,
-        startTime: startTimeStr,
-        endTime: endTimeStr,
-        available: availableUnits > 0,
-        availableUnits,
-        totalUnits: totalActiveUnits,
-        reason:
-          availableUnits > 0
-            ? undefined
-            : maintenanceCount > 0
-              ? 'MAINTENANCE'
-              : 'BOOKED',
-      };
-    });
-
-    return {
-      facilityGroupId,
-      groupName: group.name,
-      reservationMode: ReservationMode.QUANTITY,
-      usageDate,
-      isOperationalDay: isOperDay,
-      totalActiveUnits,
-      slots,
-    };
   }
 
   /**
@@ -357,6 +106,8 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
       endTime,
       purpose,
     } = dto;
+    const normalizedPurpose =
+      typeof purpose === 'string' && purpose.trim() ? purpose.trim() : 'NULL';
 
     // 1. Validasi Pemilihan Target (Pilih salah satu)
     if ((!facilityId && !facilityGroupId) || (facilityId && facilityGroupId)) {
@@ -445,7 +196,7 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
       if (!facility) {
         throw new NotFoundException('Fasilitas tidak ditemukan.');
       }
-      if (facility.status !== FacilityStatus.ACTIVE) {
+      if (facility.status === FacilityStatus.NONACTIVE) {
         throw new BadRequestException('Fasilitas sedang tidak aktif.');
       }
       if (
@@ -505,7 +256,7 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
         },
         include: {
           facilities: {
-            where: { status: FacilityStatus.ACTIVE },
+            where: { status: { not: FacilityStatus.NONACTIVE } },
             select: { id: true },
           },
         },
@@ -622,7 +373,7 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
           usageDate: usageDateObj,
           startTime: startTimeDate,
           endTime: endTimeDate,
-          purpose,
+          purpose: normalizedPurpose,
           status: ReservationStatus.PENDING,
           decisionDeadline,
         },
@@ -700,7 +451,9 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
                   id: true,
                   name: true,
                   locationDetail: true,
-                  facilityArea: { select: { id: true, code: true, name: true } },
+                  facilityArea: {
+                    select: { id: true, code: true, name: true },
+                  },
                   facilityType: { select: { id: true, name: true } },
                 },
               },
@@ -963,10 +716,16 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
         OR: [
           { user: { name: { contains: search, mode: 'insensitive' } } },
           { user: { email: { contains: search, mode: 'insensitive' } } },
-          { user: { identityNumber: { contains: search, mode: 'insensitive' } } },
+          {
+            user: { identityNumber: { contains: search, mode: 'insensitive' } },
+          },
           { facility: { name: { contains: search, mode: 'insensitive' } } },
-          { facility: { assetCode: { contains: search, mode: 'insensitive' } } },
-          { facilityGroup: { name: { contains: search, mode: 'insensitive' } } },
+          {
+            facility: { assetCode: { contains: search, mode: 'insensitive' } },
+          },
+          {
+            facilityGroup: { name: { contains: search, mode: 'insensitive' } },
+          },
           { purpose: { contains: search, mode: 'insensitive' } },
         ],
       });
@@ -1008,7 +767,9 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
                   id: true,
                   name: true,
                   locationDetail: true,
-                  facilityArea: { select: { id: true, code: true, name: true } },
+                  facilityArea: {
+                    select: { id: true, code: true, name: true },
+                  },
                   facilityType: { select: { id: true, name: true } },
                 },
               },
@@ -1215,7 +976,7 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.runSerializableTransaction(async (tx) => {
       const uYear = reservation.usageDate.getUTCFullYear();
       const uMonth = reservation.usageDate.getUTCMonth();
       const uDay = reservation.usageDate.getUTCDate();
@@ -1237,7 +998,7 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
           );
         }
 
-        if (reservation.facility?.status !== FacilityStatus.ACTIVE) {
+        if (reservation.facility?.status === FacilityStatus.NONACTIVE) {
           throw new BadRequestException('Fasilitas sedang tidak aktif.');
         }
 
@@ -1270,14 +1031,7 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
           );
         }
 
-        await tx.reservation.update({
-          where: { id: reservation.id },
-          data: {
-            status: ReservationStatus.APPROVED,
-            processedById: staffId,
-            decidedAt: now,
-          },
-        });
+        await this.markReservationApproved(tx, reservation.id, staffId, now);
 
         await tx.auditLog.create({
           data: {
@@ -1364,7 +1118,7 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
           where: {
             id: { in: allocatedAssetIds },
             facilityGroupId: reservation.facilityGroupId,
-            status: FacilityStatus.ACTIVE,
+            status: { not: FacilityStatus.NONACTIVE },
           },
           select: { id: true, assetCode: true },
         });
@@ -1415,14 +1169,7 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
           })),
         });
 
-        await tx.reservation.update({
-          where: { id: reservation.id },
-          data: {
-            status: ReservationStatus.APPROVED,
-            processedById: staffId,
-            decidedAt: now,
-          },
-        });
+        await this.markReservationApproved(tx, reservation.id, staffId, now);
 
         await tx.auditLog.create({
           data: {
@@ -1457,7 +1204,7 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
           const groupFacilities = await tx.facility.findMany({
             where: {
               facilityGroupId: reservation.facilityGroupId,
-              status: FacilityStatus.ACTIVE,
+              status: { not: FacilityStatus.NONACTIVE },
             },
             select: { id: true },
           });
@@ -1749,5 +1496,3 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
     return expiredReservations.length;
   }
 }
-
-

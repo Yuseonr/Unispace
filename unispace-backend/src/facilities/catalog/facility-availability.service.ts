@@ -63,11 +63,11 @@ export class FacilityAvailabilityService {
       where: {
         id,
         reservationMode: ReservationMode.QUANTITY,
-        facilities: { some: { status: FacilityStatus.ACTIVE } },
+        facilities: { some: { status: { not: FacilityStatus.NONACTIVE } } },
       },
       include: {
         facilities: {
-          where: { status: FacilityStatus.ACTIVE },
+          where: { status: { not: FacilityStatus.NONACTIVE } },
           select: { id: true, assetCode: true },
         },
       },
@@ -182,7 +182,7 @@ export class FacilityAvailabilityService {
     const facility = await this.prisma.facility.findFirst({
       where: {
         id,
-        status: FacilityStatus.ACTIVE,
+        status: { not: FacilityStatus.NONACTIVE },
         facilityGroup: { reservationMode: ReservationMode.EXCLUSIVE },
       },
       select: {

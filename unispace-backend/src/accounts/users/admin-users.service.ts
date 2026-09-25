@@ -10,6 +10,7 @@ import {
   UserRole,
 } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { jakartaReservationBoundary } from '../../common/time/jakarta-reservation-boundary.util';
 import { PasswordService } from '../auth/password.service';
 import { CreateManagedUserDto } from './dto/create-managed-user.dto';
 import { ListManagedUsersDto } from './dto/list-managed-users.dto';
@@ -51,39 +52,6 @@ type AccountAuditEvent = {
 
 function isManageableRole(role: UserRole) {
   return role === UserRole.USER || role === UserRole.STAFF;
-}
-
-function jakartaReservationBoundary(now = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Jakarta',
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: 'numeric',
-    second: 'numeric',
-    hourCycle: 'h23',
-  }).formatToParts(now);
-
-  const numberPart = (type: Intl.DateTimeFormatPartTypes) => {
-    const value = parts.find((part) => part.type === type)?.value;
-    if (!value) {
-      throw new Error(`Unable to determine Jakarta ${type}.`);
-    }
-    return Number(value);
-  };
-
-  const year = numberPart('year');
-  const month = numberPart('month');
-  const day = numberPart('day');
-  const hour = numberPart('hour');
-  const minute = numberPart('minute');
-  const second = numberPart('second');
-
-  return {
-    usageDate: new Date(Date.UTC(year, month - 1, day)),
-    endTime: new Date(Date.UTC(1970, 0, 1, hour, minute, second)),
-  };
 }
 
 @Injectable()
