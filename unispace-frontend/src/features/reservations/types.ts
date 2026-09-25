@@ -152,3 +152,111 @@ export type ListMyReservationsQuery = {
   status?: ReservationStatus;
   usageDate?: string;
 };
+
+export type StaffReservationUser = {
+  id: string;
+  name: string;
+  email: string;
+  identityNumber: string;
+};
+
+export type StaffReservationItem = {
+  id: string;
+  userId: string;
+  facilityId?: string | null;
+  facilityGroupId?: string | null;
+  requestedQuantity: number;
+  usageDate: string;
+  startTime: string;
+  endTime: string;
+  purpose: string;
+  status: ReservationStatus;
+  decisionDeadline: string;
+  decisionReason?: string | null;
+  processedById?: string | null;
+  decidedAt?: string | null;
+  cancelledAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user: StaffReservationUser;
+  facility?: {
+    id: string;
+    name: string;
+    assetCode?: string;
+    facilityGroup?: {
+      id: string;
+      name: string;
+      locationDetail?: string;
+      facilityArea?: { id: string; code?: string; name: string };
+      facilityType?: { id: string; name: string };
+    };
+  } | null;
+  facilityGroup?: {
+    id: string;
+    name: string;
+    reservationMode: ReservationMode;
+    locationDetail?: string;
+    facilityArea?: { id: string; code?: string; name: string };
+    facilityType?: { id: string; name: string };
+    facilities?: Array<{
+      id: string;
+      assetCode?: string;
+      name: string;
+    }>;
+  } | null;
+  processedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+  items?: Array<{
+    facility: { id: string; assetCode?: string; name: string };
+  }>;
+  allocatedAssets: Array<{
+    id: string;
+    assetCode?: string;
+    name: string;
+  }>;
+};
+
+export type ListStaffReservationsQuery = {
+  page?: number;
+  limit?: number;
+  status?: ReservationStatus;
+  usageDate?: string;
+  facilityId?: string;
+  facilityGroupId?: string;
+  facilityAreaId?: string;
+  search?: string;
+};
+
+export type StaffReservationsPaginationMeta = {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+};
+
+export type StaffReservationsResponse = {
+  data: StaffReservationItem[];
+  meta: StaffReservationsPaginationMeta;
+};
+
+export type ApproveStaffReservationInput = {
+  allocatedAssetIds?: string[];
+};
+
+export type RejectStaffReservationInput = {
+  reason: string;
+};
+
+export type CancelStaffReservationInput = {
+  reason: string;
+};
+
+export type AutoRejectExpiredResponse = {
+  success: boolean;
+  processedCount: number;
+  message: string;
+};
+
