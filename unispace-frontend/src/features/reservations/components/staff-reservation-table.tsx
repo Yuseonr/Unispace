@@ -43,7 +43,9 @@ function truncatePurpose(text: string, maxLength = 30): string {
 
 export function StaffReservationTable({
   isLoading,
+  onApprove,
   onDetail,
+  onReject,
   reservations,
 }: StaffReservationTableProps) {
   if (isLoading && reservations.length === 0) {
@@ -52,12 +54,12 @@ export function StaffReservationTable({
         <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 8px", minWidth: "960px" }}>
           <thead>
             <tr style={{ color: "#64748b", textTransform: "uppercase", fontSize: "0.6875rem", letterSpacing: "0.04em" }}>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "left" }}>Pemohon</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "left" }}>Fasilitas</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "left" }}>Waktu</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "left" }}>Tujuan</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "left" }}>Batas SLA</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "left" }}>Status</th>
+              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Pemohon</th>
+              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Fasilitas</th>
+              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Waktu</th>
+              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Tujuan</th>
+              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Batas SLA</th>
+              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Status</th>
               <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Aksi</th>
             </tr>
           </thead>
@@ -98,16 +100,16 @@ export function StaffReservationTable({
 
   return (
     <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 8px", minWidth: "960px", fontSize: "0.8125rem" }}>
+      <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 8px", minWidth: "1000px", fontSize: "0.8125rem" }}>
         <thead>
           <tr style={{ color: "#64748b", textTransform: "uppercase", fontSize: "0.6875rem", letterSpacing: "0.04em" }}>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "left", width: "160px" }}>Pemohon</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "left", width: "220px" }}>Fasilitas</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "left", width: "190px" }}>Waktu</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "left", minWidth: "170px" }}>Tujuan</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "left", width: "125px" }}>Batas SLA</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "left", width: "125px" }}>Status</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "95px" }}>Aksi</th>
+            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "160px" }}>Pemohon</th>
+            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "220px" }}>Fasilitas</th>
+            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "190px" }}>Waktu</th>
+            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", minWidth: "170px" }}>Tujuan</th>
+            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "125px" }}>Batas SLA</th>
+            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "125px" }}>Status</th>
+            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "140px" }}>Aksi</th>
           </tr>
         </thead>
         <tbody>
@@ -122,25 +124,30 @@ export function StaffReservationTable({
             return (
               <tr
                 key={item.id}
+                onClick={() => onDetail?.(item)}
                 style={{
                   background: "#ffffff",
                   boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03)",
-                  transition: "transform 140ms ease, box-shadow 140ms ease",
+                  cursor: "pointer",
+                  transition: "transform 140ms ease, box-shadow 140ms ease, background-color 140ms ease",
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.transform = "translateY(-1px)";
                   e.currentTarget.style.boxShadow = "0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.04)";
+                  e.currentTarget.style.backgroundColor = "#f8fafc";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.transform = "translateY(0)";
                   e.currentTarget.style.boxShadow = "0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03)";
+                  e.currentTarget.style.backgroundColor = "#ffffff";
                 }}
               >
-                {/* Kolom 1: Pemohon (Hanya Nama Saja) */}
+                {/* Kolom 1: Pemohon (Hanya Nama Saja, Center) */}
                 <td
                   style={{
                     padding: "0.55rem 0.85rem",
                     verticalAlign: "middle",
+                    textAlign: "center",
                     borderLeft: "1px solid #e2e8f0",
                     borderTop: "1px solid #e2e8f0",
                     borderBottom: "1px solid #e2e8f0",
@@ -152,21 +159,25 @@ export function StaffReservationTable({
                   </strong>
                 </td>
 
-                {/* Kolom 2: Fasilitas (Hanya Badge dan Nama Fasilitas) */}
+                {/* Kolom 2: Fasilitas (Nama di Atas, Badge di Bawah, Center) */}
                 <td
                   style={{
                     padding: "0.55rem 0.85rem",
                     verticalAlign: "middle",
+                    textAlign: "center",
                     borderTop: "1px solid #e2e8f0",
                     borderBottom: "1px solid #e2e8f0",
                   }}
                 >
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", alignItems: "flex-start" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem", alignItems: "center", justifyContent: "center" }}>
+                    <strong style={{ color: "#1e293b", fontSize: "0.8125rem", whiteSpace: "nowrap" }}>
+                      {targetName}
+                    </strong>
                     <span
                       style={{
                         fontSize: "0.6875rem",
                         fontWeight: 700,
-                        padding: "1px 5px",
+                        padding: "1px 6px",
                         borderRadius: "3px",
                         background: isExclusive ? "#e0e7ff" : "#fef3c7",
                         color: isExclusive ? "#3730a3" : "#92400e",
@@ -175,17 +186,15 @@ export function StaffReservationTable({
                     >
                       {isExclusive ? "Ruang Eksklusif" : `Kelompok Alat (${item.requestedQuantity} Unit)`}
                     </span>
-                    <strong style={{ color: "#1e293b", fontSize: "0.8125rem", whiteSpace: "nowrap" }}>
-                      {targetName}
-                    </strong>
                   </div>
                 </td>
 
-                {/* Kolom 3: Waktu (Hanya Tanggal dan Rentang Jam) */}
+                {/* Kolom 3: Waktu (Tanggal dan Rentang Jam, Center) */}
                 <td
                   style={{
                     padding: "0.55rem 0.85rem",
                     verticalAlign: "middle",
+                    textAlign: "center",
                     borderTop: "1px solid #e2e8f0",
                     borderBottom: "1px solid #e2e8f0",
                     whiteSpace: "nowrap",
@@ -199,11 +208,12 @@ export function StaffReservationTable({
                   </span>
                 </td>
 
-                {/* Kolom 4: Tujuan (Truncated e.g. "untuk rapat anggota or...") */}
+                {/* Kolom 4: Tujuan (Truncated, Center) */}
                 <td
                   style={{
                     padding: "0.55rem 0.85rem",
                     verticalAlign: "middle",
+                    textAlign: "center",
                     borderTop: "1px solid #e2e8f0",
                     borderBottom: "1px solid #e2e8f0",
                     color: "#475569",
@@ -214,11 +224,12 @@ export function StaffReservationTable({
                   </span>
                 </td>
 
-                {/* Kolom 5: Batas SLA (Waktu 20.00 WIB dengan Warna Indikator Urgensi) */}
+                {/* Kolom 5: Batas SLA (Waktu 20.00 WIB, Center) */}
                 <td
                   style={{
                     padding: "0.55rem 0.85rem",
                     verticalAlign: "middle",
+                    textAlign: "center",
                     borderTop: "1px solid #e2e8f0",
                     borderBottom: "1px solid #e2e8f0",
                   }}
@@ -258,22 +269,26 @@ export function StaffReservationTable({
                   )}
                 </td>
 
-                {/* Kolom 6: Status ("Menunggu", "Disetujui", dll) */}
+                {/* Kolom 6: Status (Badge Center) */}
                 <td
                   style={{
                     padding: "0.55rem 0.85rem",
                     verticalAlign: "middle",
+                    textAlign: "center",
                     borderTop: "1px solid #e2e8f0",
                     borderBottom: "1px solid #e2e8f0",
                   }}
                 >
-                  <span className={`user-res-badge ${statusConfig.badgeClass}`} style={{ fontSize: "0.75rem" }}>
+                  <span
+                    className={`user-res-badge ${statusConfig.badgeClass}`}
+                    style={{ fontSize: "0.75rem", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                  >
                     <span className="user-res-badge__dot" aria-hidden="true" />
                     <span>{statusConfig.label}</span>
                   </span>
                 </td>
 
-                {/* Kolom 7: Aksi Petugas (HANYA 1 TOMBOL: "Rincian") */}
+                {/* Kolom 7: Aksi Petugas (Rincian, Centang [Setujui], Silang [Tolak]) */}
                 <td
                   style={{
                     padding: "0.55rem 0.85rem",
@@ -285,32 +300,145 @@ export function StaffReservationTable({
                     borderRadius: "0 8px 8px 0",
                   }}
                 >
-                  <button
-                    onClick={() => onDetail?.(item)}
+                  <div
                     style={{
-                      padding: "4px 12px",
-                      borderRadius: "6px",
-                      border: "1px solid #cbd5e1",
-                      background: "#f8fafc",
-                      color: "#334155",
-                      fontWeight: 600,
-                      fontSize: "0.75rem",
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                      transition: "all 140ms ease",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "0.35rem",
                     }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "#e2e8f0";
-                      e.currentTarget.style.color = "#0f172a";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "#f8fafc";
-                      e.currentTarget.style.color = "#334155";
-                    }}
-                    type="button"
                   >
-                    Rincian
-                  </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDetail?.(item);
+                      }}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: "6px",
+                        border: "1px solid #cbd5e1",
+                        background: "#f8fafc",
+                        color: "#334155",
+                        fontWeight: 600,
+                        fontSize: "0.75rem",
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                        transition: "all 140ms ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "#e2e8f0";
+                        e.currentTarget.style.color = "#0f172a";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "#f8fafc";
+                        e.currentTarget.style.color = "#334155";
+                      }}
+                      type="button"
+                    >
+                      Rincian
+                    </button>
+
+                    {item.status === "PENDING" ? (
+                      <>
+                        {/* Tombol Centang (Setujui) */}
+                        <button
+                          aria-label="Setujui permohonan"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onApprove?.(item);
+                          }}
+                          style={{
+                            alignItems: "center",
+                            background: "#f0fdf4",
+                            border: "1px solid #bbf7d0",
+                            borderRadius: "6px",
+                            color: "#16a34a",
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            height: "26px",
+                            justifyContent: "center",
+                            padding: 0,
+                            transition: "all 140ms ease",
+                            width: "26px",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "#16a34a";
+                            e.currentTarget.style.borderColor = "#16a34a";
+                            e.currentTarget.style.color = "#ffffff";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "#f0fdf4";
+                            e.currentTarget.style.borderColor = "#bbf7d0";
+                            e.currentTarget.style.color = "#16a34a";
+                          }}
+                          title="Setujui permohonan"
+                          type="button"
+                        >
+                          <svg
+                            fill="none"
+                            height="14"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2.5"
+                            viewBox="0 0 24 24"
+                            width="14"
+                          >
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        </button>
+
+                        {/* Tombol Silang (Tolak) */}
+                        <button
+                          aria-label="Tolak permohonan"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onReject?.(item);
+                          }}
+                          style={{
+                            alignItems: "center",
+                            background: "#fef2f2",
+                            border: "1px solid #fecaca",
+                            borderRadius: "6px",
+                            color: "#dc2626",
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            height: "26px",
+                            justifyContent: "center",
+                            padding: 0,
+                            transition: "all 140ms ease",
+                            width: "26px",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "#dc2626";
+                            e.currentTarget.style.borderColor = "#dc2626";
+                            e.currentTarget.style.color = "#ffffff";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "#fef2f2";
+                            e.currentTarget.style.borderColor = "#fecaca";
+                            e.currentTarget.style.color = "#dc2626";
+                          }}
+                          title="Tolak permohonan"
+                          type="button"
+                        >
+                          <svg
+                            fill="none"
+                            height="14"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2.5"
+                            viewBox="0 0 24 24"
+                            width="14"
+                          >
+                            <line x1="18" x2="6" y1="6" y2="18" />
+                            <line x1="6" x2="18" y1="6" y2="18" />
+                          </svg>
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
                 </td>
               </tr>
             );

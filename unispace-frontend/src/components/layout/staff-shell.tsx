@@ -7,6 +7,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useAuth } from "@/features/auth/auth-provider";
+import { fetchStaffReservations } from "@/features/reservations/api";
 
 type SidebarItem = {
   badge?: string;
@@ -14,13 +15,6 @@ type SidebarItem = {
   icon: "calendar" | "report" | "facility" | "profile";
   label: string;
 };
-
-const staffSidebarItems: SidebarItem[] = [
-  { href: "/staff/reservations", icon: "calendar", label: "Antrean Reservasi" },
-  { href: "/staff/reports", icon: "report", label: "Laporan Kendala" },
-  { href: "/staff/facilities", icon: "facility", label: "Fasilitas & Perbaikan" },
-  { href: "/profile", icon: "profile", label: "Profil Akun" },
-];
 
 function StaffSidebarIcon({ name }: { name: SidebarItem["icon"] }) {
   const paths = {
@@ -72,8 +66,10 @@ function StaffSidebarIcon({ name }: { name: SidebarItem["icon"] }) {
 export function StaffShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { isReady, logout, user } = useAuth();
+  const { isReady, logout, request, user } = useAuth();
   const [loggingOut, setLoggingOut] = useState(false);
+  const [pendingReservationsCount, setPendingReservationsCount] = useState<number>(0);
+  const [pendingReportsCount, setPendingReportsCount] = useState<number>(0);
 
   useEffect(() => {
     if (isReady && user?.role !== "STAFF") {
@@ -81,9 +77,65 @@ export function StaffShell({ children }: { children: ReactNode }) {
     }
   }, [isReady, router, user?.role]);
 
+  useEffect(() => {
+    let isMounted = true;
+    if (!isReady || user?.role !== "STAFF") return;
+
+    fetchStaffReservations({ limit: 1, status: "PENDING" }, request)
+      .then((res) => {
+        if (!isMounted) return;
+        setPendingReservationsCount(res.meta.total);
+      })
+      .catch(() => {
+        // Abaikan error background fetch
+      });
+
+    request<{ meta?: { total?: number }; total?: number }>(
+      "/staff/reports?status=PENDING&limit=1",
+    )
+      .then((res) => {
+        if (!isMounted) return;
+        setPendingReportsCount(res.meta?.total ?? res.total ?? 0);
+      })
+      .catch(() => {
+        // Modul laporan belum diimplementasikan di backend branch ini
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isReady, pathname, request, user?.role]);
+
   if (!isReady || user?.role !== "STAFF") {
     return <main className="admin-loading">Memuat ruang kerja petugas…</main>;
   }
+
+  const staffSidebarItems: SidebarItem[] = [
+    {
+      badge:
+        pendingReservationsCount > 0
+          ? pendingReservationsCount > 99
+            ? "99+"
+            : String(pendingReservationsCount)
+          : undefined,
+      href: "/staff/reservations",
+      icon: "calendar",
+      label: "Antrean Reservasi",
+    },
+    {
+      badge:
+        pendingReportsCount > 0
+          ? pendingReportsCount > 99
+            ? "99+"
+            : String(pendingReportsCount)
+          : undefined,
+      href: "/staff/reports",
+      icon: "report",
+      label: "Laporan Kendala",
+    },
+    { href: "/staff/facilities", icon: "facility", label: "Fasilitas & Perbaikan" },
+    { href: "/profile", icon: "profile", label: "Profil Akun" },
+  ];
 
   async function handleLogout() {
     try {
