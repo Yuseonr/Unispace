@@ -50,7 +50,7 @@ export class FacilityCatalogService {
     const skip = (query.page - 1) * query.limit;
     const now = new Date();
     const exclusiveWhere: Prisma.FacilityWhereInput = {
-      status: FacilityStatus.ACTIVE,
+      status: { not: FacilityStatus.NONACTIVE },
       facilityGroup: {
         reservationMode: ReservationMode.EXCLUSIVE,
         ...(query.facilityTypeId
@@ -104,7 +104,7 @@ export class FacilityCatalogService {
             ],
           }
         : {}),
-      facilities: { some: { status: FacilityStatus.ACTIVE } },
+      facilities: { some: { status: { not: FacilityStatus.NONACTIVE } } },
     };
 
     const [exclusiveFacilities, quantityGroups, exclusiveCount, quantityCount] =
@@ -122,11 +122,13 @@ export class FacilityCatalogService {
             ...facilityGroupPublicSelect,
             _count: {
               select: {
-                facilities: { where: { status: FacilityStatus.ACTIVE } },
+                facilities: {
+                  where: { status: { not: FacilityStatus.NONACTIVE } },
+                },
               },
             },
             facilities: {
-              where: { status: FacilityStatus.ACTIVE },
+              where: { status: { not: FacilityStatus.NONACTIVE } },
               select: {
                 maintenancePeriods: {
                   where: { startAt: { lte: now }, endAt: { gt: now } },
@@ -199,17 +201,21 @@ export class FacilityCatalogService {
           where: {
             id,
             reservationMode: ReservationMode.QUANTITY,
-            facilities: { some: { status: FacilityStatus.ACTIVE } },
+            facilities: {
+              some: { status: { not: FacilityStatus.NONACTIVE } },
+            },
           },
           select: {
             ...facilityGroupPublicSelect,
             _count: {
               select: {
-                facilities: { where: { status: FacilityStatus.ACTIVE } },
+                facilities: {
+                  where: { status: { not: FacilityStatus.NONACTIVE } },
+                },
               },
             },
             facilities: {
-              where: { status: FacilityStatus.ACTIVE },
+              where: { status: { not: FacilityStatus.NONACTIVE } },
               select: {
                 maintenancePeriods: {
                   where: { startAt: { lte: now }, endAt: { gt: now } },
@@ -222,7 +228,10 @@ export class FacilityCatalogService {
         this.prisma.maintenancePeriod.findFirst({
           where: {
             startAt: { gt: now },
-            facility: { facilityGroupId: id, status: FacilityStatus.ACTIVE },
+            facility: {
+              facilityGroupId: id,
+              status: { not: FacilityStatus.NONACTIVE },
+            },
           },
           select: { startAt: true, endAt: true },
           orderBy: { startAt: 'asc' },
@@ -254,7 +263,7 @@ export class FacilityCatalogService {
     const facility = await this.prisma.facility.findFirst({
       where: {
         id,
-        status: FacilityStatus.ACTIVE,
+        status: { not: FacilityStatus.NONACTIVE },
         facilityGroup: { reservationMode: ReservationMode.EXCLUSIVE },
       },
       select: facilityUnitPublicSelect,

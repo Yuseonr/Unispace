@@ -25,5 +25,6 @@ import { FacilitiesController } from './facilities.controller';
     FacilityStatusService,
     FacilityImageStorageService,
   ],
+  exports: [FacilityAvailabilityService],
 })
 export class FacilitiesModule {}

@@ -468,7 +468,9 @@ describe('facility domain services', () => {
       expect(prismaMock.facilityGroup.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            facilities: { some: { status: FacilityStatus.ACTIVE } },
+            facilities: {
+              some: { status: { not: FacilityStatus.NONACTIVE } },
+            },
           }),
         }),
       );
@@ -566,6 +568,29 @@ describe('facility domain services', () => {
         expect(slot1000.reason).toBe('MAINTENANCE');
       });
 
+      it('tetap menyediakan kalender slot untuk unit berstatus IN_MAINTENANCE', async () => {
+        prismaMock.facility.findFirst.mockResolvedValue({
+          ...stubExclusiveFacility,
+          status: FacilityStatus.IN_MAINTENANCE,
+        });
+        prismaMock.reservation.findMany.mockResolvedValue([]);
+        prismaMock.maintenancePeriod.findMany.mockResolvedValue([]);
+
+        const result = await availability.getAvailability('fac-1', {
+          date: mondayDate,
+          kind: 'unit',
+        });
+
+        expect(result.slots.every((slot) => slot.available)).toBe(true);
+        expect(prismaMock.facility.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              status: { not: FacilityStatus.NONACTIVE },
+            }),
+          }),
+        );
+      });
+
       it('melempar NotFoundException bila unit tidak ditemukan', async () => {
         prismaMock.facility.findFirst.mockResolvedValue(null);
         await expect(
@@ -576,7 +601,9 @@ describe('facility domain services', () => {
         ).rejects.toThrow(NotFoundException);
         expect(prismaMock.facility.findFirst).toHaveBeenCalledWith(
           expect.objectContaining({
-            where: expect.objectContaining({ status: FacilityStatus.ACTIVE }),
+            where: expect.objectContaining({
+              status: { not: FacilityStatus.NONACTIVE },
+            }),
           }),
         );
       });
@@ -633,7 +660,9 @@ describe('facility domain services', () => {
         expect(prismaMock.facilityGroup.findFirst).toHaveBeenCalledWith(
           expect.objectContaining({
             where: expect.objectContaining({
-              facilities: { some: { status: FacilityStatus.ACTIVE } },
+              facilities: {
+                some: { status: { not: FacilityStatus.NONACTIVE } },
+              },
             }),
           }),
         );
