@@ -32,7 +32,10 @@ export class FacilityStatusService {
     if (!facility) {
       throw new NotFoundException('Unit fasilitas tidak ditemukan.');
     }
-    if (facility.status === newStatus) {
+    if (
+      facility.status === newStatus &&
+      newStatus === FacilityStatus.NONACTIVE
+    ) {
       return facility;
     }
 
@@ -93,7 +96,7 @@ export class FacilityStatusService {
             entityId: facilityId,
             metadata: {
               assetCode: facility.assetCode,
-              fromStatus: FacilityStatus.ACTIVE,
+              fromStatus: facility.status,
               toStatus: FacilityStatus.NONACTIVE,
             },
           },
@@ -103,14 +106,30 @@ export class FacilityStatusService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const activeMaintenance = await tx.maintenancePeriod.findFirst({
+        where: {
+          facilityId,
+          startAt: { lte: now },
+          endAt: { gt: now },
+        },
+        select: { id: true },
+      });
+      const effectiveStatus = activeMaintenance
+        ? FacilityStatus.IN_MAINTENANCE
+        : FacilityStatus.ACTIVE;
+
+      if (facility.status === effectiveStatus) {
+        return facility;
+      }
+
       const updated = await tx.facility.update({
         where: { id: facilityId },
-        data: { status: FacilityStatus.ACTIVE },
+        data: { status: effectiveStatus },
       });
       await tx.facilityStatusHistory.create({
         data: {
           facilityId,
-          status: FacilityStatus.ACTIVE,
+          status: effectiveStatus,
           changedById: adminId,
           effectiveAt: now,
         },
@@ -123,8 +142,9 @@ export class FacilityStatusService {
           entityId: facilityId,
           metadata: {
             assetCode: facility.assetCode,
-            fromStatus: FacilityStatus.NONACTIVE,
-            toStatus: FacilityStatus.ACTIVE,
+            fromStatus: facility.status,
+            toStatus: effectiveStatus,
+            activeMaintenance: Boolean(activeMaintenance),
           },
         },
       });

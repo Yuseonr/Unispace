@@ -1018,5 +1018,54 @@ describe('facility domain services', () => {
 
       expect(result.status).toBe(FacilityStatus.ACTIVE);
     });
+
+    it('menjaga status IN_MAINTENANCE saat fasilitas diaktifkan kembali di tengah perbaikan', async () => {
+      prismaMock.facility.findUnique.mockResolvedValue({
+        id: facilityId,
+        assetCode: 'R-101',
+        status: FacilityStatus.NONACTIVE,
+        facilityGroup: {
+          name: 'Ruang 101',
+          reservationMode: ReservationMode.EXCLUSIVE,
+        },
+      });
+
+      const facilityUpdate = jest.fn().mockResolvedValue({
+        id: facilityId,
+        assetCode: 'R-101',
+        status: FacilityStatus.IN_MAINTENANCE,
+      });
+      const historyCreate = jest.fn().mockResolvedValue({});
+      prismaMock.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => unknown) =>
+          callback({
+            facility: { update: facilityUpdate },
+            maintenancePeriod: {
+              findFirst: jest.fn().mockResolvedValue({ id: 'maintenance-1' }),
+            },
+            facilityStatusHistory: { create: historyCreate },
+            auditLog: { create: jest.fn().mockResolvedValue({}) },
+          }),
+      );
+
+      const result = await status.adminUpdateUnitStatus(
+        adminId,
+        facilityId,
+        FacilityStatus.ACTIVE,
+      );
+
+      expect(result.status).toBe(FacilityStatus.IN_MAINTENANCE);
+      expect(facilityUpdate).toHaveBeenCalledWith({
+        where: { id: facilityId },
+        data: { status: FacilityStatus.IN_MAINTENANCE },
+      });
+      expect(historyCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: FacilityStatus.IN_MAINTENANCE,
+          }),
+        }),
+      );
+    });
   });
 });
