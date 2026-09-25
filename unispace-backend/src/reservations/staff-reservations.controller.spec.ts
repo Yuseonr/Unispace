@@ -5,7 +5,6 @@ import { ReservationsService } from './reservations.service';
 import { ReservationStatus, UserRole } from '../generated/prisma/client';
 import type { AuthenticatedUser } from '../accounts/auth/auth.types';
 
-
 describe('StaffReservationsController', () => {
   let controller: StaffReservationsController;
   let service: ReservationsService;

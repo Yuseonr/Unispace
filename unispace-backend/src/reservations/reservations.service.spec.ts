@@ -90,7 +90,6 @@ const prismaMock = {
   $transaction: jest.fn(),
 };
 
-
 describe('ReservationsService - getAvailability', () => {
   let service: ReservationsService;
 
@@ -904,7 +903,11 @@ describe('ReservationsService - listStaff & getStaffDetail', () => {
           AND: expect.arrayContaining([
             expect.objectContaining({
               OR: expect.arrayContaining([
-                { facility: { facilityGroup: { facilityAreaId: 'area-uuid-1' } } },
+                {
+                  facility: {
+                    facilityGroup: { facilityAreaId: 'area-uuid-1' },
+                  },
+                },
                 { facilityGroup: { facilityAreaId: 'area-uuid-1' } },
               ]),
             }),
@@ -917,8 +920,6 @@ describe('ReservationsService - listStaff & getStaffDetail', () => {
     );
   });
 
-
-
   it('mengambil rincian reservasi untuk petugas dan mengembalikan alokasi aset jika APPROVED', async () => {
     const stubApprovedItem = {
       id: 'res-staff-approved',
@@ -930,11 +931,19 @@ describe('ReservationsService - listStaff & getStaffDetail', () => {
       user: stubActiveUser,
       facility: null,
       facilityGroup: stubQuantityGroup,
-      processedBy: { id: 'staff-1', name: 'Petugas Unispace', email: 'staff@kampus.ac.id' },
+      processedBy: {
+        id: 'staff-1',
+        name: 'Petugas Unispace',
+        email: 'staff@kampus.ac.id',
+      },
       items: [
         {
           id: 'item-1',
-          facility: { id: 'unit-1', assetCode: 'PRJ-001', name: 'Proyektor 01' },
+          facility: {
+            id: 'unit-1',
+            assetCode: 'PRJ-001',
+            name: 'Proyektor 01',
+          },
         },
       ],
     };
@@ -951,9 +960,9 @@ describe('ReservationsService - listStaff & getStaffDetail', () => {
   it('melemparkan NotFoundException jika detail reservasi untuk staf tidak ditemukan', async () => {
     prismaMock.reservation.findUnique.mockResolvedValue(null);
 
-    await expect(
-      service.getStaffDetail('res-not-found'),
-    ).rejects.toThrow(NotFoundException);
+    await expect(service.getStaffDetail('res-not-found')).rejects.toThrow(
+      NotFoundException,
+    );
   });
 });
 
@@ -973,8 +982,8 @@ describe('ReservationsService - approve', () => {
     service = module.get<ReservationsService>(ReservationsService);
     jest.clearAllMocks();
 
-    prismaMock.$transaction.mockImplementation((callback: (tx: typeof prismaMock) => unknown) =>
-      callback(prismaMock),
+    prismaMock.$transaction.mockImplementation(
+      (callback: (tx: typeof prismaMock) => unknown) => callback(prismaMock),
     );
   });
 
@@ -1028,7 +1037,10 @@ describe('ReservationsService - approve', () => {
     it('melemparkan BadRequestException jika fasilitas sedang tidak aktif', async () => {
       prismaMock.reservation.findUnique.mockResolvedValue({
         ...stubExclusiveRes,
-        facility: { ...stubExclusiveFacility, status: FacilityStatus.NONACTIVE },
+        facility: {
+          ...stubExclusiveFacility,
+          status: FacilityStatus.NONACTIVE,
+        },
       });
 
       await expect(
@@ -1086,7 +1098,12 @@ describe('ReservationsService - approve', () => {
       ]);
       prismaMock.reservation.updateMany.mockResolvedValue({ count: 2 });
 
-      const result = await service.approve(staffId, stubExclusiveRes.id, {}, now);
+      const result = await service.approve(
+        staffId,
+        stubExclusiveRes.id,
+        {},
+        now,
+      );
 
       expect(prismaMock.reservation.update).toHaveBeenCalledWith({
         where: { id: stubExclusiveRes.id },
@@ -1109,7 +1126,11 @@ describe('ReservationsService - approve', () => {
 
       // Verifikasi cascade auto-reject
       expect(prismaMock.reservation.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['res-conflicting-pending-1', 'res-conflicting-pending-2'] } },
+        where: {
+          id: {
+            in: ['res-conflicting-pending-1', 'res-conflicting-pending-2'],
+          },
+        },
         data: expect.objectContaining({
           status: ReservationStatus.REJECTED,
           processedById: staffId,
@@ -1249,8 +1270,22 @@ describe('ReservationsService - approve', () => {
           status: ReservationStatus.APPROVED,
           processedBy: { id: staffId, name: 'Petugas Unispace' },
           items: [
-            { id: 'item-1', facility: { id: 'unit-1', assetCode: 'PRJ-001', name: 'Proyektor 1' } },
-            { id: 'item-2', facility: { id: 'unit-2', assetCode: 'PRJ-002', name: 'Proyektor 2' } },
+            {
+              id: 'item-1',
+              facility: {
+                id: 'unit-1',
+                assetCode: 'PRJ-001',
+                name: 'Proyektor 1',
+              },
+            },
+            {
+              id: 'item-2',
+              facility: {
+                id: 'unit-2',
+                assetCode: 'PRJ-002',
+                name: 'Proyektor 2',
+              },
+            },
           ],
         });
 
@@ -1360,8 +1395,8 @@ describe('ReservationsService - reject', () => {
     service = module.get<ReservationsService>(ReservationsService);
     jest.clearAllMocks();
 
-    prismaMock.$transaction.mockImplementation((callback: (tx: typeof prismaMock) => unknown) =>
-      callback(prismaMock),
+    prismaMock.$transaction.mockImplementation(
+      (callback: (tx: typeof prismaMock) => unknown) => callback(prismaMock),
     );
   });
 
@@ -1369,7 +1404,9 @@ describe('ReservationsService - reject', () => {
     prismaMock.reservation.findUnique.mockResolvedValue(null);
 
     await expect(
-      service.reject(staffId, 'res-not-found', { reason: 'Fasilitas tidak dapat digunakan' }),
+      service.reject(staffId, 'res-not-found', {
+        reason: 'Fasilitas tidak dapat digunakan',
+      }),
     ).rejects.toThrow(NotFoundException);
   });
 
@@ -1380,8 +1417,12 @@ describe('ReservationsService - reject', () => {
     });
 
     await expect(
-      service.reject(staffId, 'res-already-rejected', { reason: 'Fasilitas tidak dapat digunakan' }),
-    ).rejects.toThrow('Hanya permohonan reservasi berstatus PENDING yang dapat ditolak.');
+      service.reject(staffId, 'res-already-rejected', {
+        reason: 'Fasilitas tidak dapat digunakan',
+      }),
+    ).rejects.toThrow(
+      'Hanya permohonan reservasi berstatus PENDING yang dapat ditolak.',
+    );
   });
 
   it('menolak reservasi PENDING, menyimpan alasan, dan mencatat audit log', async () => {
@@ -1438,7 +1479,9 @@ describe('ReservationsService - reject', () => {
     });
 
     expect(result.status).toBe(ReservationStatus.REJECTED);
-    expect(result.decisionReason).toBe('Ruangan sedang dalam persiapan acara wisuda.');
+    expect(result.decisionReason).toBe(
+      'Ruangan sedang dalam persiapan acara wisuda.',
+    );
   });
 });
 
@@ -1458,8 +1501,8 @@ describe('ReservationsService - cancelByStaff', () => {
     service = module.get<ReservationsService>(ReservationsService);
     jest.clearAllMocks();
 
-    prismaMock.$transaction.mockImplementation((callback: (tx: typeof prismaMock) => unknown) =>
-      callback(prismaMock),
+    prismaMock.$transaction.mockImplementation(
+      (callback: (tx: typeof prismaMock) => unknown) => callback(prismaMock),
     );
   });
 
@@ -1467,7 +1510,9 @@ describe('ReservationsService - cancelByStaff', () => {
     prismaMock.reservation.findUnique.mockResolvedValue(null);
 
     await expect(
-      service.cancelByStaff(staffId, 'res-not-found', { reason: 'Pemeliharaan darurat fasilitas' }),
+      service.cancelByStaff(staffId, 'res-not-found', {
+        reason: 'Pemeliharaan darurat fasilitas',
+      }),
     ).rejects.toThrow(NotFoundException);
   });
 
@@ -1478,8 +1523,12 @@ describe('ReservationsService - cancelByStaff', () => {
     });
 
     await expect(
-      service.cancelByStaff(staffId, 'res-already-completed', { reason: 'Pemeliharaan darurat fasilitas' }),
-    ).rejects.toThrow('Hanya reservasi berstatus PENDING atau APPROVED yang dapat dibatalkan oleh petugas.');
+      service.cancelByStaff(staffId, 'res-already-completed', {
+        reason: 'Pemeliharaan darurat fasilitas',
+      }),
+    ).rejects.toThrow(
+      'Hanya reservasi berstatus PENDING atau APPROVED yang dapat dibatalkan oleh petugas.',
+    );
   });
 
   it('membatalkan reservasi APPROVED oleh staf, mencatat cancelledAt dan audit log', async () => {
@@ -1498,7 +1547,8 @@ describe('ReservationsService - cancelByStaff', () => {
       .mockResolvedValueOnce({
         ...stubApprovedRes,
         status: ReservationStatus.CANCELLED_BY_STAFF,
-        decisionReason: 'Ruangan dialihkan mendadak untuk agenda kunjungan rektorat.',
+        decisionReason:
+          'Ruangan dialihkan mendadak untuk agenda kunjungan rektorat.',
         processedBy: { id: staffId, name: 'Petugas Unispace' },
         cancelledAt: now,
       });
@@ -1517,7 +1567,8 @@ describe('ReservationsService - cancelByStaff', () => {
       where: { id: stubApprovedRes.id },
       data: {
         status: ReservationStatus.CANCELLED_BY_STAFF,
-        decisionReason: 'Ruangan dialihkan mendadak untuk agenda kunjungan rektorat.',
+        decisionReason:
+          'Ruangan dialihkan mendadak untuk agenda kunjungan rektorat.',
         processedById: staffId,
         cancelledAt: now,
         decidedAt: now,
@@ -1538,7 +1589,9 @@ describe('ReservationsService - cancelByStaff', () => {
     });
 
     expect(result.status).toBe(ReservationStatus.CANCELLED_BY_STAFF);
-    expect(result.decisionReason).toBe('Ruangan dialihkan mendadak untuk agenda kunjungan rektorat.');
+    expect(result.decisionReason).toBe(
+      'Ruangan dialihkan mendadak untuk agenda kunjungan rektorat.',
+    );
   });
 
   it('membatalkan reservasi PENDING oleh staf dengan alasan valid', async () => {
@@ -1557,7 +1610,8 @@ describe('ReservationsService - cancelByStaff', () => {
       .mockResolvedValueOnce({
         ...stubPendingRes,
         status: ReservationStatus.CANCELLED_BY_STAFF,
-        decisionReason: 'Pemohon meminta pembatalan langsung via pusat bantuan.',
+        decisionReason:
+          'Pemohon meminta pembatalan langsung via pusat bantuan.',
         processedBy: { id: staffId, name: 'Petugas Unispace' },
         cancelledAt: now,
       });
@@ -1576,7 +1630,8 @@ describe('ReservationsService - cancelByStaff', () => {
       where: { id: stubPendingRes.id },
       data: {
         status: ReservationStatus.CANCELLED_BY_STAFF,
-        decisionReason: 'Pemohon meminta pembatalan langsung via pusat bantuan.',
+        decisionReason:
+          'Pemohon meminta pembatalan langsung via pusat bantuan.',
         processedById: staffId,
         cancelledAt: now,
         decidedAt: now,
@@ -1668,6 +1723,3 @@ describe('ReservationsService - autoRejectExpiredReservations & SLA enforcement'
     );
   });
 });
-
-
-
