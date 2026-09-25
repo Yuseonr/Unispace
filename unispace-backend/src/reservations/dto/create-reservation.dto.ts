@@ -8,11 +8,23 @@ import {
   Matches,
   MaxLength,
   Min,
-  MinLength,
 } from 'class-validator';
 
 const trimValue = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
+
+const normalizePurpose = ({ value }: { value: unknown }) => {
+  if (value === undefined || value === null) {
+    return 'NULL';
+  }
+
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  return trimmed || 'NULL';
+};
 
 export class CreateReservationDto {
   @IsOptional()
@@ -49,10 +61,9 @@ export class CreateReservationDto {
   })
   endTime: string;
 
-  @Transform(trimValue)
-  @IsNotEmpty({ message: 'purpose is required' })
+  @Transform(normalizePurpose)
+  @IsOptional()
   @IsString({ message: 'purpose must be a string' })
-  @MinLength(5, { message: 'purpose must be at least 5 characters long' })
   @MaxLength(500, { message: 'purpose must not exceed 500 characters' })
-  purpose: string;
+  purpose?: string;
 }

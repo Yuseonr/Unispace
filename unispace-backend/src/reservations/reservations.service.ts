@@ -47,7 +47,10 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
         try {
           await this.autoRejectExpiredReservations();
         } catch (err) {
-          this.logger.error('Gagal mengeksekusi auto-reject SLA reservasi:', err);
+          this.logger.error(
+            'Gagal mengeksekusi auto-reject SLA reservasi:',
+            err,
+          );
         }
       }, 60_000);
       this.autoRejectInterval.unref();
@@ -357,6 +360,8 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
       endTime,
       purpose,
     } = dto;
+    const normalizedPurpose =
+      typeof purpose === 'string' && purpose.trim() ? purpose.trim() : 'NULL';
 
     // 1. Validasi Pemilihan Target (Pilih salah satu)
     if ((!facilityId && !facilityGroupId) || (facilityId && facilityGroupId)) {
@@ -622,7 +627,7 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
           usageDate: usageDateObj,
           startTime: startTimeDate,
           endTime: endTimeDate,
-          purpose,
+          purpose: normalizedPurpose,
           status: ReservationStatus.PENDING,
           decisionDeadline,
         },
@@ -700,7 +705,9 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
                   id: true,
                   name: true,
                   locationDetail: true,
-                  facilityArea: { select: { id: true, code: true, name: true } },
+                  facilityArea: {
+                    select: { id: true, code: true, name: true },
+                  },
                   facilityType: { select: { id: true, name: true } },
                 },
               },
@@ -963,10 +970,16 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
         OR: [
           { user: { name: { contains: search, mode: 'insensitive' } } },
           { user: { email: { contains: search, mode: 'insensitive' } } },
-          { user: { identityNumber: { contains: search, mode: 'insensitive' } } },
+          {
+            user: { identityNumber: { contains: search, mode: 'insensitive' } },
+          },
           { facility: { name: { contains: search, mode: 'insensitive' } } },
-          { facility: { assetCode: { contains: search, mode: 'insensitive' } } },
-          { facilityGroup: { name: { contains: search, mode: 'insensitive' } } },
+          {
+            facility: { assetCode: { contains: search, mode: 'insensitive' } },
+          },
+          {
+            facilityGroup: { name: { contains: search, mode: 'insensitive' } },
+          },
           { purpose: { contains: search, mode: 'insensitive' } },
         ],
       });
@@ -1008,7 +1021,9 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
                   id: true,
                   name: true,
                   locationDetail: true,
-                  facilityArea: { select: { id: true, code: true, name: true } },
+                  facilityArea: {
+                    select: { id: true, code: true, name: true },
+                  },
                   facilityType: { select: { id: true, name: true } },
                 },
               },
@@ -1749,5 +1764,3 @@ export class ReservationsService implements OnModuleInit, OnModuleDestroy {
     return expiredReservations.length;
   }
 }
-
-

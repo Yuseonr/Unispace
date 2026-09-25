@@ -93,7 +93,6 @@ const stubExclusiveFacility = {
 };
 
 function getValidFutureOperationalDate(): string {
-
   const date = new Date();
   let count = 0;
   while (count < 4) {
@@ -157,7 +156,6 @@ describe('Reservations HTTP Integration (E2E)', () => {
       },
       auditLog: { create: jest.fn().mockResolvedValue({}) },
     };
-
 
     prisma = {
       user: {
@@ -391,6 +389,37 @@ describe('Reservations HTTP Integration (E2E)', () => {
       expect(response.body.data.status).toBe('PENDING');
     });
 
+    it('menyimpan tujuan yang kosong sebagai literal NULL', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/reservations')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          facilityId: stubExclusiveFacility.id,
+          usageDate: validFutureOperationalDate,
+          startTime: '08:00',
+          endTime: '10:00',
+          purpose: '   ',
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.data.purpose).toBe('NULL');
+    });
+
+    it('menerima reservasi tanpa field tujuan', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/reservations')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          facilityId: stubExclusiveFacility.id,
+          usageDate: validFutureOperationalDate,
+          startTime: '08:00',
+          endTime: '10:00',
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.data.purpose).toBe('NULL');
+    });
+
     it('mengizinkan USER mengambil riwayat permohonan reservasi miliknya (GET /my)', async () => {
       const response = await request(app.getHttpServer())
         .get('/api/v1/reservations/my')
@@ -466,9 +495,7 @@ describe('Reservations HTTP Integration (E2E)', () => {
 
     it('menolak akses role ADMIN saat melihat rincian permohonan reservasi staf (403 Forbidden)', async () => {
       const response = await request(app.getHttpServer())
-        .get(
-          '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001',
-        )
+        .get('/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001')
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(response.status).toBe(403);
@@ -476,9 +503,7 @@ describe('Reservations HTTP Integration (E2E)', () => {
 
     it('mengizinkan role STAFF melihat rincian lengkap satu permohonan reservasi (200 OK)', async () => {
       const response = await request(app.getHttpServer())
-        .get(
-          '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001',
-        )
+        .get('/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001')
         .set('Authorization', `Bearer ${staffToken}`);
 
       expect(response.status).toBe(200);
@@ -551,7 +576,9 @@ describe('Reservations HTTP Integration (E2E)', () => {
     });
 
     it('menolak persetujuan reservasi jika batas tenggat keputusan telah terlewati (400 Bad Request / SLA Expired)', async () => {
-      (prisma.reservation as { findUnique: jest.Mock }).findUnique.mockResolvedValueOnce({
+      (
+        prisma.reservation as { findUnique: jest.Mock }
+      ).findUnique.mockResolvedValueOnce({
         id: '70000000-0000-4000-8000-000000000001',
         userId: testUser.id,
         facilityId: stubExclusiveFacility.id,
@@ -598,7 +625,9 @@ describe('Reservations HTTP Integration (E2E)', () => {
           '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/reject',
         )
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ reason: 'Fasilitas sedang dipersiapkan untuk kegiatan dinas kampus.' });
+        .send({
+          reason: 'Fasilitas sedang dipersiapkan untuk kegiatan dinas kampus.',
+        });
 
       expect(response.status).toBe(403);
     });
@@ -609,7 +638,9 @@ describe('Reservations HTTP Integration (E2E)', () => {
           '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/reject',
         )
         .set('Authorization', `Bearer ${staffToken}`)
-        .send({ reason: 'Fasilitas sedang dipersiapkan untuk kegiatan dinas kampus.' });
+        .send({
+          reason: 'Fasilitas sedang dipersiapkan untuk kegiatan dinas kampus.',
+        });
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('success', true);
@@ -686,4 +717,3 @@ describe('Reservations HTTP Integration (E2E)', () => {
     });
   });
 });
-
