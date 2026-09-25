@@ -104,6 +104,16 @@ export function SiteHeader() {
                       Panel Admin
                     </Link>
                   ) : null}
+                  {user.role === "STAFF" ? (
+                    <Link
+                      className="header-profile__item"
+                      href="/staff/reservations"
+                      onClick={() => setIsProfileOpen(false)}
+                      role="menuitem"
+                    >
+                      Portal Petugas
+                    </Link>
+                  ) : null}
                   <button onClick={() => void handleLogout()} role="menuitem" type="button">
                     Keluar
                   </button>

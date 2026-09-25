@@ -1,12 +1,19 @@
 import { apiRequest } from "@/lib/api/client";
 
 import type {
+  ApproveStaffReservationInput,
+  AutoRejectExpiredResponse,
+  CancelStaffReservationInput,
   CreateReservationInput,
   FacilityAvailabilityData,
   ListMyReservationsQuery,
+  ListStaffReservationsQuery,
   MyReservationsResponse,
+  RejectStaffReservationInput,
   ReservationStatus,
   ReservationSummary,
+  StaffReservationItem,
+  StaffReservationsResponse,
   UserReservationItem,
 } from "./types";
 
@@ -249,6 +256,164 @@ export async function cancelMyReservation(
 }
 
 /**
+ * Ambil daftar antrean permohonan reservasi untuk petugas (FR-RES-03)
+ */
+export async function fetchStaffReservations(
+  query: ListStaffReservationsQuery = {},
+  requestFn: AuthenticatedRequestFn,
+): Promise<StaffReservationsResponse> {
+  const searchParams = new URLSearchParams();
+  if (query.status) searchParams.set("status", query.status);
+  if (query.usageDate) searchParams.set("usageDate", query.usageDate);
+  if (query.facilityId) searchParams.set("facilityId", query.facilityId);
+  if (query.facilityGroupId) searchParams.set("facilityGroupId", query.facilityGroupId);
+  if (query.facilityAreaId) searchParams.set("facilityAreaId", query.facilityAreaId);
+  if (query.search) searchParams.set("search", query.search);
+  if (query.page) searchParams.set("page", String(query.page));
+  if (query.limit) searchParams.set("limit", String(query.limit));
+
+  const qs = searchParams.toString();
+  return requestFn<StaffReservationsResponse>(`/staff/reservations${qs ? `?${qs}` : ""}`);
+}
+
+/**
+ * Ambil rincian lengkap satu permohonan reservasi untuk petugas (FR-RES-03)
+ */
+export async function getStaffReservationDetail(
+  id: string,
+  requestFn: AuthenticatedRequestFn,
+): Promise<StaffReservationItem> {
+  return requestFn<StaffReservationItem>(`/staff/reservations/${id}`);
+}
+
+/**
+ * Menyetujui permohonan reservasi secara atomik oleh petugas (FR-RES-04 & RULE-RES-05)
+ * - Mode Ruang (EXCLUSIVE): tanpa allocatedAssetIds
+ * - Mode Alat (QUANTITY): wajib menyertakan allocatedAssetIds
+ */
+export async function approveStaffReservation(
+  id: string,
+  input: ApproveStaffReservationInput,
+  requestFn: AuthenticatedRequestFn,
+): Promise<StaffReservationItem> {
+  return requestFn<StaffReservationItem>(`/staff/reservations/${id}/approve`, {
+    body: input as Record<string, unknown>,
+    method: "PATCH",
+  });
+}
+
+/**
+ * Menolak permohonan reservasi berstatus PENDING oleh petugas dengan alasan wajib (FR-RES-05 & RULE-RES-08)
+ */
+export async function rejectStaffReservation(
+  id: string,
+  input: RejectStaffReservationInput,
+  requestFn: AuthenticatedRequestFn,
+): Promise<StaffReservationItem> {
+  return requestFn<StaffReservationItem>(`/staff/reservations/${id}/reject`, {
+    body: input as Record<string, unknown>,
+    method: "PATCH",
+  });
+}
+
+/**
+ * Membatalkan permohonan reservasi aktif (PENDING/APPROVED) oleh petugas dengan alasan wajib (FR-RES-07 & RULE-RES-08)
+ */
+export async function cancelStaffReservation(
+  id: string,
+  input: CancelStaffReservationInput,
+  requestFn: AuthenticatedRequestFn,
+): Promise<StaffReservationItem> {
+  return requestFn<StaffReservationItem>(`/staff/reservations/${id}/cancel`, {
+    body: input as Record<string, unknown>,
+    method: "PATCH",
+  });
+}
+
+/**
+ * Memicu evaluasi dan penolakan otomatis reservasi PENDING yang melewati batas SLA (FR-RES-08)
+ */
+export async function triggerAutoRejectExpired(
+  requestFn: AuthenticatedRequestFn,
+): Promise<AutoRejectExpiredResponse> {
+  return requestFn<AutoRejectExpiredResponse>("/staff/reservations/auto-reject-expired", {
+    method: "POST",
+  });
+}
+
+/**
+ * Evaluasi status urgensi batas waktu keputusan SLA petugas (RULE-RES-04)
+ */
+export function getSlaUrgencyStatus(
+  deadlineStr: string,
+  now: Date = new Date(),
+): {
+  isExpired: boolean;
+  isUrgent: boolean;
+  remainingText: string;
+  urgencyLevel: "danger" | "expired" | "normal" | "warning";
+} {
+  if (!deadlineStr) {
+    return {
+      isExpired: false,
+      isUrgent: false,
+      remainingText: "Tidak ada tenggat",
+      urgencyLevel: "normal",
+    };
+  }
+
+  const deadline = new Date(deadlineStr);
+  const diffMs = deadline.getTime() - now.getTime();
+
+  if (diffMs <= 0) {
+    return {
+      isExpired: true,
+      isUrgent: true,
+      remainingText: "Batas waktu SLA terlampaui",
+      urgencyLevel: "expired",
+    };
+  }
+
+  const diffHours = diffMs / (1000 * 60 * 60);
+
+  if (diffHours < 4) {
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    return {
+      isExpired: false,
+      isUrgent: true,
+      remainingText: `Kritis: Sisa ${diffMinutes < 60 ? `${diffMinutes} menit` : `${Math.floor(diffHours)} jam ${diffMinutes % 60} m`} lagi`,
+      urgencyLevel: "danger",
+    };
+  }
+
+  if (diffHours < 12) {
+    return {
+      isExpired: false,
+      isUrgent: true,
+      remainingText: `Urgensi tinggi: Sisa ${Math.floor(diffHours)} jam lagi`,
+      urgencyLevel: "warning",
+    };
+  }
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays >= 1) {
+    return {
+      isExpired: false,
+      isUrgent: false,
+      remainingText: `Sisa ${diffDays} hari lagi`,
+      urgencyLevel: "normal",
+    };
+  }
+
+  return {
+    isExpired: false,
+    isUrgent: false,
+    remainingText: `Sisa ${Math.floor(diffHours)} jam lagi`,
+    urgencyLevel: "normal",
+  };
+}
+
+/**
  * Format string jam HH:mm (mendukung format "08:00" maupun ISO Date "1970-01-01T08:00:00.000Z")
  */
 export function formatSlotTime(timeStr: string): string {
@@ -281,7 +446,7 @@ export function getReservationStatusConfig(status: ReservationStatus): {
       return {
         badgeClass: "badge--pending",
         description: "Menunggu verifikasi dan persetujuan dari petugas kampus.",
-        label: "Menunggu Persetujuan",
+        label: "Menunggu",
       };
     case "APPROVED":
       return {

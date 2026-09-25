@@ -1,7 +1,7 @@
 "use client";
 
 import type { SubmitEvent } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -13,9 +13,22 @@ export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTarget = searchParams.get("redirect");
-  const { login } = useAuth();
+  const { isReady, login, user: currentUser } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!isReady || !currentUser) return;
+    if (currentUser.role === "ADMIN") {
+      router.replace("/admin");
+    } else if (currentUser.role === "STAFF") {
+      router.replace("/staff/reservations");
+    } else if (redirectTarget && redirectTarget.startsWith("/")) {
+      router.replace(redirectTarget);
+    } else {
+      router.replace("/facilities");
+    }
+  }, [currentUser, isReady, redirectTarget, router]);
 
   async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -25,10 +38,18 @@ export function LoginForm() {
 
     try {
       const user = await login(String(formData.get("email") ?? ""), String(formData.get("password") ?? ""));
-      if (user.role === "ADMIN") {
+      if (redirectTarget && redirectTarget.startsWith("/")) {
+        if (user.role === "ADMIN" && !redirectTarget.startsWith("/admin")) {
+          router.replace("/admin");
+        } else if (user.role === "STAFF" && !redirectTarget.startsWith("/staff")) {
+          router.replace("/staff/reservations");
+        } else {
+          router.replace(redirectTarget);
+        }
+      } else if (user.role === "ADMIN") {
         router.replace("/admin");
-      } else if (redirectTarget && redirectTarget.startsWith("/")) {
-        router.replace(redirectTarget);
+      } else if (user.role === "STAFF") {
+        router.replace("/staff/reservations");
       } else {
         router.replace("/facilities");
       }
