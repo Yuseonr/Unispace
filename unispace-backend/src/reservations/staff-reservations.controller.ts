@@ -47,7 +47,8 @@ export class StaffReservationsController {
    * PATCH /api/v1/staff/reservations/:id/approve
    * Menyetujui permohonan reservasi secara atomik oleh petugas (FR-RES-04 & FR-RES-05).
    * - Untuk Ruang (EXCLUSIVE): mengunci slot & cascade auto-reject pengajuan PENDING yang bentrok.
-   * - Untuk Kelompok Alat (QUANTITY): mengalokasikan unit aset fisik & cascade auto-reject pengajuan PENDING yang kekurangan stok.
+   * - Untuk Kelompok Alat (QUANTITY): backend memilih dan mengalokasikan unit aset fisik yang bebas,
+   *   lalu cascade auto-reject pengajuan PENDING yang kekurangan stok.
    */
   @Patch(':id/approve')
   approve(
