@@ -252,7 +252,7 @@ export class ReservationsService {
       purpose,
     } = dto;
     const normalizedPurpose =
-      typeof purpose === 'string' && purpose.trim() ? purpose.trim() : 'NULL';
+      typeof purpose === 'string' && purpose.trim() ? purpose.trim() : null;
 
     // 1. Validasi Pemilihan Target (Pilih salah satu)
     if ((!facilityId && !facilityGroupId) || (facilityId && facilityGroupId)) {
@@ -564,7 +564,7 @@ export class ReservationsService {
     query: ListMyReservationsDto,
     now: Date = new Date(),
   ) {
-    const { status, usageDate, page = 1, limit = 10 } = query;
+    const { status, usageDate, view, page = 1, limit = 10 } = query;
     const skip = (page - 1) * limit;
 
     let usageDateFilter: Date | undefined;
@@ -573,9 +573,20 @@ export class ReservationsService {
       usageDateFilter = new Date(Date.UTC(y, m - 1, d));
     }
 
-    const where = {
+    const historicalStatuses = [
+      ReservationStatus.COMPLETED,
+      ReservationStatus.REJECTED,
+      ReservationStatus.CANCELLED_BY_USER,
+      ReservationStatus.CANCELLED_BY_STAFF,
+      ReservationStatus.CANCELLED_BY_SYSTEM,
+    ];
+    const where: Prisma.ReservationWhereInput = {
       userId,
-      ...(status ? { status } : {}),
+      ...(view === 'HISTORY'
+        ? { status: { in: historicalStatuses } }
+        : status
+          ? { status }
+          : {}),
       ...(usageDateFilter ? { usageDate: usageDateFilter } : {}),
     };
 
@@ -797,6 +808,7 @@ export class ReservationsService {
   async listStaff(query: ListStaffReservationsDto) {
     const {
       status,
+      view,
       usageDate,
       facilityId,
       facilityGroupId,
@@ -814,7 +826,19 @@ export class ReservationsService {
     }
 
     const where: Prisma.ReservationWhereInput = {
-      ...(status ? { status } : {}),
+      ...(view === 'CANCELLED'
+        ? {
+            status: {
+              in: [
+                ReservationStatus.CANCELLED_BY_USER,
+                ReservationStatus.CANCELLED_BY_STAFF,
+                ReservationStatus.CANCELLED_BY_SYSTEM,
+              ],
+            },
+          }
+        : status
+          ? { status }
+          : {}),
       ...(usageDateFilter ? { usageDate: usageDateFilter } : {}),
       ...(facilityId ? { facilityId } : {}),
       ...(facilityGroupId ? { facilityGroupId } : {}),

@@ -43,9 +43,12 @@
     "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
+    "pdfkit": "^0.20.2",
     "pg": "^8.23.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "svg-to-pdfkit": "^0.1.8"
   },
   "devDependencies": {
     "@nestjs/cli": "^12.0.0",
@@ -58,8 +61,10 @@
     "@types/jest": "^30.0.0",
     "@types/multer": "^2.2.0",
     "@types/node": "^24.0.0",
+    "@types/pdfkit": "^0.17.6",
     "@types/pg": "^8.23.1",
     "@types/supertest": "^7.0.0",
+    "@types/svg-to-pdfkit": "^0.1.4",
     "jest": "^30.0.0",
     "oxlint": "^1.83.0",
     "prettier": "^3.4.2",

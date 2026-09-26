@@ -111,6 +111,7 @@ model User {
   processedReports      FacilityReport[]        @relation("ReportProcessor")
   facilityStatusChanges FacilityStatusHistory[] @relation("FacilityStatusChanger")
   auditLogs             AuditLog[]              @relation("AuditActor")
+  idempotencyRecords    IdempotencyRecord[]      @relation("IdempotencyActor")
 
   @@index([accountStatus, role])
   @@map("users")
@@ -149,6 +150,7 @@ model FacilityGroup {
   capacity        Int?
   description     String?         @db.Text
   primaryImageUrl String?         @map("primary_image_url") @db.Text
+  primaryImageObjectKey String?   @map("primary_image_object_key") @db.Text
 
   facilityType FacilityType  @relation(fields: [facilityTypeId], references: [id], onDelete: Restrict)
   facilityArea FacilityArea  @relation(fields: [facilityAreaId], references: [id], onDelete: Restrict)
@@ -168,6 +170,7 @@ model Facility {
   capacity        Int?
   description     String?        @db.Text
   primaryImageUrl String?        @map("primary_image_url") @db.Text
+  primaryImageObjectKey String?  @map("primary_image_object_key") @db.Text
   status          FacilityStatus @default(ACTIVE)
   createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -208,7 +211,7 @@ model Reservation {
   usageDate         DateTime          @map("usage_date") @db.Date
   startTime         DateTime          @map("start_time") @db.Time(0)
   endTime           DateTime          @map("end_time") @db.Time(0)
-  purpose           String            @db.Text
+  purpose           String?           @db.Text
   status            ReservationStatus @default(PENDING)
   decisionDeadline  DateTime          @map("decision_deadline") @db.Timestamptz(3)
   decisionReason    String?           @map("decision_reason") @db.Text
@@ -327,6 +330,26 @@ model AuditLog {
   actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: Restrict)
 
   @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
   @@index([entityType, entityId, createdAt])
   @@map("audit_logs")
+}
+
+model IdempotencyRecord {
+  id           String    @id @default(uuid()) @db.Uuid
+  actorId      String    @map("actor_id") @db.Uuid
+  key          String    @db.VarChar(255)
+  requestHash  String    @map("request_hash") @db.Char(64)
+  response     Json?
+  statusCode   Int       @default(200) @map("status_code")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz(3)
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(3)
+
+  actor User @relation("IdempotencyActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@unique([actorId, key])
+  @@index([expiresAt])
+  @@map("idempotency_records")
 }

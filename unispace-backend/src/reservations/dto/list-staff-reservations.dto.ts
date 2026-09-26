@@ -20,6 +20,11 @@ export class ListStaffReservationsDto {
   })
   status?: ReservationStatus;
 
+  /** Kelompok status untuk antrean operasional tanpa filter client-side. */
+  @IsOptional()
+  @IsEnum(['CANCELLED'])
+  view?: 'CANCELLED';
+
   @IsOptional()
   @IsISO8601(
     { strict: true },

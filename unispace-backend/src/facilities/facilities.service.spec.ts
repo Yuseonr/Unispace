@@ -38,6 +38,8 @@ const stubExclusiveGroup = {
   facilityType: stubType,
   facilityArea: stubArea,
   locationDetail: 'Gedung A, Lantai 1, Ruang 101',
+  primaryImageObjectKey:
+    'facility-primary/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jpg',
 };
 
 const stubExclusiveFacility = {
@@ -47,6 +49,8 @@ const stubExclusiveFacility = {
   capacity: 40,
   description: 'Ruang kelas standar',
   primaryImageUrl: 'https://example.com/r101.jpg',
+  primaryImageObjectKey:
+    'facility-primary/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jpg',
   status: FacilityStatus.ACTIVE,
   maintenancePeriods: [],
   facilityGroup: stubExclusiveGroup,
@@ -115,6 +119,7 @@ const prismaMock = {
 
 const imageStorageMock = {
   uploadPrimaryImage: jest.fn(),
+  removePrimaryImage: jest.fn(),
 };
 
 const primaryImage = {
@@ -819,7 +824,10 @@ describe('facility domain services', () => {
     });
 
     it('menolak penambahan unit kedua pada kelompok EXCLUSIVE', async () => {
-      prismaMock.facilityGroup.findUnique.mockResolvedValue(stubExclusiveGroup);
+      prismaMock.facilityGroup.findUnique.mockResolvedValue({
+        ...stubExclusiveGroup,
+        facilities: [{ id: 'fac-1', primaryImageObjectKey: null }],
+      });
 
       await expect(
         management.adminCreateUnit(adminId, {
@@ -834,7 +842,10 @@ describe('facility domain services', () => {
     const adminId = 'admin-uuid-1';
 
     it('menyelaraskan metadata grup EXCLUSIVE ke unit fisik tunggal', async () => {
-      prismaMock.facilityGroup.findUnique.mockResolvedValue(stubExclusiveGroup);
+      prismaMock.facilityGroup.findUnique.mockResolvedValue({
+        ...stubExclusiveGroup,
+        facilities: [{ id: 'fac-1', primaryImageObjectKey: null }],
+      });
       const groupUpdate = jest
         .fn()
         .mockResolvedValue({ ...stubExclusiveGroup, name: 'Ruang 102' });
@@ -911,11 +922,12 @@ describe('facility domain services', () => {
       expect(groupUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: stubExclusiveGroup.id },
-          data: {
+          data: expect.objectContaining({
             name: 'Aula Utama',
             capacity: 250,
             primaryImageUrl: storedImage.url,
-          },
+            primaryImageObjectKey: storedImage.objectKey,
+          }),
         }),
       );
     });

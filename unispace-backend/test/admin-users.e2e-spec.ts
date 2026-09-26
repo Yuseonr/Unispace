@@ -181,12 +181,51 @@ describe('Admin user management HTTP integration', () => {
         }),
       },
       reservation: {
+        findMany: jest.fn(({ where }) =>
+          Promise.resolve(
+            [...reservations.values()]
+              .filter((reservation) => {
+                if (where.userId && reservation.userId !== where.userId) {
+                  return false;
+                }
+                if (where.status && reservation.status !== where.status) {
+                  return false;
+                }
+                if (!where.OR) {
+                  return true;
+                }
+                return where.OR.some(
+                  (condition: {
+                    usageDate?: { gt?: Date } | Date;
+                    endTime?: { gte: Date };
+                  }) => {
+                    if (
+                      condition.usageDate &&
+                      typeof condition.usageDate === 'object' &&
+                      'gt' in condition.usageDate
+                    ) {
+                      return reservation.usageDate > condition.usageDate.gt!;
+                    }
+                    return (
+                      reservation.usageDate.getTime() ===
+                        (condition.usageDate as Date).getTime() &&
+                      reservation.endTime >= condition.endTime!.gte
+                    );
+                  },
+                );
+              })
+              .map(({ id }) => ({ id })),
+          ),
+        ),
         updateMany: jest.fn(({ where, data }) => {
           const updated = [...reservations.values()].filter((reservation) => {
-            if (
-              reservation.userId !== where.userId ||
-              reservation.status !== where.status
-            ) {
+            if (where.id && reservation.id !== where.id) {
+              return false;
+            }
+            if (where.userId && reservation.userId !== where.userId) {
+              return false;
+            }
+            if (where.status && reservation.status !== where.status) {
               return false;
             }
             if (!where.OR) {

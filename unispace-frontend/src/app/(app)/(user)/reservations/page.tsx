@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 
 import { useAuth } from "@/features/auth/auth-provider";
 import { cancelMyReservation, fetchMyReservations } from "@/features/reservations/api";
@@ -17,20 +17,16 @@ import { ApiError } from "@/lib/api/client";
 
 type TabKey = "ALL" | "PENDING" | "APPROVED" | "HISTORY";
 
-const HISTORY_STATUSES: ReservationStatus[] = [
-  "COMPLETED",
-  "REJECTED",
-  "CANCELLED_BY_USER",
-  "CANCELLED_BY_STAFF",
-  "CANCELLED_BY_SYSTEM",
-];
-
-export default function UserReservationsPage() {
+function UserReservationsContent() {
+  const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isReady, request, user } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<TabKey>("ALL");
-  const [filterDate, setFilterDate] = useState<string>("");
+  const tabParam = searchParams.get("tab");
+  const activeTab: TabKey = tabParam === "PENDING" || tabParam === "APPROVED" || tabParam === "HISTORY" ? tabParam : "ALL";
+  const filterDate = searchParams.get("date") ?? "";
+  const page = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
   const [reservations, setReservations] = useState<UserReservationItem[]>([]);
   const [meta, setMeta] = useState<MyReservationsPaginationMeta | null>(null);
   const [loading, setLoading] = useState(true);
@@ -55,14 +51,24 @@ export default function UserReservationsPage() {
 
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
+  function updateQuery(updates: Record<string, string | undefined>) {
+    const next = new URLSearchParams(searchParams.toString());
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    });
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
   function handleTabChange(tab: TabKey) {
-    setActiveTab(tab);
     setLoading(true);
+    updateQuery({ page: undefined, tab: tab === "ALL" ? undefined : tab });
   }
 
   function handleDateChange(date: string) {
-    setFilterDate(date);
     setLoading(true);
+    updateQuery({ date: date || undefined, page: undefined });
   }
 
   function handleRetry() {
@@ -85,8 +91,10 @@ export default function UserReservationsPage() {
     fetchMyReservations(
       {
         limit: 50,
+        page,
         status: queryStatus,
         usageDate: filterDate || undefined,
+        view: activeTab === "HISTORY" ? "HISTORY" : undefined,
       },
       request,
     )
@@ -113,20 +121,10 @@ export default function UserReservationsPage() {
     return () => {
       isMounted = false;
     };
-  }, [activeTab, filterDate, isReady, refreshTrigger, request, user]);
+  }, [activeTab, filterDate, isReady, page, refreshTrigger, request, user]);
 
-  // Filter daftar sesuai tab aktif
-  const displayedReservations = useMemo(() => {
-    if (activeTab === "HISTORY") {
-      return reservations.filter((r) => HISTORY_STATUSES.includes(r.status));
-    }
-    return reservations;
-  }, [activeTab, reservations]);
-
-  // Hitung jumlah item PENDING untuk badge tab
-  const pendingCount = useMemo(() => {
-    return reservations.filter((r) => r.status === "PENDING").length;
-  }, [reservations]);
+  // Angka badge akurat saat tab Menunggu aktif; tab lain tetap tidak mengubah hasil query utama.
+  const pendingCount = activeTab === "PENDING" ? meta?.total ?? 0 : 0;
 
   function handleOpenCancelModal(res: UserReservationItem) {
     setSelectedForCancel(res);
@@ -157,6 +155,7 @@ export default function UserReservationsPage() {
       setIsCancelModalOpen(false);
       setSelectedForCancel(null);
       setFeedbackMessage("Reservasi berhasil dibatalkan.");
+      setRefreshTrigger((current) => current + 1);
 
       setTimeout(() => {
         setFeedbackMessage(null);
@@ -313,7 +312,7 @@ export default function UserReservationsPage() {
             Coba Lagi
           </button>
         </div>
-      ) : displayedReservations.length === 0 ? (
+      ) : reservations.length === 0 ? (
         <div className="user-res-empty-state">
           <div className="user-res-empty-state__icon" aria-hidden="true">
             <svg fill="none" height="48" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24" width="48">
@@ -341,13 +340,13 @@ export default function UserReservationsPage() {
         <div className="user-res-list">
           <div className="user-res-list__meta">
             <span>
-              Menampilkan <strong>{displayedReservations.length}</strong> reservasi
+              Menampilkan <strong>{reservations.length}</strong> reservasi
               {meta ? ` dari total ${meta.total}` : ""}
             </span>
           </div>
 
           <div className="user-res-grid">
-            {displayedReservations.map((item) => (
+            {reservations.map((item) => (
               <ReservationCard
                 key={item.id}
                 onCancelClick={handleOpenCancelModal}
@@ -355,6 +354,7 @@ export default function UserReservationsPage() {
               />
             ))}
           </div>
+          {meta && meta.totalPages > 1 ? <div className="user-res-pagination"><button disabled={page <= 1} onClick={() => updateQuery({ page: String(page - 1) })} type="button">Sebelumnya</button><span>Halaman {meta.page} dari {meta.totalPages}</span><button disabled={page >= meta.totalPages} onClick={() => updateQuery({ page: String(page + 1) })} type="button">Berikutnya</button></div> : null}
         </div>
       )}
 
@@ -369,4 +369,8 @@ export default function UserReservationsPage() {
       />
     </main>
   );
+}
+
+export default function UserReservationsPage() {
+  return <Suspense><UserReservationsContent /></Suspense>;
 }

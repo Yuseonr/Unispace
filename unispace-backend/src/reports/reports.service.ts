@@ -1,9 +1,12 @@
 import {
+  BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { Prisma } from '../generated/prisma/client';
 import {
   FacilityStatus,
@@ -11,12 +14,15 @@ import {
   ReportStatus,
   ReservationMode,
   ReservationStatus,
+  UserRole,
 } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { IdempotencyService } from '../common/idempotency/idempotency.service';
 import { ObjectStorageService } from '../common/storage/object-storage.service';
 import { QuantityReservationReconciliationService } from '../facilities/quantity-reservation-reconciliation.service';
 import { CreateReportDto } from './dto/create-report.dto';
 import { ListMyReportsDto } from './dto/list-my-reports.dto';
+import { ListReportableFacilitiesDto } from './dto/list-reportable-facilities.dto';
 import { ListStaffReportsDto } from './dto/list-staff-reports.dto';
 import {
   MaintenanceMode,
@@ -39,6 +45,7 @@ import type {
   ReportResponse,
 } from './reports.types';
 import type { MaintenanceWindowDto } from './dto/maintenance-window.dto';
+import type { AuthenticatedUser } from '../accounts/auth/auth.types';
 
 const reportSelect = {
   id: true,
@@ -90,7 +97,6 @@ const reportSelect = {
     select: {
       id: true,
       storageProvider: true,
-      objectUrl: true,
       originalFilename: true,
       mimeType: true,
       sizeBytes: true,
@@ -138,7 +144,20 @@ export class ReportsService {
     private readonly prisma: PrismaService,
     private readonly storage: ObjectStorageService,
     private readonly reconciliation: QuantityReservationReconciliationService,
+    @Optional() private readonly idempotency?: IdempotencyService,
   ) {}
+
+  private runIdempotently<T>(
+    actorId: string,
+    key: string | undefined,
+    payload: unknown,
+    operation: () => Promise<T>,
+  ) {
+    if (!key?.trim() || !this.idempotency) {
+      return operation();
+    }
+    return this.idempotency.execute(actorId, key, payload, operation);
+  }
 
   private async runSerializableTransaction<T>(
     operation: (transaction: Prisma.TransactionClient) => Promise<T>,
@@ -190,80 +209,241 @@ export class ReportsService {
     reporterId: string,
     input: CreateReportDto,
     files: Express.Multer.File[],
+    idempotencyKey?: string,
   ) {
-    const facility = await this.prisma.facility.findUnique({
-      where: { id: input.facilityId },
+    if (files.length < 1 || files.length > 3) {
+      throw new BadRequestException({
+        code: 'INVALID_REPORT_PHOTO_COUNT',
+        message: 'Laporan harus memiliki 1 sampai 3 foto.',
+      });
+    }
+    const payload = {
+      input,
+      files: files.map((file) => ({
+        name: file.originalname,
+        mimeType: file.mimetype,
+        size: file.size,
+        contentHash: createHash('sha256')
+          .update(file.buffer ?? Buffer.alloc(0))
+          .digest('hex'),
+      })),
+    };
+
+    return this.runIdempotently(
+      reporterId,
+      idempotencyKey,
+      payload,
+      async () => {
+        const facility = await this.prisma.facility.findUnique({
+          where: { id: input.facilityId },
+          select: {
+            id: true,
+            status: true,
+          },
+        });
+
+        if (!facility) {
+          throw new NotFoundException({
+            code: 'FACILITY_NOT_FOUND',
+            message: 'The selected facility was not found.',
+          });
+        }
+        if (facility.status === FacilityStatus.NONACTIVE) {
+          throw new ConflictException({
+            code: 'FACILITY_NOT_REPORTABLE',
+            message: 'A nonactive facility cannot receive a new report.',
+          });
+        }
+
+        const uploaded: Awaited<
+          ReturnType<ObjectStorageService['uploadReportPhoto']>
+        >[] = [];
+        try {
+          for (const file of files) {
+            uploaded.push(await this.storage.uploadReportPhoto(file));
+          }
+
+          const report = await this.prisma.$transaction(async (transaction) => {
+            const created = await transaction.facilityReport.create({
+              data: {
+                reportNumber: this.generateReportNumber(new Date()),
+                reporterId,
+                facilityId: facility.id,
+                category: input.category,
+                description: input.description,
+                status: ReportStatus.NEW,
+              },
+              select: reportSelect,
+            });
+
+            await transaction.auditLog.create({
+              data: {
+                actorId: reporterId,
+                action: REPORT_AUDIT_ACTIONS.CREATED,
+                entityType: REPORT_ENTITY_TYPE,
+                entityId: created.id,
+                metadata: {
+                  facilityId: created.facility.id,
+                  category: created.category,
+                  status: created.status,
+                },
+              },
+            });
+
+            await transaction.reportAttachment.createMany({
+              data: uploaded.map((attachment) => ({
+                reportId: created.id,
+                ...attachment,
+              })),
+            });
+
+            return created;
+          });
+
+          return this.detailMine(reporterId, report.id);
+        } catch (error) {
+          await Promise.allSettled(
+            uploaded.map((attachment) =>
+              this.storage.remove(attachment.objectKey),
+            ),
+          );
+          throw error;
+        }
+      },
+    );
+  }
+
+  async listReportableFacilities(query: ListReportableFacilitiesDto) {
+    const now = new Date();
+    const skip = (query.page - 1) * query.limit;
+    const groupFilter: Prisma.FacilityGroupWhereInput = {
+      ...(query.facilityGroupId ? { id: query.facilityGroupId } : {}),
+      ...(query.facilityAreaId ? { facilityAreaId: query.facilityAreaId } : {}),
+    };
+    const searchFilter: Prisma.FacilityWhereInput | undefined = query.search
+      ? {
+          OR: [
+            { assetCode: { contains: query.search, mode: 'insensitive' } },
+            { name: { contains: query.search, mode: 'insensitive' } },
+            {
+              facilityGroup: {
+                OR: [
+                  { name: { contains: query.search, mode: 'insensitive' } },
+                  {
+                    locationDetail: {
+                      contains: query.search,
+                      mode: 'insensitive',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }
+      : undefined;
+    const where: Prisma.FacilityWhereInput = {
+      status: { not: FacilityStatus.NONACTIVE },
+      facilityGroup: groupFilter,
+      ...(searchFilter ? { AND: [searchFilter] } : {}),
+    };
+    const select = {
+      id: true,
+      assetCode: true,
+      name: true,
+      status: true,
+      maintenancePeriods: {
+        where: { startAt: { lte: now }, endAt: { gt: now } },
+        select: { id: true },
+      },
+      facilityGroup: {
+        select: {
+          id: true,
+          name: true,
+          reservationMode: true,
+          locationDetail: true,
+          facilityType: { select: { id: true, name: true } },
+          facilityArea: { select: { id: true, code: true, name: true } },
+        },
+      },
+    } satisfies Prisma.FacilitySelect;
+    const [items, total] = await Promise.all([
+      this.prisma.facility.findMany({
+        where,
+        select,
+        orderBy: [{ facilityGroup: { name: 'asc' } }, { assetCode: 'asc' }],
+        skip,
+        take: query.limit,
+      }),
+      this.prisma.facility.count({ where }),
+    ]);
+
+    return {
+      items: items.map((facility) => ({
+        facilityId: facility.id,
+        assetCode: facility.assetCode,
+        name: facility.name ?? facility.facilityGroup.name,
+        facilityGroup: {
+          id: facility.facilityGroup.id,
+          name: facility.facilityGroup.name,
+          reservationMode: facility.facilityGroup.reservationMode,
+        },
+        facilityType: facility.facilityGroup.facilityType,
+        facilityArea: facility.facilityGroup.facilityArea,
+        locationDetail: facility.facilityGroup.locationDetail,
+        status:
+          facility.maintenancePeriods.length > 0 ? 'MAINTENANCE' : 'ACTIVE',
+      })),
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: Math.ceil(total / query.limit),
+    };
+  }
+
+  async getAttachmentForViewer(
+    viewer: AuthenticatedUser,
+    reportId: string,
+    attachmentId: string,
+  ) {
+    if (viewer.role !== UserRole.USER && viewer.role !== UserRole.STAFF) {
+      throw new ForbiddenException({
+        code: 'REPORT_ATTACHMENT_FORBIDDEN',
+        message: 'Anda tidak memiliki akses ke foto laporan ini.',
+      });
+    }
+    const attachment = await this.prisma.reportAttachment.findFirst({
+      where: { id: attachmentId, reportId },
       select: {
         id: true,
-        status: true,
+        objectKey: true,
+        originalFilename: true,
+        report: { select: { reporterId: true } },
       },
     });
-
-    if (!facility) {
+    if (
+      !attachment ||
+      (viewer.role === UserRole.USER &&
+        attachment.report.reporterId !== viewer.id)
+    ) {
       throw new NotFoundException({
-        code: 'FACILITY_NOT_FOUND',
-        message: 'The selected facility was not found.',
+        code: 'REPORT_ATTACHMENT_NOT_FOUND',
+        message: 'Foto laporan tidak ditemukan.',
       });
     }
-    if (facility.status === FacilityStatus.NONACTIVE) {
-      throw new ConflictException({
-        code: 'FACILITY_NOT_REPORTABLE',
-        message: 'A nonactive facility cannot receive a new report.',
-      });
-    }
-
-    const uploaded: Awaited<
-      ReturnType<ObjectStorageService['uploadReportPhoto']>
-    >[] = [];
-    try {
-      for (const file of files) {
-        uploaded.push(await this.storage.uploadReportPhoto(file));
-      }
-
-      const report = await this.prisma.$transaction(async (transaction) => {
-        const created = await transaction.facilityReport.create({
-          data: {
-            reportNumber: this.generateReportNumber(new Date()),
-            reporterId,
-            facilityId: facility.id,
-            category: input.category,
-            description: input.description,
-            status: ReportStatus.NEW,
-          },
-          select: reportSelect,
-        });
-
-        await transaction.auditLog.create({
-          data: {
-            actorId: reporterId,
-            action: REPORT_AUDIT_ACTIONS.CREATED,
-            entityType: REPORT_ENTITY_TYPE,
-            entityId: created.id,
-            metadata: {
-              facilityId: created.facility.id,
-              category: created.category,
-              status: created.status,
-            },
-          },
-        });
-
-        await transaction.reportAttachment.createMany({
-          data: uploaded.map((attachment) => ({
-            reportId: created.id,
-            ...attachment,
-          })),
-        });
-
-        return created;
-      });
-
-      return this.detailMine(reporterId, report.id);
-    } catch (error) {
-      await Promise.allSettled(
-        uploaded.map((attachment) => this.storage.remove(attachment.objectKey)),
-      );
-      throw error;
-    }
+    const stored = await this.storage.getReportPhoto(attachment.objectKey);
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: viewer.id,
+        action: REPORT_AUDIT_ACTIONS.ATTACHMENT_DOWNLOADED,
+        entityType: REPORT_ENTITY_TYPE,
+        entityId: reportId,
+        metadata: { attachmentId },
+      },
+    });
+    return {
+      ...stored,
+      originalFilename: attachment.originalFilename,
+    };
   }
 
   async listStaff(
@@ -285,6 +465,29 @@ export class ReportsService {
                 ? {}
                 : { lte: new Date(query.createdTo) }),
             },
+          }),
+      ...(query.search === undefined
+        ? {}
+        : {
+            OR: [
+              { reportNumber: { contains: query.search, mode: 'insensitive' } },
+              { description: { contains: query.search, mode: 'insensitive' } },
+              {
+                facility: {
+                  is: {
+                    OR: [
+                      { assetCode: { contains: query.search, mode: 'insensitive' } },
+                      { name: { contains: query.search, mode: 'insensitive' } },
+                      {
+                        facilityGroup: {
+                          name: { contains: query.search, mode: 'insensitive' },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
           }),
     };
     const skip = (query.page - 1) * query.limit;
@@ -834,6 +1037,7 @@ export class ReportsService {
       cancellationReason?: string;
       note?: string;
     },
+    idempotencyKey?: string,
   ) {
     if (!input.cancelImpactedReservations) {
       throw new ConflictException({
@@ -852,215 +1056,224 @@ export class ReportsService {
     const { dateStart, dateEnd } = this.maintenanceDates(input);
     const reason = input.cancellationReason.trim();
 
-    return this.runSerializableTransaction(async (tx) => {
-      await this.lockReport(tx, reportId);
-      const report = await tx.facilityReport.findUnique({
-        where: { id: reportId },
-        select: {
-          id: true,
-          status: true,
-          facilityId: true,
-          facility: {
+    return this.runIdempotently(
+      staffId,
+      idempotencyKey,
+      { reportId, input },
+      () =>
+        this.runSerializableTransaction(async (tx) => {
+          await this.lockReport(tx, reportId);
+          const report = await tx.facilityReport.findUnique({
+            where: { id: reportId },
             select: {
+              id: true,
               status: true,
-              facilityGroupId: true,
-              facilityGroup: { select: { reservationMode: true } },
+              facilityId: true,
+              facility: {
+                select: {
+                  status: true,
+                  facilityGroupId: true,
+                  facilityGroup: { select: { reservationMode: true } },
+                },
+              },
             },
-          },
-        },
-      });
-      if (!report) {
-        throw new NotFoundException({
-          code: 'REPORT_NOT_FOUND',
-          message: 'The report was not found.',
-        });
-      }
-      if (report.status !== ReportStatus.IN_PROGRESS) {
-        throw new ConflictException({
-          code: 'REPORT_NOT_IN_PROGRESS',
-          message: 'Only IN_PROGRESS reports can create maintenance periods.',
-        });
-      }
-      if (report.facility.status === FacilityStatus.NONACTIVE) {
-        throw new ConflictException({
-          code: 'FACILITY_NOT_ACTIVE',
-          message: 'Maintenance cannot be created for a nonactive facility.',
-        });
-      }
+          });
+          if (!report) {
+            throw new NotFoundException({
+              code: 'REPORT_NOT_FOUND',
+              message: 'The report was not found.',
+            });
+          }
+          if (report.status !== ReportStatus.IN_PROGRESS) {
+            throw new ConflictException({
+              code: 'REPORT_NOT_IN_PROGRESS',
+              message:
+                'Only IN_PROGRESS reports can create maintenance periods.',
+            });
+          }
+          if (report.facility.status === FacilityStatus.NONACTIVE) {
+            throw new ConflictException({
+              code: 'FACILITY_NOT_ACTIVE',
+              message:
+                'Maintenance cannot be created for a nonactive facility.',
+            });
+          }
 
-      const isQuantity =
-        report.facility.facilityGroup.reservationMode ===
-        ReservationMode.QUANTITY;
-      const scope = isQuantity ? 'FACILITY_GROUP' : 'FACILITY';
-      const scopeId = isQuantity
-        ? report.facility.facilityGroupId
-        : report.facilityId;
-      await this.reconciliation.lockAvailabilityWindow(
-        tx,
-        scope,
-        scopeId,
-        dateStart,
-        dateEnd,
-      );
+          const isQuantity =
+            report.facility.facilityGroup.reservationMode ===
+            ReservationMode.QUANTITY;
+          const scope = isQuantity ? 'FACILITY_GROUP' : 'FACILITY';
+          const scopeId = isQuantity
+            ? report.facility.facilityGroupId
+            : report.facilityId;
+          await this.reconciliation.lockAvailabilityWindow(
+            tx,
+            scope,
+            scopeId,
+            dateStart,
+            dateEnd,
+          );
 
-      const impact = await this.getMaintenanceImpact(
-        report.facilityId,
-        dateStart,
-        dateEnd,
-        tx,
-      );
-      const now = new Date();
-      const approvedIds = impact.approvedReservations.map(
-        (reservation) => reservation.id,
-      );
-      const pendingIds = impact.pendingReservations.map(
-        (reservation) => reservation.id,
-      );
+          const impact = await this.getMaintenanceImpact(
+            report.facilityId,
+            dateStart,
+            dateEnd,
+            tx,
+          );
+          const now = new Date();
+          const approvedIds = impact.approvedReservations.map(
+            (reservation) => reservation.id,
+          );
+          const pendingIds = impact.pendingReservations.map(
+            (reservation) => reservation.id,
+          );
 
-      await tx.auditLog.create({
-        data: {
-          actorId: staffId,
-          action: REPORT_AUDIT_ACTIONS.MAINTENANCE_IMPACT_CONFIRMED,
-          entityType: REPORT_ENTITY_TYPE,
-          entityId: reportId,
-          metadata: {
-            facilityId: report.facilityId,
-            startAt: dateStart.toISOString(),
-            endAt: dateEnd.toISOString(),
-            approvedImpactCount: approvedIds.length,
-            pendingImpactCount: pendingIds.length,
-            reason,
-          },
-        },
-      });
-
-      let approvedCancelled = 0;
-      for (const reservationId of approvedIds) {
-        const changed = await tx.reservation.updateMany({
-          where: { id: reservationId, status: ReservationStatus.APPROVED },
-          data: {
-            status: ReservationStatus.CANCELLED_BY_STAFF,
-            decisionReason: reason,
-            processedById: staffId,
-            cancelledAt: now,
-          },
-        });
-        if (changed.count !== 1) {
-          continue;
-        }
-        approvedCancelled++;
-        await tx.auditLog.create({
-          data: {
-            actorId: staffId,
-            action: 'RESERVATION_CANCELLED_BY_STAFF',
-            entityType: 'RESERVATION',
-            entityId: reservationId,
-            metadata: {
-              reason,
-              cancellationSource: 'MAINTENANCE_PERIOD',
-              reportId,
-              facilityId: report.facilityId,
+          await tx.auditLog.create({
+            data: {
+              actorId: staffId,
+              action: REPORT_AUDIT_ACTIONS.MAINTENANCE_IMPACT_CONFIRMED,
+              entityType: REPORT_ENTITY_TYPE,
+              entityId: reportId,
+              metadata: {
+                facilityId: report.facilityId,
+                startAt: dateStart.toISOString(),
+                endAt: dateEnd.toISOString(),
+                approvedImpactCount: approvedIds.length,
+                pendingImpactCount: pendingIds.length,
+                reason,
+              },
             },
-          },
-        });
-      }
+          });
 
-      let pendingRejected = 0;
-      if (isQuantity) {
-        const pendingDates = await tx.reservation.findMany({
-          where: {
-            facilityGroupId: report.facility.facilityGroupId,
-            status: ReservationStatus.PENDING,
-            usageDate: {
-              gte: this.usageDateStartUtc(dateStart),
-              lte: this.usageDateStartUtc(dateEnd),
-            },
-          },
-          select: { usageDate: true },
-          distinct: ['usageDate'],
-        });
-        for (const pendingDate of pendingDates) {
-          const result =
-            await this.reconciliation.rejectInfeasibleQuantityReservations(tx, {
-              facilityGroupId: report.facility.facilityGroupId,
-              usageDate: pendingDate.usageDate,
-              additionalMaintenance: {
+          let approvedCancelled = 0;
+          for (const reservationId of approvedIds) {
+            const changed = await tx.reservation.updateMany({
+              where: { id: reservationId, status: ReservationStatus.APPROVED },
+              data: {
+                status: ReservationStatus.CANCELLED_BY_STAFF,
+                decisionReason: reason,
+                processedById: staffId,
+                cancelledAt: now,
+              },
+            });
+            if (changed.count !== 1) {
+              continue;
+            }
+            approvedCancelled++;
+            await tx.auditLog.create({
+              data: {
+                actorId: staffId,
+                action: 'RESERVATION_CANCELLED_BY_STAFF',
+                entityType: 'RESERVATION',
+                entityId: reservationId,
+                metadata: {
+                  reason,
+                  cancellationSource: 'MAINTENANCE_PERIOD',
+                  reportId,
+                  facilityId: report.facilityId,
+                },
+              },
+            });
+          }
+
+          let pendingRejected = 0;
+          if (isQuantity) {
+            const pendingDates = await tx.reservation.findMany({
+              where: {
+                facilityGroupId: report.facility.facilityGroupId,
+                status: ReservationStatus.PENDING,
+                usageDate: {
+                  gte: this.usageDateStartUtc(dateStart),
+                  lte: this.usageDateStartUtc(dateEnd),
+                },
+              },
+              select: { usageDate: true },
+              distinct: ['usageDate'],
+            });
+            for (const pendingDate of pendingDates) {
+              const result =
+                await this.reconciliation.rejectInfeasibleQuantityReservations(
+                  tx,
+                  {
+                    facilityGroupId: report.facility.facilityGroupId,
+                    usageDate: pendingDate.usageDate,
+                    additionalMaintenance: {
+                      facilityId: report.facilityId,
+                      startAt: dateStart,
+                      endAt: dateEnd,
+                    },
+                    actorId: staffId,
+                    processedById: staffId,
+                    decidedAt: now,
+                    reason,
+                    metadata: {
+                      reportId,
+                      facilityId: report.facilityId,
+                      rejectionSource: 'MAINTENANCE_PERIOD',
+                    },
+                  },
+                );
+              pendingRejected += result.rejectedReservationIds.length;
+            }
+          } else {
+            const result =
+              await this.reconciliation.rejectExclusiveReservations(tx, {
                 facilityId: report.facilityId,
                 startAt: dateStart,
                 endAt: dateEnd,
-              },
+                actorId: staffId,
+                processedById: staffId,
+                decidedAt: now,
+                reason,
+                metadata: {
+                  reportId,
+                  facilityId: report.facilityId,
+                  rejectionSource: 'MAINTENANCE_PERIOD',
+                },
+              });
+            pendingRejected = result.rejectedReservationIds.length;
+          }
+
+          const period = await tx.maintenancePeriod.create({
+            data: {
+              facilityId: report.facilityId,
+              reportId,
+              startAt: dateStart,
+              endAt: dateEnd,
+              note: input.note ?? reason,
+            },
+          });
+
+          await tx.auditLog.create({
+            data: {
               actorId: staffId,
-              processedById: staffId,
-              decidedAt: now,
-              reason,
+              action: REPORT_AUDIT_ACTIONS.MAINTENANCE_CREATED,
+              entityType: MAINTENANCE_ENTITY_TYPE,
+              entityId: period.id,
               metadata: {
                 reportId,
                 facilityId: report.facilityId,
-                rejectionSource: 'MAINTENANCE_PERIOD',
+                startAt: dateStart.toISOString(),
+                endAt: dateEnd.toISOString(),
+                approvedCancellations: approvedCancelled,
+                pendingRejections: pendingRejected,
+                reason,
               },
-            });
-          pendingRejected += result.rejectedReservationIds.length;
-        }
-      } else {
-        const result = await this.reconciliation.rejectExclusiveReservations(
-          tx,
-          {
-            facilityId: report.facilityId,
-            startAt: dateStart,
-            endAt: dateEnd,
-            actorId: staffId,
-            processedById: staffId,
-            decidedAt: now,
-            reason,
-            metadata: {
-              reportId,
-              facilityId: report.facilityId,
-              rejectionSource: 'MAINTENANCE_PERIOD',
             },
-          },
-        );
-        pendingRejected = result.rejectedReservationIds.length;
-      }
+          });
 
-      const period = await tx.maintenancePeriod.create({
-        data: {
-          facilityId: report.facilityId,
-          reportId,
-          startAt: dateStart,
-          endAt: dateEnd,
-          note: input.note ?? reason,
-        },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          actorId: staffId,
-          action: REPORT_AUDIT_ACTIONS.MAINTENANCE_CREATED,
-          entityType: MAINTENANCE_ENTITY_TYPE,
-          entityId: period.id,
-          metadata: {
-            reportId,
-            facilityId: report.facilityId,
-            startAt: dateStart.toISOString(),
-            endAt: dateEnd.toISOString(),
-            approvedCancellations: approvedCancelled,
-            pendingRejections: pendingRejected,
-            reason,
-          },
-        },
-      });
-
-      return {
-        id: period.id,
-        reportId: period.reportId,
-        facilityId: period.facilityId,
-        startAt: period.startAt.toISOString(),
-        endAt: period.endAt.toISOString(),
-        note: period.note,
-        approvedCancelled,
-        pendingRejected,
-      };
-    });
+          return {
+            id: period.id,
+            reportId: period.reportId,
+            facilityId: period.facilityId,
+            startAt: period.startAt.toISOString(),
+            endAt: period.endAt.toISOString(),
+            note: period.note,
+            approvedCancelled,
+            pendingRejected,
+          };
+        }),
+    );
   }
 
   async endMaintenancePeriod(staffId: string, periodId: string, endAt: Date) {
@@ -1381,6 +1594,7 @@ export class ReportsService {
       processedBy: report.processedBy,
       attachments: report.attachments.map((attachment) => ({
         ...attachment,
+        downloadUrl: `/reports/${report.id}/attachments/${attachment.id}`,
         createdAt: attachment.createdAt.toISOString(),
       })),
       maintenancePeriods: report.maintenancePeriods.map(

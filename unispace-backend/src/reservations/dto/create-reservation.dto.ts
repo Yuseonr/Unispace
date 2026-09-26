@@ -16,7 +16,7 @@ const trimValue = ({ value }: { value: unknown }) =>
 
 const normalizePurpose = ({ value }: { value: unknown }) => {
   if (value === undefined || value === null) {
-    return 'NULL';
+    return undefined;
   }
 
   if (typeof value !== 'string') {
@@ -24,7 +24,7 @@ const normalizePurpose = ({ value }: { value: unknown }) => {
   }
 
   const trimmed = value.trim();
-  return trimmed || 'NULL';
+  return trimmed || undefined;
 };
 
 export class CreateReservationDto {

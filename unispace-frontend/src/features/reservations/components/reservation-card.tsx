@@ -6,6 +6,7 @@ import {
   getReservationStatusConfig,
 } from "../api";
 import type { UserReservationItem } from "../types";
+import { displayOptionalText, formatJakartaDateTime } from "@/lib/format";
 
 export type ReservationCardProps = {
   onCancelClick?: (reservation: UserReservationItem) => void;
@@ -37,6 +38,7 @@ export function ReservationCard({
   const usageDateOnly = reservation.usageDate.split("T")[0] ?? "";
   const dateFormatted = formatDateOnlyIndonesian(usageDateOnly);
   const timeRange = `${formatSlotTime(reservation.startTime)} – ${formatSlotTime(reservation.endTime)} WIB`;
+  const isQuantity = Boolean(reservation.facilityGroupId);
 
   const showRejectionReason =
     (reservation.status === "REJECTED" ||
@@ -71,6 +73,7 @@ export function ReservationCard({
           ) : null}
         </div>
       </div>
+      <p className="user-res-card__number">{reservation.reservationNumber}</p>
 
       {/* Baris Informasi Detail: Jadwal & Lokasi yang Sejajar */}
       <div className="user-res-card__details">
@@ -96,15 +99,20 @@ export function ReservationCard({
           </span>
           <span>{locationText}</span>
         </div>
+        <div className="user-res-card__detail-item">
+          <span className="user-res-card__detail-icon" aria-hidden="true">#</span>
+          <span>{isQuantity ? `Kelompok alat · ${reservation.requestedQuantity} unit` : "Ruang eksklusif"}</span>
+        </div>
       </div>
 
-      {/* Catatan Keperluan (Padat & Ringkas jika ada) */}
-      {reservation.purpose ? (
-        <div className="user-res-card__note">
-          <span className="user-res-card__note-label">Keperluan:</span>
-          <span className="user-res-card__note-val">{reservation.purpose}</span>
-        </div>
-      ) : null}
+      <div className="user-res-card__note">
+        <span className="user-res-card__note-label">Keperluan:</span>
+        <span className="user-res-card__note-val">{displayOptionalText(reservation.purpose)}</span>
+      </div>
+
+      {reservation.status === "PENDING" ? <div className="user-res-card__note"><span className="user-res-card__note-label">Batas keputusan:</span><span className="user-res-card__note-val">{formatJakartaDateTime(reservation.decisionDeadline)}</span></div> : null}
+
+      {reservation.allocatedAssets.length ? <div className="user-res-card__note"><span className="user-res-card__note-label">Aset dialokasikan:</span><span className="user-res-card__note-val">{reservation.allocatedAssets.map((asset) => asset.assetCode ?? asset.name).join(", ")}</span></div> : null}
 
       {/* Alasan Penolakan / Pembatalan Staf (jika ada) */}
       {showRejectionReason ? (

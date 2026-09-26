@@ -10,6 +10,8 @@ import { FacilityImagesController } from './facility-images.controller';
 import { FacilityImageStorageService } from './facility-image-storage.service';
 import { FacilitiesController } from './facilities.controller';
 import { QuantityReservationReconciliationService } from './quantity-reservation-reconciliation.service';
+import { StaffFacilitiesController } from './staff-facilities.controller';
+import { StaffFacilitiesService } from './staff-facilities.service';
 
 @Module({
   imports: [MulterModule.register({})],
@@ -17,6 +19,7 @@ import { QuantityReservationReconciliationService } from './quantity-reservation
     FacilitiesController,
     FacilityImagesController,
     AdminFacilitiesController,
+    StaffFacilitiesController,
   ],
   providers: [
     FacilityCatalogService,
@@ -26,6 +29,7 @@ import { QuantityReservationReconciliationService } from './quantity-reservation
     FacilityStatusService,
     FacilityImageStorageService,
     QuantityReservationReconciliationService,
+    StaffFacilitiesService,
   ],
   exports: [
     FacilityAvailabilityService,

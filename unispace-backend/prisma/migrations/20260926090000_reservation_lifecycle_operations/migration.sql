@@ -41,10 +41,3 @@ BEGIN
   END IF;
 END $$;
 
-ALTER TABLE "reservations"
-  ADD CONSTRAINT "reservations_exactly_one_target"
-    CHECK (("facility_id" IS NULL) <> ("facility_group_id" IS NULL)),
-  ADD CONSTRAINT "reservations_requested_quantity_positive"
-    CHECK ("requested_quantity" > 0),
-  ADD CONSTRAINT "reservations_time_range_valid"
-    CHECK ("start_time" < "end_time");

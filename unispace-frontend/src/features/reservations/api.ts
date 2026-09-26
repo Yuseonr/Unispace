@@ -209,6 +209,7 @@ export type AuthenticatedRequestFn = <T>(
   path: string,
   options?: {
     body?: BodyInit | Record<string, unknown> | null;
+    headers?: HeadersInit;
     method?: string;
   },
 ) => Promise<T>;
@@ -235,6 +236,7 @@ export async function fetchMyReservations(
 ): Promise<MyReservationsResponse> {
   const searchParams = new URLSearchParams();
   if (query.status) searchParams.set("status", query.status);
+  if (query.view) searchParams.set("view", query.view);
   if (query.usageDate) searchParams.set("usageDate", query.usageDate);
   if (query.page) searchParams.set("page", String(query.page));
   if (query.limit) searchParams.set("limit", String(query.limit));
@@ -264,6 +266,7 @@ export async function fetchStaffReservations(
 ): Promise<StaffReservationsResponse> {
   const searchParams = new URLSearchParams();
   if (query.status) searchParams.set("status", query.status);
+  if (query.view) searchParams.set("view", query.view);
   if (query.usageDate) searchParams.set("usageDate", query.usageDate);
   if (query.facilityId) searchParams.set("facilityId", query.facilityId);
   if (query.facilityGroupId) searchParams.set("facilityGroupId", query.facilityGroupId);
@@ -492,4 +495,3 @@ export function getReservationStatusConfig(status: ReservationStatus): {
       };
   }
 }
-

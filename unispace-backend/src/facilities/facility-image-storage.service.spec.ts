@@ -27,8 +27,8 @@ const storageConfig = {
 };
 
 const validImage = {
-  buffer: Buffer.from('jpeg-content'),
-  size: 12,
+  buffer: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]),
+  size: 8,
   mimetype: 'image/jpeg',
 } as FacilityImageUpload;
 
@@ -76,6 +76,17 @@ describe('FacilityImageStorageService', () => {
         ...validImage,
         mimetype: 'image/gif',
       } as FacilityImageUpload),
+    ).rejects.toThrow(BadRequestException);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('menolak MIME image yang isinya bukan signature gambar valid', async () => {
+    await expect(
+      service.uploadPrimaryImage({
+        ...validImage,
+        buffer: Buffer.from('bukan-file-gambar'),
+        size: 17,
+      }),
     ).rejects.toThrow(BadRequestException);
     expect(send).not.toHaveBeenCalled();
   });
