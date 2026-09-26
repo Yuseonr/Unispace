@@ -24,6 +24,17 @@ describe('ReservationsScheduler', () => {
     expect(reservations.autoRejectExpiredReservations).toHaveBeenCalledTimes(1);
   });
 
+  it('executes the finished reservation completion job', async () => {
+    const reservations = {
+      completeFinishedReservations: jest.fn().mockResolvedValue(1),
+    } as unknown as ReservationsService;
+    const scheduler = new ReservationsScheduler(reservations);
+
+    await scheduler.completeFinishedReservations();
+
+    expect(reservations.completeFinishedReservations).toHaveBeenCalledTimes(1);
+  });
+
   it('contains job failures so the scheduler keeps running', async () => {
     const reservations = {
       autoRejectExpiredReservations: jest

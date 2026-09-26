@@ -1,9 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import {
   AccountStatus,
   FacilityStatus,
@@ -32,6 +34,67 @@ import {
 @Injectable()
 export class ReservationsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private generateReservationNumber(now: Date) {
+    const timestamp = now.toISOString().replace(/\D/g, '').slice(0, 14);
+    return `RSV-${timestamp}-${randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase()}`;
+  }
+
+  private reservationEndAtInJakarta(usageDate: Date, endTime: Date) {
+    const date = formatToJakartaDateString(usageDate);
+    const hours = String(endTime.getUTCHours()).padStart(2, '0');
+    const minutes = String(endTime.getUTCMinutes()).padStart(2, '0');
+    const seconds = String(endTime.getUTCSeconds()).padStart(2, '0');
+    return new Date(`${date}T${hours}:${minutes}:${seconds}.000+07:00`);
+  }
+
+  private reservationDateStartInJakarta(now: Date) {
+    const [year, month, day] = formatToJakartaDateString(now)
+      .split('-')
+      .map(Number);
+    return new Date(Date.UTC(year, month - 1, day));
+  }
+
+  private mapAllocatedAssets(reservation: {
+    status: ReservationStatus;
+    facility: {
+      id: string;
+      assetCode: string;
+      name: string | null;
+    } | null;
+    items: Array<{
+      facility: {
+        id: string;
+        assetCode: string;
+        name: string | null;
+      };
+    }>;
+  }) {
+    if (
+      reservation.status !== ReservationStatus.APPROVED &&
+      reservation.status !== ReservationStatus.COMPLETED
+    ) {
+      return [];
+    }
+
+    if (reservation.items.length > 0) {
+      return reservation.items.map((item) => ({
+        id: item.facility.id,
+        assetCode: item.facility.assetCode,
+        name: item.facility.name,
+      }));
+    }
+
+    return reservation.facility
+      ? [
+          {
+            id: reservation.facility.id,
+            assetCode: reservation.facility.assetCode,
+            name: reservation.facility.name,
+          },
+        ]
+      : [];
+  }
 
   private async runSerializableTransaction<T>(
     operation: (transaction: Prisma.TransactionClient) => Promise<T>,
@@ -463,6 +526,7 @@ export class ReservationsService {
     return this.prisma.$transaction(async (tx) => {
       const reservation = await tx.reservation.create({
         data: {
+          reservationNumber: this.generateReservationNumber(now),
           userId,
           facilityId: finalFacilityId,
           facilityGroupId: finalFacilityGroupId,
@@ -585,29 +649,10 @@ export class ReservationsService {
       const canCancel =
         isEligibleStatus && isCancellationAllowed(usageDateStr, now);
 
-      const allocatedAssets =
-        res.status === ReservationStatus.APPROVED
-          ? res.items.length > 0
-            ? res.items.map((item) => ({
-                id: item.facility.id,
-                assetCode: item.facility.assetCode,
-                name: item.facility.name,
-              }))
-            : res.facility
-              ? [
-                  {
-                    id: res.facility.id,
-                    assetCode: res.facility.assetCode,
-                    name: res.facility.name,
-                  },
-                ]
-              : []
-          : [];
-
       return {
         ...res,
         canCancel,
-        allocatedAssets,
+        allocatedAssets: this.mapAllocatedAssets(res),
       };
     });
 
@@ -684,29 +729,10 @@ export class ReservationsService {
     const canCancel =
       isEligibleStatus && isCancellationAllowed(usageDateStr, now);
 
-    const allocatedAssets =
-      reservation.status === ReservationStatus.APPROVED
-        ? reservation.items.length > 0
-          ? reservation.items.map((item) => ({
-              id: item.facility.id,
-              assetCode: item.facility.assetCode,
-              name: item.facility.name,
-            }))
-          : reservation.facility
-            ? [
-                {
-                  id: reservation.facility.id,
-                  assetCode: reservation.facility.assetCode,
-                  name: reservation.facility.name,
-                },
-              ]
-            : []
-        : [];
-
     return {
       ...reservation,
       canCancel,
-      allocatedAssets,
+      allocatedAssets: this.mapAllocatedAssets(reservation),
     };
   }
 
@@ -741,13 +767,25 @@ export class ReservationsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.reservation.update({
-        where: { id },
+      const changed = await tx.reservation.updateMany({
+        where: {
+          id,
+          userId,
+          status: {
+            in: [ReservationStatus.PENDING, ReservationStatus.APPROVED],
+          },
+        },
         data: {
           status: ReservationStatus.CANCELLED_BY_USER,
           cancelledAt: now,
         },
       });
+
+      if (changed.count !== 1) {
+        throw new ConflictException(
+          'Reservasi sudah diproses oleh petugas atau sistem.',
+        );
+      }
 
       await tx.auditLog.create({
         data: {
@@ -762,7 +800,7 @@ export class ReservationsService {
         },
       });
 
-      return updated;
+      return tx.reservation.findUnique({ where: { id } });
     });
   }
 
@@ -901,28 +939,9 @@ export class ReservationsService {
     ]);
 
     const data = items.map((res) => {
-      const allocatedAssets =
-        res.status === ReservationStatus.APPROVED
-          ? res.items.length > 0
-            ? res.items.map((item) => ({
-                id: item.facility.id,
-                assetCode: item.facility.assetCode,
-                name: item.facility.name,
-              }))
-            : res.facility
-              ? [
-                  {
-                    id: res.facility.id,
-                    assetCode: res.facility.assetCode,
-                    name: res.facility.name,
-                  },
-                ]
-              : []
-          : [];
-
       return {
         ...res,
-        allocatedAssets,
+        allocatedAssets: this.mapAllocatedAssets(res),
       };
     });
 
@@ -999,28 +1018,9 @@ export class ReservationsService {
       throw new NotFoundException('Reservasi tidak ditemukan.');
     }
 
-    const allocatedAssets =
-      reservation.status === ReservationStatus.APPROVED
-        ? reservation.items.length > 0
-          ? reservation.items.map((item) => ({
-              id: item.facility.id,
-              assetCode: item.facility.assetCode,
-              name: item.facility.name,
-            }))
-          : reservation.facility
-            ? [
-                {
-                  id: reservation.facility.id,
-                  assetCode: reservation.facility.assetCode,
-                  name: reservation.facility.name,
-                },
-              ]
-            : []
-        : [];
-
     return {
       ...reservation,
-      allocatedAssets,
+      allocatedAssets: this.mapAllocatedAssets(reservation),
     };
   }
 
@@ -1412,8 +1412,8 @@ export class ReservationsService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.reservation.update({
-        where: { id },
+      const changed = await tx.reservation.updateMany({
+        where: { id, status: ReservationStatus.PENDING },
         data: {
           status: ReservationStatus.REJECTED,
           decisionReason: dto.reason,
@@ -1421,6 +1421,12 @@ export class ReservationsService {
           decidedAt: now,
         },
       });
+
+      if (changed.count !== 1) {
+        throw new ConflictException(
+          'Reservasi sudah diproses oleh petugas atau sistem.',
+        );
+      }
 
       await tx.auditLog.create({
         data: {
@@ -1440,7 +1446,7 @@ export class ReservationsService {
   }
 
   /**
-   * Membatalkan permohonan reservasi aktif (PENDING atau APPROVED) oleh petugas (STAFF) (FR-RES-07 & RULE-RES-08).
+   * Membatalkan reservasi APPROVED oleh petugas (STAFF) (FR-RES-11).
    * Alasan pembatalan (reason) wajib diisi.
    */
   async cancelByStaff(
@@ -1457,18 +1463,15 @@ export class ReservationsService {
       throw new NotFoundException('Reservasi tidak ditemukan.');
     }
 
-    if (
-      reservation.status !== ReservationStatus.PENDING &&
-      reservation.status !== ReservationStatus.APPROVED
-    ) {
+    if (reservation.status !== ReservationStatus.APPROVED) {
       throw new BadRequestException(
-        'Hanya reservasi berstatus PENDING atau APPROVED yang dapat dibatalkan oleh petugas.',
+        'Hanya reservasi berstatus APPROVED yang dapat dibatalkan oleh petugas. Gunakan reject untuk reservasi PENDING.',
       );
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.reservation.update({
-        where: { id },
+      const changed = await tx.reservation.updateMany({
+        where: { id, status: ReservationStatus.APPROVED },
         data: {
           status: ReservationStatus.CANCELLED_BY_STAFF,
           decisionReason: dto.reason,
@@ -1477,6 +1480,12 @@ export class ReservationsService {
           decidedAt: now,
         },
       });
+
+      if (changed.count !== 1) {
+        throw new ConflictException(
+          'Reservasi sudah diproses oleh petugas atau sistem.',
+        );
+      }
 
       await tx.auditLog.create({
         data: {
@@ -1519,37 +1528,98 @@ export class ReservationsService {
       return 0;
     }
 
-    const expiredIds = expiredReservations.map((r) => r.id);
     const reason =
       'Ditolak otomatis oleh sistem karena melewati batas tenggat evaluasi petugas (SLA Expired).';
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.reservation.updateMany({
-        where: { id: { in: expiredIds } },
-        data: {
-          status: ReservationStatus.REJECTED,
-          decidedAt: now,
-          decisionReason: reason,
-        },
-      });
-
+    return this.prisma.$transaction(async (tx) => {
+      let rejectedCount = 0;
       for (const exp of expiredReservations) {
-        await tx.auditLog.create({
+        const changed = await tx.reservation.updateMany({
+          where: {
+            id: exp.id,
+            status: ReservationStatus.PENDING,
+            decisionDeadline: { lte: now },
+          },
           data: {
-            actorId: null,
-            action: 'RESERVATION_AUTO_REJECTED',
-            entityType: 'RESERVATION',
-            entityId: exp.id,
-            metadata: {
-              reason,
-              decisionDeadline: exp.decisionDeadline,
-              evaluatedAt: now.toISOString(),
-            },
+            status: ReservationStatus.REJECTED,
+            decidedAt: now,
+            decisionReason: reason,
           },
         });
+
+        if (changed.count === 1) {
+          rejectedCount += 1;
+          await tx.auditLog.create({
+            data: {
+              actorId: null,
+              action: 'RESERVATION_AUTO_REJECTED',
+              entityType: 'RESERVATION',
+              entityId: exp.id,
+              metadata: {
+                reason,
+                decisionDeadline: exp.decisionDeadline,
+                evaluatedAt: now.toISOString(),
+              },
+            },
+          });
+        }
       }
+
+      return rejectedCount;
+    });
+  }
+
+  async completeFinishedReservations(now: Date = new Date()): Promise<number> {
+    const candidates = await this.prisma.reservation.findMany({
+      where: {
+        status: ReservationStatus.APPROVED,
+        usageDate: { lte: this.reservationDateStartInJakarta(now) },
+      },
+      select: {
+        id: true,
+        usageDate: true,
+        endTime: true,
+      },
     });
 
-    return expiredReservations.length;
+    const finished = candidates.filter(
+      (reservation) =>
+        this.reservationEndAtInJakarta(
+          reservation.usageDate,
+          reservation.endTime,
+        ) <= now,
+    );
+
+    if (finished.length === 0) {
+      return 0;
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      let completedCount = 0;
+      for (const reservation of finished) {
+        const changed = await tx.reservation.updateMany({
+          where: { id: reservation.id, status: ReservationStatus.APPROVED },
+          data: { status: ReservationStatus.COMPLETED },
+        });
+
+        if (changed.count === 1) {
+          completedCount += 1;
+          await tx.auditLog.create({
+            data: {
+              actorId: null,
+              action: 'RESERVATION_COMPLETED',
+              entityType: 'RESERVATION',
+              entityId: reservation.id,
+              metadata: {
+                previousStatus: ReservationStatus.APPROVED,
+                completedAt: now.toISOString(),
+              },
+            },
+          });
+        }
+      }
+
+      return completedCount;
+    });
   }
 }
