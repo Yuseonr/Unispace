@@ -45,7 +45,7 @@ export type CreateReservationInput = {
   usageDate: string;
   startTime: string;
   endTime: string;
-  purpose: string;
+  purpose?: string;
 };
 
 export type ReservationSummary = {
@@ -55,7 +55,7 @@ export type ReservationSummary = {
   decisionDeadline?: string;
   endTime: string;
   id: string;
-  purpose: string;
+  purpose: string | null;
   rejectionReason?: string | null;
   requestedQuantity: number;
   reservationNumber: string;
@@ -91,10 +91,11 @@ export type UserReservationItem = {
   facilityId?: string | null;
   facilityGroupId?: string | null;
   requestedQuantity: number;
+  reservationNumber: string;
   usageDate: string;
   startTime: string;
   endTime: string;
-  purpose: string;
+  purpose: string | null;
   status: ReservationStatus;
   decisionDeadline: string;
   decisionReason?: string | null;
@@ -151,6 +152,7 @@ export type ListMyReservationsQuery = {
   limit?: number;
   status?: ReservationStatus;
   usageDate?: string;
+  view?: "HISTORY";
 };
 
 export type StaffReservationUser = {
@@ -169,7 +171,7 @@ export type StaffReservationItem = {
   usageDate: string;
   startTime: string;
   endTime: string;
-  purpose: string;
+  purpose: string | null;
   status: ReservationStatus;
   decisionDeadline: string;
   decisionReason?: string | null;
@@ -228,6 +230,7 @@ export type ListStaffReservationsQuery = {
   facilityGroupId?: string;
   facilityAreaId?: string;
   search?: string;
+  view?: "CANCELLED";
 };
 
 export type StaffReservationsPaginationMeta = {
@@ -259,4 +262,3 @@ export type AutoRejectExpiredResponse = {
   processedCount: number;
   message: string;
 };
-

@@ -2,6 +2,7 @@ import { Transform } from 'class-transformer';
 import {
   IsEnum,
   IsInt,
+  IsIn,
   IsISO8601,
   IsOptional,
   Matches,
@@ -20,6 +21,11 @@ export class ListMyReservationsDto {
   @IsOptional()
   @IsEnum(ReservationStatus)
   status?: ReservationStatus;
+
+  /** Riwayat terminal tanpa mengirim beberapa status enum melalui query. */
+  @IsOptional()
+  @IsIn(['HISTORY'])
+  view?: 'HISTORY';
 
   @IsOptional()
   @Transform(toOptionalTrimmedString)

@@ -219,8 +219,8 @@ export function StaffReservationTable({
                     color: "#475569",
                   }}
                 >
-                  <span title={item.purpose} style={{ fontSize: "0.8125rem" }}>
-                    {truncatePurpose(item.purpose, 32)}
+                  <span title={item.purpose ?? "Tidak diisi"} style={{ fontSize: "0.8125rem" }}>
+                    {truncatePurpose(item.purpose ?? "Tidak diisi", 32)}
                   </span>
                 </td>
 

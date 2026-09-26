@@ -527,6 +527,9 @@ async function seed() {
             primaryImageObjectKey: objectKey,
             primaryImageUrl: publicImageUrl(fileName),
             status: FacilityStatus.ACTIVE,
+            // Riwayat reservasi demo dimulai jauh sebelum tanggal seed dijalankan.
+            // Analytics memakai createdAt sebagai batas kapasitas historis.
+            createdAt: toDate(-120),
           },
         });
         physical.push({
@@ -698,7 +701,7 @@ async function seed() {
             startTime: time(index % 2 === 0 ? '08:00' : '14:00'),
             endTime: time(index % 2 === 0 ? '10:00' : '16:00'),
             purpose:
-              index % 4 === 0 ? 'NULL' : `Kegiatan demo historis ${index + 1}`,
+              index % 4 === 0 ? null : `Kegiatan demo historis ${index + 1}`,
             status,
             decisionDeadline: toDate(-65 + index * 3, 13),
             processedById:

@@ -211,7 +211,7 @@ model Reservation {
   usageDate         DateTime          @map("usage_date") @db.Date
   startTime         DateTime          @map("start_time") @db.Time(0)
   endTime           DateTime          @map("end_time") @db.Time(0)
-  purpose           String            @db.Text
+  purpose           String?           @db.Text
   status            ReservationStatus @default(PENDING)
   decisionDeadline  DateTime          @map("decision_deadline") @db.Timestamptz(3)
   decisionReason    String?           @map("decision_reason") @db.Text
