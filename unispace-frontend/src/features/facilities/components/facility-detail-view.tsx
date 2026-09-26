@@ -1,7 +1,8 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect -- availability reconciliation intentionally updates controlled quantity state. */
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/features/auth/auth-provider";
 import {
@@ -10,10 +11,11 @@ import {
 } from "@/features/reservations/api";
 import { SlotPicker } from "@/features/reservations/components/slot-picker";
 import type { ReservationSummary } from "@/features/reservations/types";
-import { ApiError } from "@/lib/api/client";
+import { isStaleApiError, readableApiError } from "@/lib/api/error-message";
 
 import { type CatalogFacilityDetail, fetchFacilityDetail } from "../data/catalog-api";
 import { FacilityVisual } from "./facility-card";
+import type { FacilityAvailabilityData } from "@/features/reservations/types";
 
 export function FacilityDetailView({ facilityId }: { facilityId: string }) {
   const { isReady, request, user } = useAuth();
@@ -28,11 +30,30 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
   const [selectedStartTime, setSelectedStartTime] = useState<string | null>(null);
   const [selectedEndTime, setSelectedEndTime] = useState<string | null>(null);
   const [requestedQuantity, setRequestedQuantity] = useState<number>(1);
+  const [availability, setAvailability] = useState<FacilityAvailabilityData | null>(null);
+  const [availabilityRefreshKey, setAvailabilityRefreshKey] = useState(0);
   const [purpose, setPurpose] = useState<string>("");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [shouldReloadAvailability, setShouldReloadAvailability] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState<ReservationSummary | null>(null);
+
+  const selectedQuantityMaximum = useMemo(() => {
+    if (!facility || facility.kind !== "QUANTITY") return 1;
+    const selectedSlots = availability?.slots.filter((slot) =>
+      selectedStartTime && selectedEndTime
+        ? slot.startTime >= selectedStartTime && slot.endTime <= selectedEndTime
+        : false,
+    ) ?? [];
+    if (!selectedSlots.length) return facility.activeUnits ?? 1;
+    return Math.max(1, Math.min(...selectedSlots.map((slot) => slot.availableUnits ?? 0)));
+  }, [availability?.slots, facility, selectedEndTime, selectedStartTime]);
+  const handleAvailabilityChange = useCallback((nextAvailability: FacilityAvailabilityData | null) => setAvailability(nextAvailability), []);
+
+  useEffect(() => {
+    setRequestedQuantity((current) => Math.min(Math.max(current, 1), selectedQuantityMaximum));
+  }, [selectedQuantityMaximum]);
 
   useEffect(() => {
     let isMounted = true;
@@ -63,6 +84,7 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
     setSelectedStartTime(startTime);
     setSelectedEndTime(endTime);
     setSubmitError(null);
+    setShouldReloadAvailability(false);
   }
 
   function handleDateChange(date: string) {
@@ -70,6 +92,15 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
     setSelectedStartTime(null);
     setSelectedEndTime(null);
     setSubmitError(null);
+    setShouldReloadAvailability(false);
+  }
+
+  function reloadAvailability() {
+    setSelectedStartTime(null);
+    setSelectedEndTime(null);
+    setAvailability(null);
+    setAvailabilityRefreshKey((current) => current + 1);
+    setShouldReloadAvailability(false);
   }
 
   async function handleReservationSubmit(e: React.FormEvent) {
@@ -79,11 +110,6 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
       setSubmitError("Silakan pilih tanggal penggunaan fasilitas.");
       return;
     }
-    if (purpose.trim().length < 5) {
-      setSubmitError("Tujuan penggunaan minimal 5 karakter.");
-      return;
-    }
-
     setIsSubmitting(true);
     setSubmitError(null);
 
@@ -92,7 +118,7 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
         endTime: selectedEndTime,
         facilityGroupId: facility.kind === "QUANTITY" ? facility.id : undefined,
         facilityId: facility.kind === "EXCLUSIVE" ? facility.id : undefined,
-        purpose: purpose.trim(),
+        purpose: purpose.trim() || undefined,
         requestedQuantity: facility.kind === "QUANTITY" ? requestedQuantity : 1,
         startTime: selectedStartTime,
         usageDate: selectedDate,
@@ -101,13 +127,12 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
       const result = await createReservation(payload, request);
       setSubmitSuccess(result);
     } catch (err) {
-      if (err instanceof ApiError) {
-        setSubmitError(err.message);
-      } else if (err instanceof Error) {
-        setSubmitError(err.message);
-      } else {
-        setSubmitError("Gagal mengirim reservasi. Silakan periksa kembali data Anda.");
+      if (isStaleApiError(err)) {
+        setSelectedStartTime(null);
+        setSelectedEndTime(null);
+        setShouldReloadAvailability(true);
       }
+      setSubmitError(readableApiError(err, "Gagal mengirim reservasi. Silakan periksa kembali data Anda."));
     } finally {
       setIsSubmitting(false);
     }
@@ -146,7 +171,6 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
   const isGuest = Boolean(isReady && !user);
   const isAccountUnverified = Boolean(isReady && user && user.accountStatus !== "ACTIVE");
   const isInteractiveMode = isUserActive && !isMaintenance;
-
   return (
     <main className="landing facility-detail-page">
       {/* Breadcrumb Navigation */}
@@ -221,8 +245,10 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
             facilityGroupId={facility.kind === "QUANTITY" ? facility.id : undefined}
             facilityId={facility.kind === "EXCLUSIVE" ? facility.id : undefined}
             initialDate={selectedDate || undefined}
+            key={availabilityRefreshKey}
             mode={isInteractiveMode ? "select" : "view"}
             onDateChange={handleDateChange}
+            onAvailabilityChange={handleAvailabilityChange}
             onSlotSelect={handleSlotSelect}
             requestedQuantity={requestedQuantity}
             reservationMode={facility.kind}
@@ -299,8 +325,7 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
                     id="inpage-purpose-input"
                     maxLength={500}
                     onChange={(e) => setPurpose(e.target.value)}
-                    placeholder="Tuliskan tujuan penggunaan fasilitas (minimal 5 karakter)..."
-                    required
+                    placeholder="Tuliskan tujuan penggunaan fasilitas (opsional)..."
                     rows={2}
                     value={purpose}
                   />
@@ -312,25 +337,25 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
                       <label htmlFor="inpage-qty-input">Jumlah Unit:</label>
                       <input
                         id="inpage-qty-input"
-                        max={facility.activeUnits ?? 10}
+                        max={selectedQuantityMaximum}
                         min={1}
                         onChange={(e) =>
                           setRequestedQuantity(
-                            Math.max(1, parseInt(e.target.value, 10) || 1),
+                            Math.min(selectedQuantityMaximum, Math.max(1, parseInt(e.target.value, 10) || 1)),
                           )
                         }
                         type="number"
                         value={requestedQuantity}
                       />
                       <span className="facility-inpage-qty-max">
-                        / maks. {facility.activeUnits ?? 10}
+                        / maks. {selectedQuantityMaximum} pada slot yang dipilih
                       </span>
                     </div>
                   ) : <div />}
 
                   <button
                     className="button-primary facility-inpage-submit-btn"
-                    disabled={purpose.trim().length < 5 || isSubmitting}
+                    disabled={isSubmitting}
                     type="submit"
                   >
                     {isSubmitting ? "Mengirim…" : "Kirim Pengajuan"}
@@ -340,6 +365,7 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
                 {submitError ? (
                   <div className="facility-inpage-error" role="alert">
                     {submitError}
+                    {shouldReloadAvailability ? <button className="facility-inpage-error__retry" onClick={reloadAvailability} type="button">Muat ulang ketersediaan</button> : null}
                   </div>
                 ) : null}
               </form>
@@ -349,6 +375,8 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
                 <span>Pilih slot waktu pada kalender di atas untuk mengajukan peminjaman.</span>
               </div>
             )
+          ) : isReady && user ? (
+            <div className="facility-inpage-cta"><div className="facility-inpage-cta__text"><strong>Jadwal hanya untuk dilihat</strong><span>Hanya pengguna aktif yang dapat mengajukan reservasi dari katalog.</span></div></div>
           ) : null}
         </section>
       </div>

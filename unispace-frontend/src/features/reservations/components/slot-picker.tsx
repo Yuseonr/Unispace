@@ -21,6 +21,7 @@ export type SlotPickerProps = {
   initialDate?: string;
   mode?: "select" | "view";
   onDateChange?: (date: string) => void;
+  onAvailabilityChange?: (availability: FacilityAvailabilityData | null) => void;
   onSlotSelect?: (startTime: string | null, endTime: string | null, slotCount: number) => void;
   requestedQuantity?: number;
   reservationMode?: ReservationMode;
@@ -34,6 +35,7 @@ export function SlotPicker({
   initialDate,
   mode = "view",
   onDateChange,
+  onAvailabilityChange,
   onSlotSelect,
   requestedQuantity = 1,
   reservationMode = "EXCLUSIVE",
@@ -158,6 +160,7 @@ export function SlotPicker({
       .then((res) => {
         if (!isMounted) return;
         setData(res);
+        onAvailabilityChange?.(res);
         setError(null);
       })
       .catch(() => {
@@ -172,13 +175,14 @@ export function SlotPicker({
     return () => {
       isMounted = false;
     };
-  }, [currentDate, facilityGroupId, facilityId]);
+  }, [currentDate, facilityGroupId, facilityId, onAvailabilityChange]);
 
   function handleDateChange(newDate: string) {
     setCurrentDate(newDate);
     setInternalStartIdx(null);
     setInternalEndIdx(null);
     setIsLocked(false);
+    onAvailabilityChange?.(null);
     setLoading(true);
     onSlotSelect?.(null, null, 0);
     onDateChange?.(newDate);
@@ -437,6 +441,9 @@ export function SlotPicker({
         <span className="slot-legend-item">
           <span className="slot-dot slot-dot--maintenance" /> Pemeliharaan
         </span>
+        <span className="slot-legend-item">
+          <span className="slot-dot slot-dot--selected" /> Dipilih
+        </span>
       </div>
 
       {loading ? (
@@ -457,7 +464,10 @@ export function SlotPicker({
                 facilityId,
                 usageDate: currentDate,
               })
-                .then(setData)
+                .then((availability) => {
+                  setData(availability);
+                  onAvailabilityChange?.(availability);
+                })
                 .catch(() => setError("Gagal memuat ketersediaan slot. Silakan coba lagi."))
                 .finally(() => setLoading(false));
             }}

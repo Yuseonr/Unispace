@@ -126,7 +126,7 @@ export function FacilityCard({ facility }: { facility: CatalogFacility }) {
         <div className="facility-card__topline">
           <span className="facility-type">{facility.type}</span>
           <span className={statusClassName}>
-            {isMaintenance ? "Perbaikan" : "Tersedia"}
+            {isMaintenance ? "Dalam perbaikan" : "Tersedia"}
           </span>
         </div>
 

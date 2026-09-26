@@ -1,11 +1,21 @@
 import { apiRequest } from "@/lib/api/client";
 
-import type { CatalogFacility, FacilityStatus, FacilityType, FacilityVisualTheme } from "../types";
+import type {
+  CatalogFacility,
+  FacilityStatus,
+  FacilityType,
+  FacilityVisualTheme,
+} from "../types";
 
-export type CatalogFilterOption = {
-  code?: string;
-  id: string;
-  name: string;
+export type CatalogFilterOption = { code?: string; id: string; name: string };
+
+export type CatalogQuery = {
+  facilityAreaId?: string;
+  facilityTypeId?: string;
+  limit?: number;
+  minCapacity?: number;
+  page?: number;
+  search?: string;
 };
 
 type PublicCatalogItem = {
@@ -19,14 +29,31 @@ type PublicCatalogItem = {
   kind: "EXCLUSIVE" | "QUANTITY";
   locationDetail: string;
   name: string;
+  nextMaintenance?: { endAt: string; startAt: string };
   primaryImageUrl: string | null;
   status: "ACTIVE" | "MAINTENANCE";
 };
 
-type PublicCatalogResponse = {
-  exclusive: { data: PublicCatalogItem[] };
-  quantity: { data: PublicCatalogItem[] };
+type CatalogSegment = {
+  data: PublicCatalogItem[];
+  limit: number;
+  page: number;
+  total: number;
 };
+
+type PublicCatalogResponse = {
+  exclusive: CatalogSegment;
+  quantity: CatalogSegment;
+};
+
+function queryString(input: CatalogQuery) {
+  const params = new URLSearchParams();
+  Object.entries(input).forEach(([key, value]) => {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  });
+  const text = params.toString();
+  return text ? `?${text}` : "";
+}
 
 function visualThemeFor(typeName: string): FacilityVisualTheme {
   const normalized = typeName.toLocaleLowerCase("id-ID");
@@ -61,59 +88,61 @@ function toCatalogFacility(item: PublicCatalogItem): CatalogFacility {
   };
 }
 
-export async function fetchPublicCatalog() {
+export async function fetchPublicCatalog(input: CatalogQuery = {}) {
   const [catalog, types, areas] = await Promise.all([
-    apiRequest<PublicCatalogResponse>("/facilities?limit=50"),
+    apiRequest<PublicCatalogResponse>(
+      `/facilities${queryString({ limit: 12, page: 1, ...input })}`,
+    ),
     apiRequest<CatalogFilterOption[]>("/facilities/types"),
     apiRequest<CatalogFilterOption[]>("/facilities/areas"),
   ]);
-
+  const total = catalog.exclusive.total + catalog.quantity.total;
   return {
     areas,
-    facilities: [...catalog.exclusive.data, ...catalog.quantity.data].map(toCatalogFacility),
+    facilities: [...catalog.exclusive.data, ...catalog.quantity.data].map(
+      toCatalogFacility,
+    ),
+    limit: catalog.exclusive.limit + catalog.quantity.limit,
+    page: catalog.exclusive.page,
+    total,
+    totalPages: Math.max(
+      Math.ceil(catalog.exclusive.total / catalog.exclusive.limit),
+      Math.ceil(catalog.quantity.total / catalog.quantity.limit),
+      1,
+    ),
     types,
   };
+}
+
+export async function fetchFeaturedFacilities() {
+  const catalog = await fetchPublicCatalog({ limit: 3, page: 1 });
+  return catalog.facilities.slice(0, 3);
 }
 
 export type CatalogFacilityDetail = CatalogFacility & {
   activeUnits?: number;
   assetCode?: string;
+  nextMaintenance?: { endAt: string; startAt: string };
 };
 
-export async function fetchFacilityDetail(id: string): Promise<CatalogFacilityDetail> {
-  // 1. Coba fetch sebagai unit EXCLUSIVE
+export async function fetchFacilityDetail(
+  id: string,
+): Promise<CatalogFacilityDetail> {
   try {
     const item = await apiRequest<PublicCatalogItem>(`/facilities/${id}`);
-    const facility = toCatalogFacility(item);
     return {
-      ...facility,
+      ...toCatalogFacility(item),
       assetCode: item.assetCode,
+      nextMaintenance: item.nextMaintenance,
     };
   } catch {
-    // 2. Coba fetch sebagai kelompok alat QUANTITY jika unit gagal
-    try {
-      const groupItem = await apiRequest<PublicCatalogItem>(`/facilities/${id}?kind=group`);
-      const facility = toCatalogFacility(groupItem);
-      return {
-        ...facility,
-        activeUnits: groupItem.activeUnits,
-      };
-    } catch {
-      // 3. Fallback ke data mock jika API backend belum ada data / offline
-      const { landingFacilities } = await import("./landing-facilities");
-      const fallback = landingFacilities.find((f) => f.id === id);
-      if (fallback) {
-        return {
-          ...fallback,
-          activeUnits:
-            fallback.availability.kind === "QUANTITY" && "activeUnits" in fallback.availability
-              ? fallback.availability.activeUnits
-              : undefined,
-          kind: fallback.availability.kind,
-        };
-      }
-      throw new Error("Fasilitas tidak ditemukan.");
-    }
+    const group = await apiRequest<PublicCatalogItem>(
+      `/facilities/${id}?kind=group`,
+    );
+    return {
+      ...toCatalogFacility(group),
+      activeUnits: group.activeUnits,
+      nextMaintenance: group.nextMaintenance,
+    };
   }
 }
-
