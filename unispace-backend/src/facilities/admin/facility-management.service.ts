@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -24,6 +25,8 @@ import {
 /** Mutasi group dan unit fisik fasilitas yang hanya boleh dilakukan ADMIN. */
 @Injectable()
 export class FacilityManagementService {
+  private readonly logger = new Logger(FacilityManagementService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly imageStorage: FacilityImageStorageService,
@@ -84,6 +87,7 @@ export class FacilityManagementService {
             capacity: input.capacity,
             description: input.description,
             primaryImageUrl: uploadedImage.url,
+            primaryImageObjectKey: uploadedImage.objectKey,
           },
           include: {
             facilityType: { select: { id: true, name: true } },
@@ -100,6 +104,7 @@ export class FacilityManagementService {
                   capacity: input.capacity,
                   description: input.description,
                   primaryImageUrl: uploadedImage.url,
+                  primaryImageObjectKey: uploadedImage.objectKey,
                   status: FacilityStatus.ACTIVE,
                 },
               })
@@ -121,6 +126,9 @@ export class FacilityManagementService {
         return { ...group, initialUnit };
       });
     } catch (error) {
+      await this.removeUploadedImageAfterFailedTransaction(
+        uploadedImage.objectKey,
+      );
       this.throwIfUniqueConstraint(
         error,
         'Kode aset fasilitas sudah digunakan.',
@@ -137,6 +145,11 @@ export class FacilityManagementService {
   ) {
     const existingGroup = await this.prisma.facilityGroup.findUnique({
       where: { id: groupId },
+      include: {
+        facilities: {
+          select: { id: true, primaryImageObjectKey: true },
+        },
+      },
     });
     if (!existingGroup) {
       throw new NotFoundException('Kelompok fasilitas tidak ditemukan.');
@@ -163,48 +176,21 @@ export class FacilityManagementService {
       ? await this.imageStorage.uploadPrimaryImage(primaryImage)
       : undefined;
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.facilityGroup.update({
-        where: { id: groupId },
-        data: {
-          ...(input.name === undefined ? {} : { name: input.name }),
-          ...(input.facilityTypeId === undefined
-            ? {}
-            : { facilityTypeId: input.facilityTypeId }),
-          ...(input.facilityAreaId === undefined
-            ? {}
-            : { facilityAreaId: input.facilityAreaId }),
-          ...(input.locationDetail === undefined
-            ? {}
-            : { locationDetail: input.locationDetail }),
-          ...(input.capacity === undefined ? {} : { capacity: input.capacity }),
-          ...(input.description === undefined
-            ? {}
-            : { description: input.description }),
-          ...(uploadedImage === undefined
-            ? {}
-            : { primaryImageUrl: uploadedImage.url }),
-        },
-        include: {
-          facilityType: { select: { id: true, name: true } },
-          facilityArea: { select: { id: true, code: true, name: true } },
-        },
-      });
-      if (existingGroup.reservationMode === ReservationMode.EXCLUSIVE) {
-        const unit = await tx.facility.findFirst({
-          where: { facilityGroupId: groupId },
-          select: { id: true },
-        });
-        if (!unit) {
-          throw new ConflictException({
-            code: 'EXCLUSIVE_UNIT_MISSING',
-            message: 'Fasilitas EXCLUSIVE harus memiliki satu unit fisik.',
-          });
-        }
-        await tx.facility.update({
-          where: { id: unit.id },
+    try {
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const result = await tx.facilityGroup.update({
+          where: { id: groupId },
           data: {
             ...(input.name === undefined ? {} : { name: input.name }),
+            ...(input.facilityTypeId === undefined
+              ? {}
+              : { facilityTypeId: input.facilityTypeId }),
+            ...(input.facilityAreaId === undefined
+              ? {}
+              : { facilityAreaId: input.facilityAreaId }),
+            ...(input.locationDetail === undefined
+              ? {}
+              : { locationDetail: input.locationDetail }),
             ...(input.capacity === undefined
               ? {}
               : { capacity: input.capacity }),
@@ -213,24 +199,83 @@ export class FacilityManagementService {
               : { description: input.description }),
             ...(uploadedImage === undefined
               ? {}
-              : { primaryImageUrl: uploadedImage.url }),
+              : {
+                  primaryImageUrl: uploadedImage.url,
+                  primaryImageObjectKey: uploadedImage.objectKey,
+                }),
+          },
+          include: {
+            facilityType: { select: { id: true, name: true } },
+            facilityArea: { select: { id: true, code: true, name: true } },
           },
         });
-      }
-      await tx.auditLog.create({
-        data: {
-          actorId: adminId,
-          action: 'FACILITY_GROUP_UPDATED',
-          entityType: 'FACILITY_GROUP',
-          entityId: groupId,
-          metadata: {
-            changes: input as unknown as Prisma.InputJsonValue,
-            imageObjectKey: uploadedImage?.objectKey ?? null,
+        if (existingGroup.reservationMode === ReservationMode.EXCLUSIVE) {
+          const unit =
+            existingGroup.facilities?.[0] ??
+            (await tx.facility.findFirst({
+              where: { facilityGroupId: groupId },
+              select: { id: true, primaryImageObjectKey: true },
+            }));
+          if (!unit) {
+            throw new ConflictException({
+              code: 'EXCLUSIVE_UNIT_MISSING',
+              message: 'Fasilitas EXCLUSIVE harus memiliki satu unit fisik.',
+            });
+          }
+          await tx.facility.update({
+            where: { id: unit.id },
+            data: {
+              ...(input.name === undefined ? {} : { name: input.name }),
+              ...(input.capacity === undefined
+                ? {}
+                : { capacity: input.capacity }),
+              ...(input.description === undefined
+                ? {}
+                : { description: input.description }),
+              ...(uploadedImage === undefined
+                ? {}
+                : {
+                    primaryImageUrl: uploadedImage.url,
+                    primaryImageObjectKey: uploadedImage.objectKey,
+                  }),
+            },
+          });
+        }
+        await tx.auditLog.create({
+          data: {
+            actorId: adminId,
+            action: 'FACILITY_GROUP_UPDATED',
+            entityType: 'FACILITY_GROUP',
+            entityId: groupId,
+            metadata: {
+              changes: input as unknown as Prisma.InputJsonValue,
+              imageObjectKey: uploadedImage?.objectKey ?? null,
+            },
           },
-        },
+        });
+        return result;
       });
+
+      if (uploadedImage) {
+        await this.removeReplacedImages(
+          [
+            existingGroup.primaryImageObjectKey,
+            ...(existingGroup.facilities ?? []).map(
+              (facility) => facility.primaryImageObjectKey,
+            ),
+          ],
+          uploadedImage.objectKey,
+        );
+      }
       return updated;
-    });
+    } catch (error) {
+      if (uploadedImage) {
+        await this.removeUploadedImageAfterFailedTransaction(
+          uploadedImage.objectKey,
+        );
+      }
+      throw error;
+    }
   }
 
   async adminCreateUnit(adminId: string, input: CreateFacilityUnitDto) {
@@ -291,8 +336,10 @@ export class FacilityManagementService {
     if (!facility) {
       throw new NotFoundException('Unit fasilitas tidak ditemukan.');
     }
+    const existingFacility = facility;
     if (
-      facility.facilityGroup.reservationMode === ReservationMode.QUANTITY &&
+      existingFacility.facilityGroup.reservationMode ===
+        ReservationMode.QUANTITY &&
       (input.capacity !== undefined ||
         input.description !== undefined ||
         primaryImage)
@@ -303,7 +350,7 @@ export class FacilityManagementService {
           'Kapasitas, deskripsi, dan foto alat QUANTITY dikelola pada grup fasilitas.',
       });
     }
-    if (input.assetCode && input.assetCode !== facility.assetCode) {
+    if (input.assetCode && input.assetCode !== existingFacility.assetCode) {
       const existingAsset = await this.prisma.facility.findUnique({
         where: { assetCode: input.assetCode },
       });
@@ -319,7 +366,7 @@ export class FacilityManagementService {
       : undefined;
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const result = await this.prisma.$transaction(async (tx) => {
         const updated = await tx.facility.update({
           where: { id: facilityId },
           data: {
@@ -335,14 +382,18 @@ export class FacilityManagementService {
               : { description: input.description }),
             ...(uploadedImage === undefined
               ? {}
-              : { primaryImageUrl: uploadedImage.url }),
+              : {
+                  primaryImageUrl: uploadedImage.url,
+                  primaryImageObjectKey: uploadedImage.objectKey,
+                }),
           },
         });
         if (
-          facility.facilityGroup.reservationMode === ReservationMode.EXCLUSIVE
+          existingFacility.facilityGroup.reservationMode ===
+          ReservationMode.EXCLUSIVE
         ) {
           await tx.facilityGroup.update({
-            where: { id: facility.facilityGroupId },
+            where: { id: existingFacility.facilityGroupId },
             data: {
               ...(input.name === undefined ? {} : { name: input.name }),
               ...(input.capacity === undefined
@@ -353,7 +404,10 @@ export class FacilityManagementService {
                 : { description: input.description }),
               ...(uploadedImage === undefined
                 ? {}
-                : { primaryImageUrl: uploadedImage.url }),
+                : {
+                    primaryImageUrl: uploadedImage.url,
+                    primaryImageObjectKey: uploadedImage.objectKey,
+                  }),
             },
           });
         }
@@ -371,7 +425,23 @@ export class FacilityManagementService {
         });
         return updated;
       });
+
+      if (uploadedImage) {
+        await this.removeReplacedImages(
+          [
+            existingFacility.primaryImageObjectKey,
+            existingFacility.facilityGroup.primaryImageObjectKey,
+          ],
+          uploadedImage.objectKey,
+        );
+      }
+      return result;
     } catch (error) {
+      if (uploadedImage) {
+        await this.removeUploadedImageAfterFailedTransaction(
+          uploadedImage.objectKey,
+        );
+      }
       this.throwIfUniqueConstraint(
         error,
         'Kode aset fasilitas sudah digunakan.',
@@ -418,5 +488,38 @@ export class FacilityManagementService {
         message,
       });
     }
+  }
+
+  private async removeUploadedImageAfterFailedTransaction(objectKey: string) {
+    try {
+      await this.imageStorage.removePrimaryImage(objectKey);
+    } catch (error) {
+      this.logger.error(
+        `Tidak dapat membersihkan foto fasilitas baru setelah transaksi gagal: ${objectKey}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
+
+  private async removeReplacedImages(
+    oldObjectKeys: Array<string | null>,
+    newObjectKey: string,
+  ) {
+    const keys = [...new Set(oldObjectKeys)].filter(
+      (objectKey): objectKey is string =>
+        Boolean(objectKey) && objectKey !== newObjectKey,
+    );
+    await Promise.all(
+      keys.map(async (objectKey) => {
+        try {
+          await this.imageStorage.removePrimaryImage(objectKey);
+        } catch (error) {
+          this.logger.error(
+            `Tidak dapat menghapus foto fasilitas lama: ${objectKey}`,
+            error instanceof Error ? error.stack : undefined,
+          );
+        }
+      }),
+    );
   }
 }

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -14,15 +15,13 @@ import {
 } from '@aws-sdk/client-s3';
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
+import {
+  type DetectedImage,
+  validateImageUpload,
+} from '../common/storage/image-upload.validation';
 
 const IMAGE_PREFIX = 'facility-primary';
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
-
-const allowedImageTypes = new Map<string, string>([
-  ['image/jpeg', 'jpg'],
-  ['image/png', 'png'],
-  ['image/webp', 'webp'],
-]);
 
 export type StoredFacilityImage = {
   fileName: string;
@@ -59,17 +58,9 @@ export class FacilityImageStorageService {
   async uploadPrimaryImage(
     file: FacilityImageUpload,
   ): Promise<StoredFacilityImage> {
-    this.assertValidUpload(file);
+    const image = this.assertValidUpload(file);
 
-    const extension = allowedImageTypes.get(file.mimetype);
-    if (!extension) {
-      throw new BadRequestException({
-        code: 'UNSUPPORTED_FACILITY_IMAGE_TYPE',
-        message: 'Foto fasilitas harus berupa JPEG, PNG, atau WebP.',
-      });
-    }
-
-    const fileName = `${randomUUID()}.${extension}`;
+    const fileName = `${randomUUID()}.${image.extension}`;
     const objectKey = this.toObjectKey(fileName);
 
     try {
@@ -137,29 +128,43 @@ export class FacilityImageStorageService {
     };
   }
 
-  private assertValidUpload(
-    file?: FacilityImageUpload,
-  ): asserts file is FacilityImageUpload {
-    if (!file) {
+  async removePrimaryImage(objectKey: string) {
+    if (!objectKey.startsWith(`${IMAGE_PREFIX}/`)) {
       throw new BadRequestException({
-        code: 'PRIMARY_IMAGE_REQUIRED',
-        message: 'Foto utama fasilitas wajib diunggah.',
+        code: 'INVALID_FACILITY_IMAGE_KEY',
+        message: 'Kunci foto fasilitas tidak valid.',
       });
     }
 
-    if (!allowedImageTypes.has(file.mimetype)) {
-      throw new BadRequestException({
-        code: 'UNSUPPORTED_FACILITY_IMAGE_TYPE',
-        message: 'Foto fasilitas harus berupa JPEG, PNG, atau WebP.',
+    try {
+      await this.getClient().send(
+        new DeleteObjectCommand({
+          Bucket: this.requiredConfig('S3_BUCKET'),
+          Key: objectKey,
+        }),
+      );
+    } catch {
+      throw new ServiceUnavailableException({
+        code: 'OBJECT_STORAGE_UNAVAILABLE',
+        message: 'Foto fasilitas belum dapat dihapus. Coba lagi sesaat lagi.',
       });
     }
+  }
 
-    if (!file.buffer || file.size <= 0 || file.size > MAX_IMAGE_SIZE_BYTES) {
-      throw new BadRequestException({
-        code: 'INVALID_FACILITY_IMAGE_SIZE',
-        message: 'Ukuran foto fasilitas harus lebih dari 0 dan maksimal 5 MB.',
-      });
-    }
+  private assertValidUpload(file?: FacilityImageUpload): DetectedImage {
+    return validateImageUpload(file, {
+      maxSizeBytes: MAX_IMAGE_SIZE_BYTES,
+      requiredCode: 'PRIMARY_IMAGE_REQUIRED',
+      requiredMessage: 'Foto utama fasilitas wajib diunggah.',
+      unsupportedCode: 'UNSUPPORTED_FACILITY_IMAGE_TYPE',
+      unsupportedMessage: 'Foto fasilitas harus berupa JPEG, PNG, atau WebP.',
+      invalidSizeCode: 'INVALID_FACILITY_IMAGE_SIZE',
+      invalidSizeMessage:
+        'Ukuran foto fasilitas harus lebih dari 0 dan maksimal 5 MB.',
+      invalidContentCode: 'INVALID_FACILITY_IMAGE_CONTENT',
+      invalidContentMessage:
+        'Isi foto fasilitas harus cocok dengan format JPEG, PNG, atau WebP.',
+    });
   }
 
   private getClient() {
