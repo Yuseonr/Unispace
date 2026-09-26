@@ -28,4 +28,24 @@ export class ReservationsScheduler {
       );
     }
   }
+
+  @Cron(CronExpression.EVERY_MINUTE, {
+    name: 'reservations-complete-finished',
+    timeZone: 'Asia/Jakarta',
+  })
+  async completeFinishedReservations() {
+    try {
+      const completed = await this.reservations.completeFinishedReservations();
+      if (completed > 0) {
+        this.logger.log(
+          `Automatically completed ${completed} finished reservation(s).`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        'Automatic reservation completion failed.',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
 }
