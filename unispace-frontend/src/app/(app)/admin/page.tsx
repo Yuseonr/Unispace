@@ -1,3 +1,7 @@
+import { Suspense } from "react";
+
+import { AnalyticsPage } from "@/features/analytics/components/analytics-page";
+
 export default function AdminPage() {
-  return <section aria-label="Dashboard admin" className="admin-empty-dashboard" />;
+  return <Suspense fallback={<main className="admin-page">Memuat dashboard…</main>}><AnalyticsPage compact /></Suspense>;
 }
