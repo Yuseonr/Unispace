@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   AccountStatus,
   type Prisma,
+  ReservationStatus,
   UserRole,
 } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
@@ -246,19 +247,25 @@ export class AdminUsersService {
         },
         select: managedUserSelect,
       });
-      const pendingReservations = await transaction.reservation.updateMany({
-        where: { userId: user.id, status: 'PENDING' },
-        data: {
-          status: 'REJECTED',
+      const pendingCandidates = await transaction.reservation.findMany({
+        where: { userId: user.id, status: ReservationStatus.PENDING },
+        select: { id: true },
+      });
+      const pendingReservations = await this.updateReservations(
+        transaction,
+        pendingCandidates,
+        ReservationStatus.PENDING,
+        {
+          status: ReservationStatus.REJECTED,
           decisionReason: ACCOUNT_DEACTIVATED_REASON,
           decidedAt: now,
           processedById: null,
         },
-      });
-      const approvedReservations = await transaction.reservation.updateMany({
+      );
+      const approvedCandidates = await transaction.reservation.findMany({
         where: {
           userId: user.id,
-          status: 'APPROVED',
+          status: ReservationStatus.APPROVED,
           OR: [
             { usageDate: { gt: boundary.usageDate } },
             {
@@ -267,13 +274,45 @@ export class AdminUsersService {
             },
           ],
         },
-        data: {
-          status: 'CANCELLED_BY_SYSTEM',
+        select: { id: true },
+      });
+      const approvedReservations = await this.updateReservations(
+        transaction,
+        approvedCandidates,
+        ReservationStatus.APPROVED,
+        {
+          status: ReservationStatus.CANCELLED_BY_SYSTEM,
           decisionReason: ACCOUNT_DEACTIVATED_REASON,
           cancelledAt: now,
           processedById: null,
         },
-      });
+      );
+      await Promise.all([
+        ...pendingReservations.map((reservation) =>
+          this.recordAudit(transaction, {
+            actorId: adminId,
+            action: 'RESERVATION_REJECTED',
+            entityId: reservation.id,
+            metadata: {
+              reason: ACCOUNT_DEACTIVATED_REASON,
+              source: 'ACCOUNT_DEACTIVATION',
+              accountId: user.id,
+            },
+          }),
+        ),
+        ...approvedReservations.map((reservation) =>
+          this.recordAudit(transaction, {
+            actorId: adminId,
+            action: 'RESERVATION_CANCELLED_BY_SYSTEM',
+            entityId: reservation.id,
+            metadata: {
+              reason: ACCOUNT_DEACTIVATED_REASON,
+              source: 'ACCOUNT_DEACTIVATION',
+              accountId: user.id,
+            },
+          }),
+        ),
+      ]);
       await this.recordAudit(transaction, {
         actorId: adminId,
         action: 'ACCOUNT_DEACTIVATED',
@@ -281,8 +320,8 @@ export class AdminUsersService {
         metadata: {
           fromStatus: AccountStatus.ACTIVE,
           toStatus: AccountStatus.NONACTIVE,
-          pendingReservationsRejected: pendingReservations.count,
-          approvedReservationsCancelled: approvedReservations.count,
+          pendingReservationsRejected: pendingReservations.length,
+          approvedReservationsCancelled: approvedReservations.length,
         },
       });
       return this.toResponse(updated);
@@ -333,6 +372,25 @@ export class AdminUsersService {
       });
     }
     return user;
+  }
+
+  private async updateReservations(
+    transaction: Prisma.TransactionClient,
+    candidates: Array<{ id: string }>,
+    expectedStatus: ReservationStatus,
+    data: Prisma.ReservationUpdateManyArgs['data'],
+  ) {
+    const changed: Array<{ id: string }> = [];
+    for (const candidate of candidates) {
+      const result = await transaction.reservation.updateMany({
+        where: { id: candidate.id, status: expectedStatus },
+        data,
+      });
+      if (result.count === 1) {
+        changed.push(candidate);
+      }
+    }
+    return changed;
   }
 
   private recordAudit(

@@ -57,7 +57,7 @@ describe('AdminUsersService', () => {
       findUnique: jest.Mock;
       update: jest.Mock;
     };
-    reservation: { updateMany: jest.Mock };
+    reservation: { findMany: jest.Mock; updateMany: jest.Mock };
     auditLog: { create: jest.Mock };
   };
 
@@ -100,10 +100,8 @@ describe('AdminUsersService', () => {
         }),
       },
       reservation: {
-        updateMany: jest
-          .fn()
-          .mockResolvedValueOnce({ count: 2 })
-          .mockResolvedValueOnce({ count: 1 }),
+        findMany: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       auditLog: { create: jest.fn().mockResolvedValue(undefined) },
     };
@@ -226,6 +224,12 @@ describe('AdminUsersService', () => {
       refreshTokenHash: 'refresh-hash',
     });
     records.set(active.id, active);
+    database.reservation.findMany
+      .mockResolvedValueOnce([
+        { id: '00000000-0000-4000-8000-000000000201' },
+        { id: '00000000-0000-4000-8000-000000000202' },
+      ])
+      .mockResolvedValueOnce([{ id: '00000000-0000-4000-8000-000000000203' }]);
 
     const result = await service.updateStatus(
       'admin-id',
@@ -235,7 +239,8 @@ describe('AdminUsersService', () => {
 
     expect(result.accountStatus).toBe(AccountStatus.NONACTIVE);
     expect(active.refreshTokenHash).toBeNull();
-    expect(database.reservation.updateMany).toHaveBeenCalledTimes(2);
+    expect(database.reservation.findMany).toHaveBeenCalledTimes(2);
+    expect(database.reservation.updateMany).toHaveBeenCalledTimes(3);
     expect(database.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         action: 'ACCOUNT_DEACTIVATED',
@@ -243,6 +248,18 @@ describe('AdminUsersService', () => {
           pendingReservationsRejected: 2,
           approvedReservationsCancelled: 1,
         }),
+      }),
+    });
+    expect(database.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'RESERVATION_REJECTED',
+        entityId: '00000000-0000-4000-8000-000000000201',
+      }),
+    });
+    expect(database.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'RESERVATION_CANCELLED_BY_SYSTEM',
+        entityId: '00000000-0000-4000-8000-000000000203',
       }),
     });
   });
