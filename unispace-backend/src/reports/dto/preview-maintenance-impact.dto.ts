@@ -1,9 +1,4 @@
-import { IsDateString } from 'class-validator';
+import { MaintenanceWindowDto } from './maintenance-window.dto';
 
-export class PreviewMaintenanceImpactDto {
-  @IsDateString()
-  startAt!: string;
-
-  @IsDateString()
-  endAt!: string;
-}
+/** Preview memakai payload window yang sama dengan confirm tanpa flag keputusan. */
+export class PreviewMaintenanceImpactDto extends MaintenanceWindowDto {}

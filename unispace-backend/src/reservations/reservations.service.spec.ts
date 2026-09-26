@@ -14,6 +14,7 @@ import {
 } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { ReservationsService } from './reservations.service';
+import { QuantityReservationReconciliationService } from '../facilities/quantity-reservation-reconciliation.service';
 
 // ---------------------------------------------------------------------------
 // Stub Data
@@ -95,6 +96,7 @@ describe('ReservationsService - create', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReservationsService,
+        QuantityReservationReconciliationService,
         { provide: PrismaService, useValue: prismaMock },
       ],
     }).compile();
@@ -390,6 +392,7 @@ describe('ReservationsService - listMy', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReservationsService,
+        QuantityReservationReconciliationService,
         { provide: PrismaService, useValue: prismaMock },
       ],
     }).compile();
@@ -560,6 +563,7 @@ describe('ReservationsService - getMyDetail', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReservationsService,
+        QuantityReservationReconciliationService,
         { provide: PrismaService, useValue: prismaMock },
       ],
     }).compile();
@@ -625,6 +629,7 @@ describe('ReservationsService - cancelMy', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReservationsService,
+        QuantityReservationReconciliationService,
         { provide: PrismaService, useValue: prismaMock },
       ],
     }).compile();
@@ -764,6 +769,7 @@ describe('ReservationsService - listStaff & getStaffDetail', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReservationsService,
+        QuantityReservationReconciliationService,
         { provide: PrismaService, useValue: prismaMock },
       ],
     }).compile();
@@ -927,6 +933,7 @@ describe('ReservationsService - approve', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReservationsService,
+        QuantityReservationReconciliationService,
         { provide: PrismaService, useValue: prismaMock },
       ],
     }).compile();
@@ -1490,6 +1497,7 @@ describe('ReservationsService - reject', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReservationsService,
+        QuantityReservationReconciliationService,
         { provide: PrismaService, useValue: prismaMock },
       ],
     }).compile();
@@ -1596,6 +1604,7 @@ describe('ReservationsService - cancelByStaff', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReservationsService,
+        QuantityReservationReconciliationService,
         { provide: PrismaService, useValue: prismaMock },
       ],
     }).compile();
@@ -1729,6 +1738,7 @@ describe('ReservationsService - completeFinishedReservations', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReservationsService,
+        QuantityReservationReconciliationService,
         { provide: PrismaService, useValue: prismaMock },
       ],
     }).compile();
@@ -1793,6 +1803,7 @@ describe('ReservationsService - autoRejectExpiredReservations & SLA enforcement'
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReservationsService,
+        QuantityReservationReconciliationService,
         { provide: PrismaService, useValue: prismaMock },
       ],
     }).compile();

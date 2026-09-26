@@ -17,6 +17,7 @@ import {
   type FacilityImageUpload,
 } from './facility-image-storage.service';
 import { QueryFacilitiesDto } from './dto/catalog';
+import { QuantityReservationReconciliationService } from './quantity-reservation-reconciliation.service';
 
 // ---------------------------------------------------------------------------
 // Stub data
@@ -75,6 +76,7 @@ const prismaMock = {
     findUnique: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
   },
   facilityArea: {
     findMany: jest.fn(),
@@ -108,6 +110,7 @@ const prismaMock = {
   facilityStatusHistory: { create: jest.fn() },
   auditLog: { create: jest.fn() },
   $transaction: jest.fn(),
+  $executeRaw: jest.fn(),
 };
 
 const imageStorageMock = {
@@ -147,6 +150,7 @@ describe('facility domain services', () => {
         FacilityMasterService,
         FacilityManagementService,
         FacilityStatusService,
+        QuantityReservationReconciliationService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: FacilityImageStorageService, useValue: imageStorageMock },
       ],
@@ -446,6 +450,21 @@ describe('facility domain services', () => {
       });
     });
 
+    it('menampilkan status efektif MAINTENANCE saat periode sedang berlangsung', async () => {
+      const now = new Date();
+      const activeStart = new Date(now.getTime() - 60_000);
+      const activeEnd = new Date(now.getTime() + 60_000);
+      prismaMock.facility.findFirst.mockResolvedValue({
+        ...stubExclusiveFacility,
+        maintenancePeriods: [{ startAt: activeStart, endAt: activeEnd }],
+      });
+
+      const result = await catalog.detail('fac-1', 'unit');
+
+      expect(result.status).toBe('MAINTENANCE');
+      expect(result.nextMaintenance).toBeUndefined();
+    });
+
     it('melempar NotFoundException bila unit EXCLUSIVE tidak ada', async () => {
       prismaMock.facility.findFirst.mockResolvedValue(null);
       await expect(catalog.detail('not-exist', 'unit')).rejects.toThrow(
@@ -566,29 +585,6 @@ describe('facility domain services', () => {
         const slot1000 = result.slots.find((s) => s.startTime === '10:00')!;
         expect(slot1000.available).toBe(false);
         expect(slot1000.reason).toBe('MAINTENANCE');
-      });
-
-      it('tetap menyediakan kalender slot untuk unit berstatus IN_MAINTENANCE', async () => {
-        prismaMock.facility.findFirst.mockResolvedValue({
-          ...stubExclusiveFacility,
-          status: FacilityStatus.IN_MAINTENANCE,
-        });
-        prismaMock.reservation.findMany.mockResolvedValue([]);
-        prismaMock.maintenancePeriod.findMany.mockResolvedValue([]);
-
-        const result = await availability.getAvailability('fac-1', {
-          date: mondayDate,
-          kind: 'unit',
-        });
-
-        expect(result.slots.every((slot) => slot.available)).toBe(true);
-        expect(prismaMock.facility.findFirst).toHaveBeenCalledWith(
-          expect.objectContaining({
-            where: expect.objectContaining({
-              status: { not: FacilityStatus.NONACTIVE },
-            }),
-          }),
-        );
       });
 
       it('melempar NotFoundException bila unit tidak ditemukan', async () => {
@@ -963,6 +959,27 @@ describe('facility domain services', () => {
       prismaMock.reservation.findFirst.mockResolvedValue({
         id: 'res-approved-1',
       });
+      prismaMock.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => unknown) =>
+          callback({
+            $executeRaw: prismaMock.$executeRaw,
+            facility: {
+              findUnique: jest.fn().mockResolvedValue({
+                id: facilityId,
+                facilityGroupId: stubExclusiveGroup.id,
+                status: FacilityStatus.ACTIVE,
+                facilityGroup: {
+                  name: 'Ruang 101',
+                  reservationMode: ReservationMode.EXCLUSIVE,
+                },
+              }),
+            },
+            reservation: {
+              findMany: jest.fn().mockResolvedValue([]),
+              findFirst: jest.fn().mockResolvedValue({ id: 'res-approved-1' }),
+            },
+          }),
+      );
 
       await expect(
         status.adminUpdateUnitStatus(
@@ -985,18 +1002,27 @@ describe('facility domain services', () => {
       });
       prismaMock.reservation.findFirst.mockResolvedValue(null);
 
-      const updatedFacility = {
-        id: facilityId,
-        assetCode: 'R-101',
-        status: FacilityStatus.NONACTIVE,
-      };
-
       prismaMock.$transaction.mockImplementation(
         async (callback: (tx: unknown) => unknown) =>
           callback({
-            facility: { update: jest.fn().mockResolvedValue(updatedFacility) },
-            reservation: {
+            $executeRaw: prismaMock.$executeRaw,
+            facility: {
+              findUnique: jest.fn().mockResolvedValue({
+                id: facilityId,
+                facilityGroupId: stubExclusiveGroup.id,
+                assetCode: 'R-101',
+                status: FacilityStatus.ACTIVE,
+                facilityGroup: {
+                  name: 'Ruang 101',
+                  reservationMode: ReservationMode.EXCLUSIVE,
+                },
+              }),
               updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
+            reservation: {
+              findMany: jest.fn().mockResolvedValue([]),
+              findFirst: jest.fn().mockResolvedValue(null),
+              updateMany: jest.fn().mockResolvedValue({ count: 0 }),
             },
             facilityStatusHistory: { create: jest.fn().mockResolvedValue({}) },
             auditLog: { create: jest.fn().mockResolvedValue({}) },
@@ -1012,6 +1038,89 @@ describe('facility domain services', () => {
       expect(result.status).toBe(FacilityStatus.NONACTIVE);
     });
 
+    it('menonaktifkan unit QUANTITY lalu merekonsiliasi PENDING yang tidak lagi feasible', async () => {
+      const usageDate = new Date('2026-10-12T00:00:00.000Z');
+      const pendingReservation = {
+        id: 'res-pending-quantity-1',
+        usageDate,
+        startTime: new Date(Date.UTC(1970, 0, 1, 8, 0, 0)),
+        endTime: new Date(Date.UTC(1970, 0, 1, 9, 0, 0)),
+        requestedQuantity: 1,
+      };
+      prismaMock.facility.findUnique.mockResolvedValue({
+        id: facilityId,
+        assetCode: 'PRJ-001',
+        status: FacilityStatus.ACTIVE,
+        facilityGroup: {
+          name: 'Proyektor',
+          reservationMode: ReservationMode.QUANTITY,
+        },
+      });
+
+      const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+      const reservationUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
+      const historyCreate = jest.fn().mockResolvedValue({});
+      prismaMock.$transaction.mockImplementation(
+        async (callback: (tx: unknown) => unknown) =>
+          callback({
+            $executeRaw: prismaMock.$executeRaw,
+            facility: {
+              findUnique: jest.fn().mockResolvedValue({
+                id: facilityId,
+                facilityGroupId: stubQuantityGroup.id,
+                assetCode: 'PRJ-001',
+                status: FacilityStatus.ACTIVE,
+                facilityGroup: {
+                  name: 'Proyektor',
+                  reservationMode: ReservationMode.QUANTITY,
+                },
+              }),
+              findMany: jest.fn().mockResolvedValue([]),
+              updateMany,
+            },
+            reservation: {
+              findMany: jest.fn().mockResolvedValue([pendingReservation]),
+              findFirst: jest.fn().mockResolvedValue(null),
+              updateMany: reservationUpdateMany,
+            },
+            maintenancePeriod: { findMany: jest.fn().mockResolvedValue([]) },
+            facilityStatusHistory: { create: historyCreate },
+            auditLog: { create: jest.fn().mockResolvedValue({}) },
+          }),
+      );
+
+      const result = await status.adminUpdateUnitStatus(
+        adminId,
+        facilityId,
+        FacilityStatus.NONACTIVE,
+      );
+
+      expect(result.status).toBe(FacilityStatus.NONACTIVE);
+      expect(updateMany).toHaveBeenCalledWith({
+        where: {
+          id: facilityId,
+          status: { not: FacilityStatus.NONACTIVE },
+        },
+        data: { status: FacilityStatus.NONACTIVE },
+      });
+      expect(reservationUpdateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: pendingReservation.id,
+            status: 'PENDING',
+          },
+          data: expect.objectContaining({ status: 'REJECTED' }),
+        }),
+      );
+      expect(historyCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: FacilityStatus.NONACTIVE,
+          }),
+        }),
+      );
+    });
+
     it('berhasil mengaktifkan kembali fasilitas dari NONACTIVE ke ACTIVE', async () => {
       prismaMock.facility.findUnique.mockResolvedValue({
         id: facilityId,
@@ -1023,17 +1132,23 @@ describe('facility domain services', () => {
         },
       });
 
-      const updatedFacility = {
-        id: facilityId,
-        assetCode: 'R-101',
-        status: FacilityStatus.ACTIVE,
-      };
-
       prismaMock.$transaction.mockImplementation(
         async (callback: (tx: unknown) => unknown) =>
           callback({
-            facility: { update: jest.fn().mockResolvedValue(updatedFacility) },
-            maintenancePeriod: { findFirst: jest.fn().mockResolvedValue(null) },
+            $executeRaw: prismaMock.$executeRaw,
+            facility: {
+              findUnique: jest.fn().mockResolvedValue({
+                id: facilityId,
+                facilityGroupId: stubExclusiveGroup.id,
+                assetCode: 'R-101',
+                status: FacilityStatus.NONACTIVE,
+                facilityGroup: {
+                  name: 'Ruang 101',
+                  reservationMode: ReservationMode.EXCLUSIVE,
+                },
+              }),
+              updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+            },
             facilityStatusHistory: { create: jest.fn().mockResolvedValue({}) },
             auditLog: { create: jest.fn().mockResolvedValue({}) },
           }),
@@ -1048,7 +1163,7 @@ describe('facility domain services', () => {
       expect(result.status).toBe(FacilityStatus.ACTIVE);
     });
 
-    it('menjaga status IN_MAINTENANCE saat fasilitas diaktifkan kembali di tengah perbaikan', async () => {
+    it('menyimpan ACTIVE saat diaktifkan kembali; maintenance diturunkan dari periodenya', async () => {
       prismaMock.facility.findUnique.mockResolvedValue({
         id: facilityId,
         assetCode: 'R-101',
@@ -1059,18 +1174,24 @@ describe('facility domain services', () => {
         },
       });
 
-      const facilityUpdate = jest.fn().mockResolvedValue({
-        id: facilityId,
-        assetCode: 'R-101',
-        status: FacilityStatus.IN_MAINTENANCE,
-      });
+      const facilityUpdate = jest.fn().mockResolvedValue({ count: 1 });
       const historyCreate = jest.fn().mockResolvedValue({});
       prismaMock.$transaction.mockImplementation(
         async (callback: (tx: unknown) => unknown) =>
           callback({
-            facility: { update: facilityUpdate },
-            maintenancePeriod: {
-              findFirst: jest.fn().mockResolvedValue({ id: 'maintenance-1' }),
+            $executeRaw: prismaMock.$executeRaw,
+            facility: {
+              findUnique: jest.fn().mockResolvedValue({
+                id: facilityId,
+                facilityGroupId: stubExclusiveGroup.id,
+                assetCode: 'R-101',
+                status: FacilityStatus.NONACTIVE,
+                facilityGroup: {
+                  name: 'Ruang 101',
+                  reservationMode: ReservationMode.EXCLUSIVE,
+                },
+              }),
+              updateMany: facilityUpdate,
             },
             facilityStatusHistory: { create: historyCreate },
             auditLog: { create: jest.fn().mockResolvedValue({}) },
@@ -1083,15 +1204,15 @@ describe('facility domain services', () => {
         FacilityStatus.ACTIVE,
       );
 
-      expect(result.status).toBe(FacilityStatus.IN_MAINTENANCE);
+      expect(result.status).toBe(FacilityStatus.ACTIVE);
       expect(facilityUpdate).toHaveBeenCalledWith({
-        where: { id: facilityId },
-        data: { status: FacilityStatus.IN_MAINTENANCE },
+        where: { id: facilityId, status: FacilityStatus.NONACTIVE },
+        data: { status: FacilityStatus.ACTIVE },
       });
       expect(historyCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            status: FacilityStatus.IN_MAINTENANCE,
+            status: FacilityStatus.ACTIVE,
           }),
         }),
       );

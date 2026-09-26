@@ -14,6 +14,7 @@ import {
   ReservationStatus,
 } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { QuantityReservationReconciliationService } from '../facilities/quantity-reservation-reconciliation.service';
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { ListMyReservationsDto } from './dto/list-my-reservations.dto';
 import { ListStaffReservationsDto } from './dto/list-staff-reservations.dto';
@@ -33,7 +34,10 @@ import {
 
 @Injectable()
 export class ReservationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reconciliation: QuantityReservationReconciliationService,
+  ) {}
 
   private generateReservationNumber(now: Date) {
     const timestamp = now.toISOString().replace(/\D/g, '').slice(0, 14);
@@ -148,25 +152,6 @@ export class ReservationsService {
         'Reservasi sudah diproses oleh petugas lain.',
       );
     }
-  }
-
-  private async lockQuantityApprovalContext(
-    transaction: Pick<Prisma.TransactionClient, '$executeRaw'>,
-    facilityGroupId: string,
-    usageDate: Date,
-  ) {
-    const usageDateKey = [
-      usageDate.getUTCFullYear(),
-      String(usageDate.getUTCMonth() + 1).padStart(2, '0'),
-      String(usageDate.getUTCDate()).padStart(2, '0'),
-    ].join('-');
-
-    await transaction.$executeRaw`
-      SELECT pg_advisory_xact_lock(
-        hashtext(${facilityGroupId}),
-        hashtext(${usageDateKey})
-      )
-    `;
   }
 
   private selectAvailableQuantityUnits(
@@ -1093,6 +1078,13 @@ export class ReservationsService {
         // =====================================================================
         // A. Mode Ruang Tunggal (EXCLUSIVE)
         // =====================================================================
+        await this.reconciliation.lockAvailabilityDate(
+          tx,
+          'FACILITY',
+          reservation.facilityId,
+          reservation.usageDate,
+        );
+
         if (reservation.facility?.status === FacilityStatus.NONACTIVE) {
           throw new BadRequestException('Fasilitas sedang tidak aktif.');
         }
@@ -1177,8 +1169,9 @@ export class ReservationsService {
         // =====================================================================
         // B. Mode Kelompok Alat (QUANTITY)
         // =====================================================================
-        await this.lockQuantityApprovalContext(
+        await this.reconciliation.lockAvailabilityDate(
           tx,
+          'FACILITY_GROUP',
           reservation.facilityGroupId,
           reservation.usageDate,
         );
@@ -1252,131 +1245,18 @@ export class ReservationsService {
           },
         });
 
-        // Cascade auto-reject pengajuan PENDING kelompok alat yang kekurangan stok
-        const candidatePending = await tx.reservation.findMany({
-          where: {
-            id: { not: reservation.id },
-            facilityGroupId: reservation.facilityGroupId,
-            usageDate: reservation.usageDate,
-            status: ReservationStatus.PENDING,
-            startTime: { lt: reservation.endTime },
-            endTime: { gt: reservation.startTime },
+        await this.reconciliation.rejectInfeasibleQuantityReservations(tx, {
+          facilityGroupId: reservation.facilityGroupId,
+          usageDate: reservation.usageDate,
+          actorId: staffId,
+          processedById: staffId,
+          decidedAt: now,
+          reason:
+            'Ketersediaan unit fasilitas tidak lagi mencukupi untuk memenuhi jumlah yang diajukan.',
+          metadata: {
+            approvedReservationId: reservation.id,
           },
         });
-
-        if (candidatePending.length > 0) {
-          const groupFacilities = await tx.facility.findMany({
-            where: {
-              facilityGroupId: reservation.facilityGroupId,
-              status: { not: FacilityStatus.NONACTIVE },
-            },
-            select: { id: true },
-          });
-          const totalActiveUnits = groupFacilities.length;
-          const activeUnitIds = groupFacilities.map((f) => f.id);
-
-          const approvedReservations = await tx.reservation.findMany({
-            where: {
-              facilityGroupId: reservation.facilityGroupId,
-              usageDate: reservation.usageDate,
-              status: ReservationStatus.APPROVED,
-            },
-            select: {
-              startTime: true,
-              endTime: true,
-              requestedQuantity: true,
-            },
-          });
-
-          const dayStartUtc = new Date(Date.UTC(uYear, uMonth, uDay, 0, 0, 0));
-          const dayEndUtc = new Date(Date.UTC(uYear, uMonth, uDay, 13, 0, 0));
-
-          const maintenancePeriods =
-            activeUnitIds.length > 0
-              ? await tx.maintenancePeriod.findMany({
-                  where: {
-                    facilityId: { in: activeUnitIds },
-                    startAt: { lt: dayEndUtc },
-                    endAt: { gt: dayStartUtc },
-                  },
-                  select: {
-                    facilityId: true,
-                    startAt: true,
-                    endAt: true,
-                  },
-                })
-              : [];
-
-          for (const pending of candidatePending) {
-            const pStartMin =
-              pending.startTime.getUTCHours() * 60 +
-              pending.startTime.getUTCMinutes();
-            const pEndMin =
-              pending.endTime.getUTCHours() * 60 +
-              pending.endTime.getUTCMinutes();
-
-            let hasInsufficientStock = false;
-
-            for (let m = pStartMin; m < pEndMin; m += 30) {
-              const slotStartH = Math.floor(m / 60);
-              const slotStartM = m % 60;
-              const slotEndH = Math.floor((m + 30) / 60);
-              const slotEndM = (m + 30) % 60;
-
-              const slotStartTime = new Date(
-                Date.UTC(1970, 0, 1, slotStartH, slotStartM, 0),
-              );
-              const slotEndTime = new Date(
-                Date.UTC(1970, 0, 1, slotEndH, slotEndM, 0),
-              );
-
-              const slotStartUtc = new Date(
-                Date.UTC(uYear, uMonth, uDay, slotStartH - 7, slotStartM, 0),
-              );
-              const slotEndUtc = new Date(
-                Date.UTC(uYear, uMonth, uDay, slotEndH - 7, slotEndM, 0),
-              );
-
-              const maintenanceCount = new Set(
-                maintenancePeriods
-                  .filter(
-                    (mp) => mp.startAt < slotEndUtc && mp.endAt > slotStartUtc,
-                  )
-                  .map((mp) => mp.facilityId),
-              ).size;
-
-              const reservedCount = approvedReservations
-                .filter(
-                  (ar) =>
-                    ar.startTime < slotEndTime && ar.endTime > slotStartTime,
-                )
-                .reduce((sum, ar) => sum + ar.requestedQuantity, 0);
-
-              const availableUnits =
-                totalActiveUnits - maintenanceCount - reservedCount;
-              if (availableUnits < pending.requestedQuantity) {
-                hasInsufficientStock = true;
-                break;
-              }
-            }
-
-            if (hasInsufficientStock) {
-              await this.rejectPendingReservation(tx, {
-                reservationId: pending.id,
-                staffId,
-                decidedAt: now,
-                reason:
-                  'Ketersediaan unit fasilitas tidak lagi mencukupi untuk memenuhi jumlah yang diajukan.',
-                action: 'RESERVATION_AUTO_REJECTED',
-                metadata: {
-                  reason:
-                    'Ketersediaan unit fasilitas tidak lagi mencukupi untuk memenuhi jumlah yang diajukan.',
-                  approvedReservationId: reservation.id,
-                },
-              });
-            }
-          }
-        }
       } else {
         throw new BadRequestException(
           'Reservasi tidak memiliki target fasilitas yang valid.',

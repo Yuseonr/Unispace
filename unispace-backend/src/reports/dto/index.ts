@@ -4,6 +4,7 @@ export * from './create-report.dto';
 export * from './list-my-reports.dto';
 export * from './list-report-audit.dto';
 export * from './list-staff-reports.dto';
+export * from './maintenance-window.dto';
 export * from './preview-maintenance-impact.dto';
 export * from './reject-report.dto';
 export * from './resolve-report.dto';

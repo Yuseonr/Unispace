@@ -156,6 +156,7 @@ describe('Reservations HTTP Integration (E2E)', () => {
         findMany: jest.fn().mockResolvedValue([]),
       },
       auditLog: { create: jest.fn().mockResolvedValue({}) },
+      $executeRaw: jest.fn().mockResolvedValue(1),
     };
 
     prisma = {

@@ -9,6 +9,7 @@ import { FacilityCatalogService } from './catalog/facility-catalog.service';
 import { FacilityImagesController } from './facility-images.controller';
 import { FacilityImageStorageService } from './facility-image-storage.service';
 import { FacilitiesController } from './facilities.controller';
+import { QuantityReservationReconciliationService } from './quantity-reservation-reconciliation.service';
 
 @Module({
   imports: [MulterModule.register({})],
@@ -24,7 +25,11 @@ import { FacilitiesController } from './facilities.controller';
     FacilityManagementService,
     FacilityStatusService,
     FacilityImageStorageService,
+    QuantityReservationReconciliationService,
   ],
-  exports: [FacilityAvailabilityService],
+  exports: [
+    FacilityAvailabilityService,
+    QuantityReservationReconciliationService,
+  ],
 })
 export class FacilitiesModule {}
