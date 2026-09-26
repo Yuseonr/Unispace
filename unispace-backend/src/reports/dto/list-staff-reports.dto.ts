@@ -4,13 +4,23 @@ import {
   IsEnum,
   IsInt,
   IsOptional,
+  IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { ReportStatus } from '../../generated/prisma/client';
 
 export class ListStaffReportsDto {
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() || undefined : value,
+  )
+  @IsString()
+  @MaxLength(150)
+  search?: string;
+
   @IsOptional()
   @IsDateString()
   createdFrom?: string;

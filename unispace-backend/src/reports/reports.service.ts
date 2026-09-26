@@ -466,6 +466,29 @@ export class ReportsService {
                 : { lte: new Date(query.createdTo) }),
             },
           }),
+      ...(query.search === undefined
+        ? {}
+        : {
+            OR: [
+              { reportNumber: { contains: query.search, mode: 'insensitive' } },
+              { description: { contains: query.search, mode: 'insensitive' } },
+              {
+                facility: {
+                  is: {
+                    OR: [
+                      { assetCode: { contains: query.search, mode: 'insensitive' } },
+                      { name: { contains: query.search, mode: 'insensitive' } },
+                      {
+                        facilityGroup: {
+                          name: { contains: query.search, mode: 'insensitive' },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          }),
     };
     const skip = (query.page - 1) * query.limit;
     const [reports, total] = await Promise.all([

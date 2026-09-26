@@ -7,7 +7,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useAuth } from "@/features/auth/auth-provider";
-import { fetchStaffReservations } from "@/features/reservations/api";
 
 type SidebarItem = {
   badge?: string;
@@ -81,28 +80,29 @@ export function StaffShell({ children }: { children: ReactNode }) {
     let isMounted = true;
     if (!isReady || user?.role !== "STAFF") return;
 
-    fetchStaffReservations({ limit: 1, status: "PENDING" }, request)
-      .then((res) => {
-        if (!isMounted) return;
-        setPendingReservationsCount(res.meta.total);
-      })
-      .catch(() => {
-        // Abaikan error background fetch
-      });
+    const refreshCounts = () => {
+      request<{
+        reservations: { pending: number };
+        reports: { new: number };
+      }>("/staff/dashboard/summary")
+        .then((summary) => {
+          if (!isMounted) return;
+          setPendingReservationsCount(summary.reservations.pending);
+          setPendingReportsCount(summary.reports.new);
+        })
+        .catch(() => {
+          // Badge tidak menghalangi navigasi utama saat jaringan sedang gagal.
+        });
+    };
 
-    request<{ meta?: { total?: number }; total?: number }>(
-      "/staff/reports?status=PENDING&limit=1",
-    )
-      .then((res) => {
-        if (!isMounted) return;
-        setPendingReportsCount(res.meta?.total ?? res.total ?? 0);
-      })
-      .catch(() => {
-        // Modul laporan belum diimplementasikan di backend branch ini
-      });
+    refreshCounts();
+    window.addEventListener("focus", refreshCounts);
+    window.addEventListener("unispace:staff-queue-updated", refreshCounts);
 
     return () => {
       isMounted = false;
+      window.removeEventListener("focus", refreshCounts);
+      window.removeEventListener("unispace:staff-queue-updated", refreshCounts);
     };
   }, [isReady, pathname, request, user?.role]);
 
