@@ -14,6 +14,7 @@ export function SiteHeader() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const isHome = pathname === "/";
   const isFacilities = pathname.startsWith("/facilities");
+  const isReports = pathname.startsWith("/reports");
   const isReservations = pathname.startsWith("/reservations");
 
   async function handleLogout() {
@@ -50,6 +51,15 @@ export function SiteHeader() {
               aria-current={isReservations ? "page" : undefined}
             >
               Reservasi saya
+            </Link>
+          ) : null}
+          {isReady && user?.role === "USER" ? (
+            <Link
+              className={`site-nav__link${isReports ? " is-active" : ""}`}
+              href="/reports"
+              aria-current={isReports ? "page" : undefined}
+            >
+              Laporan saya
             </Link>
           ) : null}
           {isReady && user?.role === "ADMIN" ? (
@@ -94,6 +104,16 @@ export function SiteHeader() {
                       Reservasi Saya
                     </Link>
                   ) : null}
+                  {user.role === "USER" ? (
+                    <Link
+                      className="header-profile__item"
+                      href="/reports"
+                      onClick={() => setIsProfileOpen(false)}
+                      role="menuitem"
+                    >
+                      Laporan Saya
+                    </Link>
+                  ) : null}
                   {user.role === "ADMIN" ? (
                     <Link
                       className="header-profile__item"
@@ -114,6 +134,14 @@ export function SiteHeader() {
                       Portal Petugas
                     </Link>
                   ) : null}
+                  <Link
+                    className="header-profile__item"
+                    href="/profile"
+                    onClick={() => setIsProfileOpen(false)}
+                    role="menuitem"
+                  >
+                    Profil & kata sandi
+                  </Link>
                   <button onClick={() => void handleLogout()} role="menuitem" type="button">
                     Keluar
                   </button>

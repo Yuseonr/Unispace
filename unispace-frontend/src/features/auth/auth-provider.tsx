@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
-import { ApiError, apiRequest } from "@/lib/api/client";
+import { ApiError, apiRequest, downloadApiFile, fetchApiFile, type ApiFile } from "@/lib/api/client";
 
 export type UserRole = "USER" | "STAFF" | "ADMIN";
 export type AccountStatus = "PENDING_VERIFICATION" | "ACTIVE" | "REJECTED" | "NONACTIVE";
@@ -29,6 +29,9 @@ type AuthContextValue = {
   isReady: boolean;
   login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
+  replaceSession: (session: AuthSession) => void;
+  download: (path: string, options?: AuthRequestOptions) => Promise<ApiFile>;
+  fetchFile: (path: string, options?: AuthRequestOptions) => Promise<ApiFile>;
   register: (input: RegisterInput) => Promise<AuthUser>;
   request: <T>(path: string, options?: AuthRequestOptions) => Promise<T>;
   user: AuthUser | null;
@@ -101,6 +104,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const replaceSession = useCallback((nextSession: AuthSession) => {
+    setSession(nextSession);
+  }, []);
+
   const request = useCallback<AuthContextValue["request"]>(
     async (path, options = {}) => {
       try {
@@ -121,9 +128,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [session],
   );
 
+  const fetchFile = useCallback<AuthContextValue["fetchFile"]>(
+    async (path, options = {}) => {
+      try {
+        return await fetchApiFile(path, { ...options, accessToken: session?.accessToken });
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 401) throw error;
+        const refreshedSession = await refreshSessionOnce();
+        setSession(refreshedSession);
+        return fetchApiFile(path, { ...options, accessToken: refreshedSession.accessToken });
+      }
+    },
+    [session],
+  );
+
+  const download = useCallback<AuthContextValue["download"]>(
+    async (path, options = {}) => {
+      try {
+        return await downloadApiFile(path, { ...options, accessToken: session?.accessToken });
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 401) throw error;
+        const refreshedSession = await refreshSessionOnce();
+        setSession(refreshedSession);
+        return downloadApiFile(path, { ...options, accessToken: refreshedSession.accessToken });
+      }
+    },
+    [session],
+  );
+
   const value = useMemo<AuthContextValue>(
-    () => ({ isReady, login, logout, register, request, user: session?.user ?? null }),
-    [isReady, login, logout, register, request, session?.user],
+    () => ({ isReady, login, logout, replaceSession, register, request, fetchFile, download, user: session?.user ?? null }),
+    [download, fetchFile, isReady, login, logout, replaceSession, register, request, session?.user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
