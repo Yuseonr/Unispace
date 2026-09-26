@@ -22,9 +22,8 @@ const sidebarItems: SidebarItem[] = [
   { href: "/admin/facilities/areas", icon: "area", label: "Area Kampus" },
   { href: "/admin/facilities/types", icon: "type", label: "Tipe Fasilitas" },
   { href: "/admin/facilities", icon: "facility", label: "Fasilitas" },
-  { icon: "report", label: "Rekap & Laporan" },
-  { icon: "audit", label: "Audit Log" },
-  { icon: "settings", label: "Pengaturan" },
+  { href: "/admin/analytics", icon: "report", label: "Rekap & Laporan" },
+  { href: "/admin/audit-logs", icon: "audit", label: "Audit Log" },
 ];
 
 function SidebarIcon({ name }: { name: SidebarItem["icon"] }) {
@@ -46,12 +45,22 @@ function SidebarIcon({ name }: { name: SidebarItem["icon"] }) {
 export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { isReady, logout, user } = useAuth();
+  const { isReady, logout, request, user } = useAuth();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [pendingVerificationCount, setPendingVerificationCount] = useState(0);
 
   useEffect(() => {
     if (isReady && user?.role !== "ADMIN") router.replace("/login");
   }, [isReady, router, user?.role]);
+
+  useEffect(() => {
+    let active = true;
+    if (!isReady || user?.role !== "ADMIN") return;
+    request<{ total: number }>("/admin/users?limit=1&status=PENDING_VERIFICATION")
+      .then((response) => { if (active) setPendingVerificationCount(response.total); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [isReady, pathname, request, user?.role]);
 
   if (!isReady || user?.role !== "ADMIN") {
     return <main className="admin-loading">Memuat ruang administrasi…</main>;
@@ -73,6 +82,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
         <nav className="admin-navigation" aria-label="Navigasi admin">
           {sidebarItems.map((item) => {
+            const badge = item.icon === "verify" && pendingVerificationCount > 0
+              ? pendingVerificationCount > 99 ? "99+" : String(pendingVerificationCount)
+              : item.badge;
             const isActive = item.href === "/admin"
               ? pathname === "/admin"
               : item.href === "/admin/accounts"
@@ -80,7 +92,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 : item.href === "/admin/facilities"
                   ? pathname === "/admin/facilities" || pathname === "/admin/facilities/new" || (/^\/admin\/facilities\/[^/]+$/.test(pathname) && !["areas", "types"].includes(pathname.split("/").at(-1) ?? ""))
                   : item.href ? pathname.startsWith(item.href) : false;
-            const content = <><SidebarIcon name={item.icon} /><span>{item.label}</span>{item.badge ? <em>{item.badge}</em> : null}</>;
+            const content = <><SidebarIcon name={item.icon} /><span>{item.label}</span>{badge ? <em>{badge}</em> : null}</>;
 
             return item.href ? (
               <Link aria-current={isActive ? "page" : undefined} className={`admin-navigation__item${isActive ? " is-active" : ""}`} href={item.href} key={item.label}>
@@ -116,6 +128,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             </button>
             {isProfileOpen ? <div className="admin-profile-dropdown" role="menu">
               <p><strong>{user.name}</strong><span>{user.email}</span></p>
+              <Link href="/profile" onClick={() => setIsProfileOpen(false)} role="menuitem">Profil & kata sandi</Link>
               <button onClick={() => void handleLogout()} role="menuitem" type="button">Keluar</button>
             </div> : null}
           </div>

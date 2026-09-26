@@ -3,6 +3,7 @@
 import type { SubmitEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/features/auth/auth-provider";
 import { ApiError } from "@/lib/api/client";
 
@@ -59,6 +60,7 @@ export function AccountVerification() {
   const [rejectReason, setRejectReason] = useState("");
   const [rejectReasonError, setRejectReasonError] = useState<string | null>(null);
   const [rejectingAccount, setRejectingAccount] = useState<PendingAccount | null>(null);
+  const [verifyingAccount, setVerifyingAccount] = useState<PendingAccount | null>(null);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
 
@@ -108,8 +110,10 @@ export function AccountVerification() {
     try {
       await request(`/admin/users/${account.id}/verify`, { method: "PATCH" });
       await loadAccounts();
+      return true;
     } catch (nextError) {
       setError(errorMessage(nextError));
+      return false;
     } finally {
       setProcessingId(null);
     }
@@ -176,7 +180,7 @@ export function AccountVerification() {
                   <td>{formatDate(account.createdAt)}</td>
                   <td>
                     <div className="admin-verification-actions">
-                      <button className="admin-verify-button" disabled={processingId === account.id} onClick={() => void verify(account)} type="button">Terima</button>
+                      <button className="admin-verify-button" disabled={processingId === account.id} onClick={() => setVerifyingAccount(account)} type="button">Terima</button>
                       <button className="admin-reject-button" disabled={processingId === account.id} onClick={() => openRejectDialog(account)} type="button">Tolak</button>
                     </div>
                   </td>
@@ -212,6 +216,7 @@ export function AccountVerification() {
           </div>
         </form>
       </div> : null}
+      <ConfirmDialog busy={processingId === verifyingAccount?.id} confirmLabel="Terima akun" isOpen={Boolean(verifyingAccount)} onClose={() => !processingId && setVerifyingAccount(null)} onConfirm={() => { if (verifyingAccount) void verify(verifyingAccount).then((success) => { if (success) setVerifyingAccount(null); }); }} title="Verifikasi akun pengguna">{verifyingAccount ? <p>Terima pendaftaran <strong>{verifyingAccount.name}</strong> ({verifyingAccount.identityNumber}) agar akun dapat masuk dan membuat reservasi?</p> : null}</ConfirmDialog>
     </main>
   );
 }

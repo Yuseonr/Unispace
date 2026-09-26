@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/features/auth/auth-provider";
 import { ApiError } from "@/lib/api/client";
 
@@ -37,6 +38,10 @@ type OpenAction = {
   left: number;
   top: number;
 };
+
+type PendingConfirmation =
+  | { account: ManagedAccount; kind: "reset" }
+  | { account: ManagedAccount; kind: "status"; nextStatus: "ACTIVE" | "NONACTIVE" };
 
 const initialCounts: AccountCounts = { ALL: 0, STAFF: 0, USER: 0 };
 
@@ -94,6 +99,8 @@ export function UsersManagement() {
   const [notice, setNotice] = useState<string | null>(null);
   const [openAction, setOpenAction] = useState<OpenAction | null>(null);
   const [openDropdown, setOpenDropdown] = useState<"sort" | "status" | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<CreatedAtSort>("newest");
@@ -188,35 +195,38 @@ export function UsersManagement() {
     });
   }
 
-  async function updateAccountStatus(account: ManagedAccount) {
+  function updateAccountStatus(account: ManagedAccount) {
     if (account.accountStatus !== "ACTIVE" && account.accountStatus !== "NONACTIVE") return;
     const nextStatus = account.accountStatus === "ACTIVE" ? "NONACTIVE" : "ACTIVE";
-    const confirmation = nextStatus === "NONACTIVE"
-      ? `Nonaktifkan akses ${account.name}? Sesi aktifnya akan dihentikan.`
-      : `Aktifkan kembali akses ${account.name}?`;
-    if (!window.confirm(confirmation)) return;
+    setPendingConfirmation({ account, kind: "status", nextStatus });
+    setOpenAction(null);
+  }
 
+  async function confirmAction() {
+    if (!pendingConfirmation) return;
+    setIsConfirming(true);
     try {
-      await request(`/admin/users/${account.id}/status`, { body: { status: nextStatus }, method: "PATCH" });
-      setOpenAction(null);
-      const nextCounts = await fetchCounts();
-      setCounts(nextCounts);
-      await loadAccounts();
+      if (pendingConfirmation.kind === "status") {
+        await request(`/admin/users/${pendingConfirmation.account.id}/status`, { body: { status: pendingConfirmation.nextStatus }, method: "PATCH" });
+        const nextCounts = await fetchCounts();
+        setCounts(nextCounts);
+        await loadAccounts();
+        setNotice(`Akses ${pendingConfirmation.account.name} ${pendingConfirmation.nextStatus === "NONACTIVE" ? "dinonaktifkan" : "diaktifkan kembali"}.`);
+      } else {
+        await request(`/admin/users/${pendingConfirmation.account.id}/reset-password`, { method: "POST" });
+        setNotice(`Kata sandi ${pendingConfirmation.account.name} berhasil direset.`);
+      }
+      setPendingConfirmation(null);
     } catch (nextError) {
       setNotice(errorMessage(nextError));
+    } finally {
+      setIsConfirming(false);
     }
   }
 
-  async function resetPassword(account: ManagedAccount) {
-    if (!window.confirm(`Reset kata sandi ${account.name} ke kata sandi default?`)) return;
-
-    try {
-      await request(`/admin/users/${account.id}/reset-password`, { method: "POST" });
-      setNotice(`Kata sandi ${account.name} berhasil direset.`);
-      setOpenAction(null);
-    } catch (nextError) {
-      setNotice(errorMessage(nextError));
-    }
+  function resetPassword(account: ManagedAccount) {
+    setPendingConfirmation({ account, kind: "reset" });
+    setOpenAction(null);
   }
 
   const firstVisible = total === 0 ? 0 : (page - 1) * 10 + 1;
@@ -321,11 +331,12 @@ export function UsersManagement() {
 
       {openAction ? createPortal(
         <div className="admin-action-menu admin-action-menu--floating" role="menu" style={{ left: openAction.left, top: openAction.top }}>
-          <button className={openAction.account.accountStatus === "NONACTIVE" ? "is-activate" : ""} disabled={openAction.account.accountStatus !== "ACTIVE" && openAction.account.accountStatus !== "NONACTIVE"} onClick={() => void updateAccountStatus(openAction.account)} role="menuitem" type="button">{openAction.account.accountStatus === "NONACTIVE" ? "Aktifkan" : "Nonaktifkan"}</button>
-          <button disabled={openAction.account.accountStatus !== "ACTIVE" && openAction.account.accountStatus !== "NONACTIVE"} onClick={() => void resetPassword(openAction.account)} role="menuitem" type="button">Reset kata sandi</button>
+          <button className={openAction.account.accountStatus === "NONACTIVE" ? "is-activate" : ""} disabled={openAction.account.accountStatus !== "ACTIVE" && openAction.account.accountStatus !== "NONACTIVE"} onClick={() => updateAccountStatus(openAction.account)} role="menuitem" type="button">{openAction.account.accountStatus === "NONACTIVE" ? "Aktifkan" : "Nonaktifkan"}</button>
+          <button disabled={openAction.account.accountStatus !== "ACTIVE" && openAction.account.accountStatus !== "NONACTIVE"} onClick={() => resetPassword(openAction.account)} role="menuitem" type="button">Reset kata sandi</button>
         </div>,
         document.body,
       ) : null}
+      <ConfirmDialog busy={isConfirming} confirmLabel={pendingConfirmation?.kind === "reset" ? "Reset kata sandi" : pendingConfirmation?.nextStatus === "NONACTIVE" ? "Nonaktifkan akses" : "Aktifkan akses"} destructive={pendingConfirmation?.kind === "reset" || pendingConfirmation?.nextStatus === "NONACTIVE"} isOpen={Boolean(pendingConfirmation)} onClose={() => !isConfirming && setPendingConfirmation(null)} onConfirm={() => void confirmAction()} title={pendingConfirmation?.kind === "reset" ? "Reset kata sandi akun" : pendingConfirmation?.nextStatus === "NONACTIVE" ? "Nonaktifkan akses akun" : "Aktifkan akses akun"}>{pendingConfirmation?.kind === "reset" ? <p>Kata sandi <strong>{pendingConfirmation.account.name}</strong> akan dikembalikan ke password awal administrasi. Sampaikan password tersebut melalui kanal yang aman.</p> : pendingConfirmation ? <p>{pendingConfirmation.nextStatus === "NONACTIVE" ? <>Akses <strong>{pendingConfirmation.account.name}</strong> akan dinonaktifkan. Sistem juga akan menolak reservasi pending dan membatalkan reservasi mendatang yang sudah disetujui sesuai aturan backend.</> : <>Aktifkan kembali akses <strong>{pendingConfirmation.account.name}</strong>?</>}</p> : null}</ConfirmDialog>
     </main>
   );
 }
