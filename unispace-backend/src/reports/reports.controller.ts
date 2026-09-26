@@ -1,23 +1,27 @@
 import {
-  Body,
   BadRequestException,
+  Body,
   Controller,
   Get,
+  Headers,
   Param,
   ParseUUIDPipe,
   Post,
   Query,
+  Res,
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
+import { pipeline } from 'node:stream/promises';
 import { UserRole } from '../generated/prisma/client';
 import { CurrentUser } from '../accounts/auth/decorators/current-user.decorator';
 import { Roles } from '../accounts/auth/decorators/roles.decorator';
 import type { AuthenticatedUser } from '../accounts/auth/auth.types';
 import { CreateReportDto } from './dto/create-report.dto';
 import { ListMyReportsDto } from './dto/list-my-reports.dto';
-import { REPORT_ATTACHMENT_LIMITS } from './reports.constants';
+import { ListReportableFacilitiesDto } from './dto/list-reportable-facilities.dto';
+import { ReportPhotoUploadInterceptor } from './report-photo-upload.interceptor';
 import { ReportsService } from './reports.service';
 
 @Controller('reports')
@@ -34,30 +38,59 @@ export class ReportsController {
    * - Laporan dibuat dengan status NEW dan seluruh aksi tercatat pada AUDIT_LOG.
    */
   @Post()
-  @UseInterceptors(
-    FilesInterceptor('photos', REPORT_ATTACHMENT_LIMITS.maxCount),
-  )
+  @UseInterceptors(ReportPhotoUploadInterceptor)
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() input: CreateReportDto,
     @UploadedFiles() files: Express.Multer.File[] = [],
+    @Headers('Idempotency-Key') idempotencyKey?: string,
   ) {
-    if (
-      files.length < 1 ||
-      files.length > REPORT_ATTACHMENT_LIMITS.maxCount ||
-      files.some(
-        (file) =>
-          !REPORT_ATTACHMENT_LIMITS.allowedMimeTypes.includes(
-            file.mimetype as (typeof REPORT_ATTACHMENT_LIMITS.allowedMimeTypes)[number],
-          ) || file.size > REPORT_ATTACHMENT_LIMITS.maxSizeBytes,
-      )
-    ) {
+    if (files.length < 1) {
       throw new BadRequestException({
-        code: 'INVALID_REPORT_PHOTOS',
-        message: 'Upload 1 to 3 JPEG, PNG, or WebP photos up to 5 MB each.',
+        code: 'REPORT_PHOTO_REQUIRED',
+        message: 'Unggah minimal satu foto laporan.',
       });
     }
-    return this.reports.create(user.id, input, files);
+    return this.reports.create(user.id, input, files, idempotencyKey);
+  }
+
+  /**
+   * Unit fisik yang dapat dipilih USER sebagai target laporan. Alat QUANTITY
+   * selalu dikembalikan per assetCode supaya laporan tidak ambigu.
+   */
+  @Get('reportable-facilities')
+  listReportableFacilities(@Query() query: ListReportableFacilitiesDto) {
+    return this.reports.listReportableFacilities(query);
+  }
+
+  /** Streaming attachment report dari bucket private setelah cek akses. */
+  @Get(':reportId/attachments/:attachmentId')
+  @Roles(UserRole.USER, UserRole.STAFF)
+  async downloadAttachment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('reportId', new ParseUUIDPipe()) reportId: string,
+    @Param('attachmentId', new ParseUUIDPipe()) attachmentId: string,
+    @Res() response: Response,
+  ) {
+    const attachment = await this.reports.getAttachmentForViewer(
+      user,
+      reportId,
+      attachmentId,
+    );
+    const safeName = encodeURIComponent(
+      attachment.originalFilename.replace(/[\\/\r\n]/g, '_').slice(0, 180),
+    );
+    response.setHeader('Content-Type', attachment.contentType);
+    response.setHeader(
+      'Content-Disposition',
+      `inline; filename*=UTF-8''${safeName}`,
+    );
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    if (attachment.contentLength !== undefined) {
+      response.setHeader('Content-Length', attachment.contentLength.toString());
+    }
+    await pipeline(attachment.body, response);
   }
 
   /**

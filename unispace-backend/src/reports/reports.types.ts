@@ -7,7 +7,7 @@ import {
 export type ReportAttachmentResponse = {
   id: string;
   storageProvider: StorageProvider;
-  objectUrl: string;
+  downloadUrl: string;
   originalFilename: string;
   mimeType: string;
   sizeBytes: number;

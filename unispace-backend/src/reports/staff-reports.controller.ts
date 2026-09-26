@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -61,8 +62,14 @@ export class StaffReportsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('reportId', new ParseUUIDPipe()) reportId: string,
     @Body() dto: ConfirmMaintenancePeriodDto,
+    @Headers('Idempotency-Key') idempotencyKey?: string,
   ) {
-    return this.reports.confirmMaintenancePeriod(user.id, reportId, dto);
+    return this.reports.confirmMaintenancePeriod(
+      user.id,
+      reportId,
+      dto,
+      idempotencyKey,
+    );
   }
 
   /**

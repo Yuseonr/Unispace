@@ -865,6 +865,15 @@ describe('ReportsService lifecycle', () => {
     prisma.facilityReport.create.mockResolvedValue(report);
     prisma.facilityReport.findFirst.mockResolvedValue(report);
     prisma.reportAttachment.createMany.mockResolvedValue({ count: 1 });
+    storage.uploadReportPhoto.mockResolvedValue({
+      storageProvider: 'MINIO',
+      objectKey: 'reports/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jpg',
+      objectUrl:
+        's3://unispace-dev/reports/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jpg',
+      originalFilename: 'kursi.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 8,
+    });
 
     const result = await service.create(
       'user-1',
@@ -873,7 +882,14 @@ describe('ReportsService lifecycle', () => {
         category: ReportCategory.PHYSICAL_DAMAGE,
         description: 'Kursi rusak',
       },
-      [],
+      [
+        {
+          buffer: Buffer.from([0xff, 0xd8, 0xff]),
+          size: 3,
+          mimetype: 'image/jpeg',
+          originalname: 'kursi.jpg',
+        } as Express.Multer.File,
+      ],
     );
 
     expect(prisma.facilityReport.create).toHaveBeenCalledWith(
