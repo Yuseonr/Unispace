@@ -74,7 +74,7 @@ export class StaffReservationsController {
 
   /**
    * PATCH /api/v1/staff/reservations/:id/cancel
-   * Membatalkan permohonan reservasi aktif (PENDING atau APPROVED) oleh petugas dengan alasan wajib (FR-RES-07).
+   * Membatalkan reservasi APPROVED oleh petugas dengan alasan wajib (FR-RES-11).
    */
   @Patch(':id/cancel')
   cancel(

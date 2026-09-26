@@ -156,6 +156,7 @@ describe('ReservationsService - create', () => {
           facilityId: stubExclusiveFacility.id,
           facilityGroupId: null,
           requestedQuantity: 1,
+          reservationNumber: expect.stringMatching(/^RSV-\d{14}-[0-9A-F]{6}$/),
         }),
       }),
     );
@@ -511,6 +512,45 @@ describe('ReservationsService - listMy', () => {
       },
     ]);
   });
+
+  it('tetap menyertakan daftar allocatedAssets jika reservasi sudah COMPLETED', async () => {
+    const completedReservation = {
+      id: 'res-completed-item',
+      userId: stubActiveUser.id,
+      facilityId: null,
+      facilityGroupId: stubQuantityGroup.id,
+      requestedQuantity: 1,
+      usageDate: new Date('2026-09-25T00:00:00.000Z'),
+      startTime: new Date(Date.UTC(1970, 0, 1, 9, 0, 0)),
+      endTime: new Date(Date.UTC(1970, 0, 1, 11, 0, 0)),
+      purpose: 'Peminjaman Alat Acara',
+      status: ReservationStatus.COMPLETED,
+      facility: null,
+      facilityGroup: stubQuantityGroup,
+      items: [
+        {
+          facility: {
+            id: 'unit-1',
+            assetCode: 'PRJ-001',
+            name: 'Proyektor Epson EB-X06 #1',
+          },
+        },
+      ],
+    };
+
+    prismaMock.reservation.count.mockResolvedValue(1);
+    prismaMock.reservation.findMany.mockResolvedValue([completedReservation]);
+
+    const result = await service.listMy(stubActiveUser.id, {});
+
+    expect(result.data[0].allocatedAssets).toEqual([
+      {
+        id: 'unit-1',
+        assetCode: 'PRJ-001',
+        name: 'Proyektor Epson EB-X06 #1',
+      },
+    ]);
+  });
 });
 
 describe('ReservationsService - getMyDetail', () => {
@@ -607,7 +647,8 @@ describe('ReservationsService - cancelMy', () => {
     };
 
     prismaMock.reservation.findFirst.mockResolvedValue(stubPending);
-    prismaMock.reservation.update.mockResolvedValue({
+    prismaMock.reservation.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.reservation.findUnique.mockResolvedValue({
       ...stubPending,
       status: ReservationStatus.CANCELLED_BY_USER,
       cancelledAt: now,
@@ -621,9 +662,15 @@ describe('ReservationsService - cancelMy', () => {
     );
 
     expect(result.status).toBe(ReservationStatus.CANCELLED_BY_USER);
-    expect(prismaMock.reservation.update).toHaveBeenCalledWith(
+    expect(prismaMock.reservation.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'res-cancel-pending' },
+        where: {
+          id: 'res-cancel-pending',
+          userId: stubActiveUser.id,
+          status: {
+            in: [ReservationStatus.PENDING, ReservationStatus.APPROVED],
+          },
+        },
         data: expect.objectContaining({
           status: ReservationStatus.CANCELLED_BY_USER,
         }),
@@ -649,7 +696,8 @@ describe('ReservationsService - cancelMy', () => {
     };
 
     prismaMock.reservation.findFirst.mockResolvedValue(stubApproved);
-    prismaMock.reservation.update.mockResolvedValue({
+    prismaMock.reservation.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.reservation.findUnique.mockResolvedValue({
       ...stubApproved,
       status: ReservationStatus.CANCELLED_BY_USER,
       cancelledAt: now,
@@ -833,6 +881,32 @@ describe('ReservationsService - listStaff & getStaffDetail', () => {
     expect(result.id).toBe('res-staff-approved');
     expect(result.allocatedAssets).toHaveLength(1);
     expect(result.allocatedAssets[0].assetCode).toBe('PRJ-001');
+  });
+
+  it('tetap mengembalikan alokasi aset pada list petugas jika status COMPLETED', async () => {
+    prismaMock.reservation.count.mockResolvedValue(1);
+    prismaMock.reservation.findMany.mockResolvedValue([
+      {
+        id: 'res-staff-completed',
+        status: ReservationStatus.COMPLETED,
+        facility: stubExclusiveFacility,
+        items: [],
+      },
+    ]);
+
+    const result = await service.listStaff({
+      status: ReservationStatus.COMPLETED,
+      page: 1,
+      limit: 10,
+    });
+
+    expect(result.data[0].allocatedAssets).toEqual([
+      {
+        id: stubExclusiveFacility.id,
+        assetCode: stubExclusiveFacility.assetCode,
+        name: stubExclusiveFacility.name,
+      },
+    ]);
   });
 
   it('melemparkan NotFoundException jika detail reservasi untuk staf tidak ditemukan', async () => {
@@ -1473,7 +1547,7 @@ describe('ReservationsService - reject', () => {
         processedBy: { id: staffId, name: 'Petugas Unispace' },
       });
 
-    prismaMock.reservation.update.mockResolvedValue({});
+    prismaMock.reservation.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.auditLog.create.mockResolvedValue({});
 
     const result = await service.reject(
@@ -1483,8 +1557,8 @@ describe('ReservationsService - reject', () => {
       now,
     );
 
-    expect(prismaMock.reservation.update).toHaveBeenCalledWith({
-      where: { id: stubPendingRes.id },
+    expect(prismaMock.reservation.updateMany).toHaveBeenCalledWith({
+      where: { id: stubPendingRes.id, status: ReservationStatus.PENDING },
       data: {
         status: ReservationStatus.REJECTED,
         decisionReason: 'Ruangan sedang dalam persiapan acara wisuda.',
@@ -1544,7 +1618,7 @@ describe('ReservationsService - cancelByStaff', () => {
     ).rejects.toThrow(NotFoundException);
   });
 
-  it('melemparkan BadRequestException jika status reservasi bukan PENDING atau APPROVED', async () => {
+  it('melemparkan BadRequestException jika status reservasi bukan APPROVED', async () => {
     prismaMock.reservation.findUnique.mockResolvedValue({
       id: 'res-already-completed',
       status: ReservationStatus.COMPLETED,
@@ -1555,7 +1629,7 @@ describe('ReservationsService - cancelByStaff', () => {
         reason: 'Pemeliharaan darurat fasilitas',
       }),
     ).rejects.toThrow(
-      'Hanya reservasi berstatus PENDING atau APPROVED yang dapat dibatalkan oleh petugas.',
+      'Hanya reservasi berstatus APPROVED yang dapat dibatalkan oleh petugas.',
     );
   });
 
@@ -1581,7 +1655,7 @@ describe('ReservationsService - cancelByStaff', () => {
         cancelledAt: now,
       });
 
-    prismaMock.reservation.update.mockResolvedValue({});
+    prismaMock.reservation.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.auditLog.create.mockResolvedValue({});
 
     const result = await service.cancelByStaff(
@@ -1591,8 +1665,8 @@ describe('ReservationsService - cancelByStaff', () => {
       now,
     );
 
-    expect(prismaMock.reservation.update).toHaveBeenCalledWith({
-      where: { id: stubApprovedRes.id },
+    expect(prismaMock.reservation.updateMany).toHaveBeenCalledWith({
+      where: { id: stubApprovedRes.id, status: ReservationStatus.APPROVED },
       data: {
         status: ReservationStatus.CANCELLED_BY_STAFF,
         decisionReason:
@@ -1622,7 +1696,7 @@ describe('ReservationsService - cancelByStaff', () => {
     );
   });
 
-  it('membatalkan reservasi PENDING oleh staf dengan alasan valid', async () => {
+  it('menolak pembatalan reservasi PENDING oleh staf karena harus memakai reject', async () => {
     const stubPendingRes = {
       id: 'res-cancel-pending',
       status: ReservationStatus.PENDING,
@@ -1633,40 +1707,81 @@ describe('ReservationsService - cancelByStaff', () => {
       items: [],
     };
 
-    prismaMock.reservation.findUnique
-      .mockResolvedValueOnce(stubPendingRes)
-      .mockResolvedValueOnce({
-        ...stubPendingRes,
-        status: ReservationStatus.CANCELLED_BY_STAFF,
-        decisionReason:
-          'Pemohon meminta pembatalan langsung via pusat bantuan.',
-        processedBy: { id: staffId, name: 'Petugas Unispace' },
-        cancelledAt: now,
-      });
+    prismaMock.reservation.findUnique.mockResolvedValue(stubPendingRes);
 
-    prismaMock.reservation.update.mockResolvedValue({});
+    await expect(
+      service.cancelByStaff(
+        staffId,
+        stubPendingRes.id,
+        { reason: 'Pemohon meminta pembatalan langsung via pusat bantuan.' },
+        now,
+      ),
+    ).rejects.toThrow(
+      'Hanya reservasi berstatus APPROVED yang dapat dibatalkan oleh petugas.',
+    );
+  });
+});
+
+describe('ReservationsService - completeFinishedReservations', () => {
+  let service: ReservationsService;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ReservationsService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
+    }).compile();
+
+    service = module.get<ReservationsService>(ReservationsService);
+    jest.clearAllMocks();
+    prismaMock.$transaction.mockImplementation(
+      (callback: (tx: typeof prismaMock) => unknown) => callback(prismaMock),
+    );
+  });
+
+  it('mengubah reservasi APPROVED yang sudah selesai menjadi COMPLETED sekali', async () => {
+    const now = new Date('2026-09-25T18:00:00+07:00');
+    const reservation = {
+      id: 'res-finished-1',
+      usageDate: new Date('2026-09-25T00:00:00.000Z'),
+      endTime: new Date(Date.UTC(1970, 0, 1, 17, 0, 0)),
+    };
+
+    prismaMock.reservation.findMany.mockResolvedValue([reservation]);
+    prismaMock.reservation.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.auditLog.create.mockResolvedValue({});
 
-    const result = await service.cancelByStaff(
-      staffId,
-      stubPendingRes.id,
-      { reason: 'Pemohon meminta pembatalan langsung via pusat bantuan.' },
-      now,
-    );
+    const count = await service.completeFinishedReservations(now);
 
-    expect(prismaMock.reservation.update).toHaveBeenCalledWith({
-      where: { id: stubPendingRes.id },
-      data: {
-        status: ReservationStatus.CANCELLED_BY_STAFF,
-        decisionReason:
-          'Pemohon meminta pembatalan langsung via pusat bantuan.',
-        processedById: staffId,
-        cancelledAt: now,
-        decidedAt: now,
-      },
+    expect(count).toBe(1);
+    expect(prismaMock.reservation.updateMany).toHaveBeenCalledWith({
+      where: { id: reservation.id, status: ReservationStatus.APPROVED },
+      data: { status: ReservationStatus.COMPLETED },
     });
+    expect(prismaMock.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'RESERVATION_COMPLETED',
+        entityId: reservation.id,
+        actorId: null,
+      }),
+    });
+  });
 
-    expect(result.status).toBe(ReservationStatus.CANCELLED_BY_STAFF);
+  it('tidak mengubah reservasi yang waktu selesai belum tercapai', async () => {
+    const now = new Date('2026-09-25T15:00:00+07:00');
+    prismaMock.reservation.findMany.mockResolvedValue([
+      {
+        id: 'res-not-finished',
+        usageDate: new Date('2026-09-25T00:00:00.000Z'),
+        endTime: new Date(Date.UTC(1970, 0, 1, 17, 0, 0)),
+      },
+    ]);
+
+    const count = await service.completeFinishedReservations(now);
+
+    expect(count).toBe(0);
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
   });
 });
 
@@ -1708,14 +1823,31 @@ describe('ReservationsService - autoRejectExpiredReservations & SLA enforcement'
     ];
 
     prismaMock.reservation.findMany.mockResolvedValue(expiredRes);
-    prismaMock.reservation.updateMany.mockResolvedValue({ count: 2 });
+    prismaMock.reservation.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.auditLog.create.mockResolvedValue({ id: 'audit-log-1' });
 
     const count = await service.autoRejectExpiredReservations(now);
 
     expect(count).toBe(2);
-    expect(prismaMock.reservation.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ['res-expired-1', 'res-expired-2'] } },
+    expect(prismaMock.reservation.updateMany).toHaveBeenNthCalledWith(1, {
+      where: {
+        id: 'res-expired-1',
+        status: ReservationStatus.PENDING,
+        decisionDeadline: { lte: now },
+      },
+      data: {
+        status: ReservationStatus.REJECTED,
+        decidedAt: now,
+        decisionReason:
+          'Ditolak otomatis oleh sistem karena melewati batas tenggat evaluasi petugas (SLA Expired).',
+      },
+    });
+    expect(prismaMock.reservation.updateMany).toHaveBeenNthCalledWith(2, {
+      where: {
+        id: 'res-expired-2',
+        status: ReservationStatus.PENDING,
+        decisionDeadline: { lte: now },
+      },
       data: {
         status: ReservationStatus.REJECTED,
         decidedAt: now,
@@ -1736,6 +1868,7 @@ describe('ReservationsService - autoRejectExpiredReservations & SLA enforcement'
 
   it('approve melemparkan BadRequestException jika reservasi telah melewati decisionDeadline (SLA Expired)', async () => {
     const now = new Date('2026-09-25T10:00:00+07:00');
+    prismaMock.reservation.findUnique.mockReset();
     prismaMock.reservation.findUnique.mockResolvedValue({
       id: 'res-sla-expired',
       status: ReservationStatus.PENDING,

@@ -692,7 +692,28 @@ describe('Reservations HTTP Integration (E2E)', () => {
       expect(response.status).toBe(403);
     });
 
-    it('mengizinkan role STAFF membatalkan reservasi aktif dengan alasan valid (200 OK)', async () => {
+    it('mengizinkan role STAFF membatalkan reservasi APPROVED dengan alasan valid (200 OK)', async () => {
+      (
+        prisma.reservation as { findUnique: jest.Mock }
+      ).findUnique.mockResolvedValueOnce({
+        id: '70000000-0000-4000-8000-000000000001',
+        userId: testUser.id,
+        facilityId: stubExclusiveFacility.id,
+        facilityGroupId: null,
+        requestedQuantity: 1,
+        usageDate: new Date('2026-09-28'),
+        startTime: new Date('1970-01-01T08:00:00Z'),
+        endTime: new Date('1970-01-01T10:00:00Z'),
+        purpose: 'Praktikum Pemrograman Web',
+        status: ReservationStatus.APPROVED,
+        decisionDeadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+        user: testUser,
+        facility: stubExclusiveFacility,
+        facilityGroup: null,
+        processedBy: null,
+        items: [],
+      });
+
       const response = await request(app.getHttpServer())
         .patch(
           '/api/v1/staff/reservations/70000000-0000-4000-8000-000000000001/cancel',
