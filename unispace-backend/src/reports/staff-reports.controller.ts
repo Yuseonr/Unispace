@@ -45,11 +45,7 @@ export class StaffReportsController {
     @Param('reportId', new ParseUUIDPipe()) reportId: string,
     @Body() dto: PreviewMaintenanceImpactDto,
   ) {
-    return this.reports.previewReportMaintenanceImpact(
-      reportId,
-      new Date(dto.startAt),
-      new Date(dto.endAt),
-    );
+    return this.reports.previewReportMaintenanceImpact(reportId, dto);
   }
 
   /**
@@ -72,8 +68,8 @@ export class StaffReportsController {
   /**
    * PATCH /api/v1/staff/reports/maintenance/:periodId/end
    * Mengakhiri periode perbaikan lebih awal (override end_at ke waktu saat ini) (FR-REP-11).
-   * Fasilitas kembali ACTIVE bila tidak ada periode lain yang masih berlangsung
-   * dan fasilitas tidak berstatus NONACTIVE.
+   * Status efektif fasilitas kembali ACTIVE bila tidak ada periode lain yang masih
+   * berlangsung dan fasilitas tidak berstatus NONACTIVE.
    */
   @Patch('maintenance/:periodId/end')
   endMaintenancePeriod(

@@ -7,7 +7,9 @@ import { PrismaService } from '../database/prisma.service';
 import { ObjectStorageService } from '../common/storage/object-storage.service';
 import { ReportsService } from './reports.service';
 import { CreateMaintenancePeriodDto } from './dto/create-maintenance-period.dto';
+import { PreviewMaintenanceImpactDto } from './dto/preview-maintenance-impact.dto';
 import { MaintenanceMode } from './reports.constants';
+import { QuantityReservationReconciliationService } from '../facilities/quantity-reservation-reconciliation.service';
 
 const createMockReport = (overrides: Record<string, unknown> = {}) => ({
   id: 'report-1',
@@ -51,6 +53,7 @@ const mockDelegates = () => ({
     findUnique: jest.fn(),
     findFirst: jest.fn(),
     create: jest.fn(),
+    updateMany: jest.fn(),
     update: jest.fn(),
   },
   reportAttachment: { createMany: jest.fn() },
@@ -60,11 +63,13 @@ const mockDelegates = () => ({
     findFirst: jest.fn(),
     findMany: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
   },
   reservation: { findMany: jest.fn(), updateMany: jest.fn() },
   facility: { findUnique: jest.fn(), findMany: jest.fn(), update: jest.fn() },
   facilityStatusHistory: { create: jest.fn() },
   auditLog: { create: jest.fn(), findMany: jest.fn(), count: jest.fn() },
+  $executeRaw: jest.fn(),
 });
 
 type MockPrisma = ReturnType<typeof mockDelegates> & {
@@ -83,7 +88,8 @@ describe('ReportsService lifecycle', () => {
   const mockFacility = {
     id: 'facility-1',
     facilityGroupId: 'group-1',
-    facilityGroup: { reservationMode: 'EXCLUSIVE' },
+    status: 'ACTIVE',
+    facilityGroup: { reservationMode: 'EXCLUSIVE', facilities: [] },
   };
 
   beforeEach(async () => {
@@ -91,6 +97,7 @@ describe('ReportsService lifecycle', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReportsService,
+        QuantityReservationReconciliationService,
         {
           provide: PrismaService,
           useValue: { ...mockDelegates(), $transaction: jest.fn() },
@@ -104,6 +111,7 @@ describe('ReportsService lifecycle', () => {
 
     service = module.get(ReportsService);
     prisma = module.get(PrismaService) as unknown as MockPrisma;
+    jest.clearAllMocks();
     prisma.maintenancePeriod.findFirst.mockResolvedValue(null);
     prisma.facility.findUnique.mockResolvedValue({
       id: 'facility-1',
@@ -113,6 +121,8 @@ describe('ReportsService lifecycle', () => {
     prisma.reservation.findMany.mockResolvedValue([]);
     prisma.maintenancePeriod.findMany.mockResolvedValue([]);
     prisma.facility.findMany.mockResolvedValue([]);
+    prisma.facilityReport.updateMany.mockResolvedValue({ count: 1 });
+    prisma.$executeRaw.mockResolvedValue(1);
     storage.uploadReportPhoto.mockReset();
     storage.remove.mockReset();
     prisma.$transaction.mockImplementation(
@@ -126,31 +136,32 @@ describe('ReportsService lifecycle', () => {
 
   it('accepts a new report and records the first processing staff', async () => {
     const report = createMockReport();
-    prisma.facilityReport.findUnique.mockResolvedValue(report);
-    prisma.facilityReport.update.mockResolvedValue(
-      createMockReport({
-        status: ReportStatus.IN_PROGRESS,
-        acceptedAt: new Date('2026-01-10T09:00:00.000Z'),
-        acceptedBy: {
-          id: 'staff-1',
-          name: 'Staff A',
-          identityNumber: 'STAFF-1',
-          email: 'staff@example.test',
-        },
-        processedBy: {
-          id: 'staff-1',
-          name: 'Staff A',
-          identityNumber: 'STAFF-1',
-          email: 'staff@example.test',
-        },
-      }),
-    );
+    prisma.facilityReport.findUnique
+      .mockResolvedValueOnce(report)
+      .mockResolvedValueOnce(
+        createMockReport({
+          status: ReportStatus.IN_PROGRESS,
+          acceptedAt: new Date('2026-01-10T09:00:00.000Z'),
+          acceptedBy: {
+            id: 'staff-1',
+            name: 'Staff A',
+            identityNumber: 'STAFF-1',
+            email: 'staff@example.test',
+          },
+          processedBy: {
+            id: 'staff-1',
+            name: 'Staff A',
+            identityNumber: 'STAFF-1',
+            email: 'staff@example.test',
+          },
+        }),
+      );
 
     const result = await service.accept('staff-1', 'report-1');
 
-    expect(prisma.facilityReport.update).toHaveBeenCalledWith(
+    expect(prisma.facilityReport.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'report-1' },
+        where: { id: 'report-1', status: ReportStatus.NEW },
         data: expect.objectContaining({
           status: ReportStatus.IN_PROGRESS,
           acceptedById: 'staff-1',
@@ -168,6 +179,18 @@ describe('ReportsService lifecycle', () => {
       }),
     );
     expect(result.status).toBe(ReportStatus.IN_PROGRESS);
+  });
+
+  it('does not create a second acceptance audit for an already in-progress report', async () => {
+    prisma.facilityReport.findUnique.mockResolvedValue(
+      createMockReport({ status: ReportStatus.IN_PROGRESS }),
+    );
+
+    const result = await service.accept('staff-2', 'report-1');
+
+    expect(result.status).toBe(ReportStatus.IN_PROGRESS);
+    expect(prisma.facilityReport.updateMany).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
   });
 
   it('returns a paginated immutable audit timeline for a report', async () => {
@@ -217,26 +240,27 @@ describe('ReportsService lifecycle', () => {
 
   it('rejects a report with a required reason', async () => {
     const report = createMockReport();
-    prisma.facilityReport.findUnique.mockResolvedValue(report);
-    prisma.facilityReport.update.mockResolvedValue(
-      createMockReport({
-        status: ReportStatus.REJECTED,
-        decisionReason: 'Konten tidak valid',
-        acceptedAt: new Date('2026-01-10T09:00:00.000Z'),
-        acceptedBy: {
-          id: 'staff-1',
-          name: 'Staff A',
-          identityNumber: 'STAFF-1',
-          email: 'staff@example.test',
-        },
-        processedBy: {
-          id: 'staff-1',
-          name: 'Staff A',
-          identityNumber: 'STAFF-1',
-          email: 'staff@example.test',
-        },
-      }),
-    );
+    prisma.facilityReport.findUnique
+      .mockResolvedValueOnce(report)
+      .mockResolvedValueOnce(
+        createMockReport({
+          status: ReportStatus.REJECTED,
+          decisionReason: 'Konten tidak valid',
+          acceptedAt: new Date('2026-01-10T09:00:00.000Z'),
+          acceptedBy: {
+            id: 'staff-1',
+            name: 'Staff A',
+            identityNumber: 'STAFF-1',
+            email: 'staff@example.test',
+          },
+          processedBy: {
+            id: 'staff-1',
+            name: 'Staff A',
+            identityNumber: 'STAFF-1',
+            email: 'staff@example.test',
+          },
+        }),
+      );
 
     const result = await service.reject(
       'staff-1',
@@ -244,7 +268,7 @@ describe('ReportsService lifecycle', () => {
       'Konten tidak valid',
     );
 
-    expect(prisma.facilityReport.update).toHaveBeenCalledWith(
+    expect(prisma.facilityReport.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: ReportStatus.REJECTED,
@@ -256,28 +280,43 @@ describe('ReportsService lifecycle', () => {
     expect(result.status).toBe(ReportStatus.REJECTED);
   });
 
+  it('does not reject a report while its maintenance period is active or scheduled', async () => {
+    prisma.facilityReport.findUnique.mockResolvedValue(
+      createMockReport({ status: ReportStatus.IN_PROGRESS }),
+    );
+    prisma.maintenancePeriod.findFirst.mockResolvedValue({ id: 'period-1' });
+
+    await expect(
+      service.reject('staff-1', 'report-1', 'Bukan kerusakan operasional'),
+    ).rejects.toMatchObject({
+      response: { code: 'REPORT_MAINTENANCE_STILL_ACTIVE_OR_SCHEDULED' },
+    });
+    expect(prisma.facilityReport.updateMany).not.toHaveBeenCalled();
+  });
+
   it('resolves a report with a mandatory resolution note', async () => {
     const report = createMockReport({ status: ReportStatus.IN_PROGRESS });
-    prisma.facilityReport.findUnique.mockResolvedValue(report);
-    prisma.facilityReport.update.mockResolvedValue(
-      createMockReport({
-        status: ReportStatus.RESOLVED,
-        resolutionNote: 'AC sudah diperbaiki',
-        resolvedAt: new Date('2026-01-10T09:30:00.000Z'),
-        resolvedBy: {
-          id: 'staff-1',
-          name: 'Staff A',
-          identityNumber: 'STAFF-1',
-          email: 'staff@example.test',
-        },
-        processedBy: {
-          id: 'staff-1',
-          name: 'Staff A',
-          identityNumber: 'STAFF-1',
-          email: 'staff@example.test',
-        },
-      }),
-    );
+    prisma.facilityReport.findUnique
+      .mockResolvedValueOnce(report)
+      .mockResolvedValueOnce(
+        createMockReport({
+          status: ReportStatus.RESOLVED,
+          resolutionNote: 'AC sudah diperbaiki',
+          resolvedAt: new Date('2026-01-10T09:30:00.000Z'),
+          resolvedBy: {
+            id: 'staff-1',
+            name: 'Staff A',
+            identityNumber: 'STAFF-1',
+            email: 'staff@example.test',
+          },
+          processedBy: {
+            id: 'staff-1',
+            name: 'Staff A',
+            identityNumber: 'STAFF-1',
+            email: 'staff@example.test',
+          },
+        }),
+      );
 
     const result = await service.resolve(
       'staff-1',
@@ -285,7 +324,7 @@ describe('ReportsService lifecycle', () => {
       'AC sudah diperbaiki',
     );
 
-    expect(prisma.facilityReport.update).toHaveBeenCalledWith(
+    expect(prisma.facilityReport.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: ReportStatus.RESOLVED,
@@ -428,35 +467,32 @@ describe('ReportsService lifecycle', () => {
       id: 'period-1',
       facilityId: 'facility-1',
       reportId: 'report-1',
-      startAt: new Date('2026-01-12T07:00:00.000Z'),
+      startAt: new Date('2026-01-09T07:00:00.000Z'),
       endAt: new Date('2026-01-12T20:00:00.000Z'),
       note: 'Pemeliharaan AC',
+      facility: {
+        facilityGroupId: 'group-1',
+        facilityGroup: { reservationMode: 'EXCLUSIVE' },
+      },
     });
-    prisma.maintenancePeriod.update.mockResolvedValue({
-      id: 'period-1',
-      facilityId: 'facility-1',
-      reportId: 'report-1',
-      startAt: new Date('2026-01-12T07:00:00.000Z'),
-      endAt: new Date('2026-01-12T09:00:00.000Z'),
-      note: 'Pemeliharaan AC',
-    });
+    prisma.maintenancePeriod.updateMany.mockResolvedValue({ count: 1 });
 
     const result = await service.endMaintenancePeriod(
       'staff-1',
       'period-1',
-      new Date('2026-01-12T09:00:00.000Z'),
+      new Date('2026-01-10T08:00:00.000Z'),
     );
 
-    expect(prisma.maintenancePeriod.update).toHaveBeenCalledWith(
+    expect(prisma.maintenancePeriod.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'period-1' },
+        where: expect.objectContaining({ id: 'period-1' }),
         data: expect.objectContaining({
           endAt: expect.any(Date),
         }),
       }),
     );
     expect(result.endAt).toBe(
-      new Date('2026-01-12T09:00:00.000Z').toISOString(),
+      new Date('2026-01-10T08:00:00.000Z').toISOString(),
     );
   });
 
@@ -468,6 +504,10 @@ describe('ReportsService lifecycle', () => {
       startAt: new Date('2026-01-09T07:00:00.000Z'),
       endAt: new Date('2026-01-09T20:00:00.000Z'),
       note: 'Pemeliharaan AC',
+      facility: {
+        facilityGroupId: 'group-1',
+        facilityGroup: { reservationMode: 'EXCLUSIVE' },
+      },
     });
 
     await expect(
@@ -477,7 +517,7 @@ describe('ReportsService lifecycle', () => {
         new Date('2026-01-10T08:00:00.000Z'),
       ),
     ).rejects.toBeInstanceOf(ConflictException);
-    expect(prisma.maintenancePeriod.update).not.toHaveBeenCalled();
+    expect(prisma.maintenancePeriod.updateMany).not.toHaveBeenCalled();
   });
 
   it('throws when the maintenance period does not exist', async () => {
@@ -493,31 +533,41 @@ describe('ReportsService lifecycle', () => {
   });
 
   it('aligns the maintenance window to Jakarta time instead of UTC', async () => {
-    prisma.facility.findUnique.mockResolvedValue(mockFacility);
-    prisma.reservation.findMany.mockResolvedValue([
-      {
-        id: 'res-early',
-        usageDate: new Date('2026-01-12T00:00:00.000Z'),
-        startTime: new Date('2026-01-01T07:30:00.000Z'),
-        endTime: new Date('2026-01-01T08:00:00.000Z'),
-        requestedQuantity: 1,
-        status: 'APPROVED',
-      },
-      {
-        id: 'res-midday',
-        usageDate: new Date('2026-01-12T00:00:00.000Z'),
-        startTime: new Date('2026-01-01T12:00:00.000Z'),
-        endTime: new Date('2026-01-01T13:00:00.000Z'),
-        requestedQuantity: 1,
-        status: 'PENDING',
-      },
-    ]);
-
-    const result = await service.previewMaintenanceImpact(
-      'facility-1',
-      new Date('2026-01-12T00:00:00.000Z'), // 07:00 WIB
-      new Date('2026-01-12T01:00:00.000Z'), // 08:00 WIB
+    prisma.facilityReport.findUnique.mockResolvedValue(
+      createMockReport({ status: ReportStatus.IN_PROGRESS }),
     );
+    prisma.facility.findUnique.mockResolvedValue(mockFacility);
+    prisma.reservation.findMany.mockImplementation(
+      async ({ where }: { where: { status?: string } }) =>
+        where.status === 'APPROVED'
+          ? [
+              {
+                id: 'res-early',
+                usageDate: new Date('2026-01-12T00:00:00.000Z'),
+                startTime: new Date('2026-01-01T07:30:00.000Z'),
+                endTime: new Date('2026-01-01T08:00:00.000Z'),
+                requestedQuantity: 1,
+                status: 'APPROVED',
+              },
+            ]
+          : [
+              {
+                id: 'res-midday',
+                usageDate: new Date('2026-01-12T00:00:00.000Z'),
+                startTime: new Date('2026-01-01T12:00:00.000Z'),
+                endTime: new Date('2026-01-01T13:00:00.000Z'),
+                requestedQuantity: 1,
+                status: 'PENDING',
+              },
+            ],
+    );
+
+    const result = await service.previewReportMaintenanceImpact('report-1', {
+      mode: MaintenanceMode.TIME_RANGE,
+      date: '2026-01-12',
+      startTime: '07:00',
+      endTime: '08:00',
+    });
 
     expect(result.approvedReservations.map((r) => r.id)).toContain('res-early');
     expect(result.approvedReservations).toHaveLength(1);
@@ -527,35 +577,107 @@ describe('ReportsService lifecycle', () => {
   });
 
   it('returns impacted reservations for a maintenance window', async () => {
-    prisma.facility.findUnique.mockResolvedValue(mockFacility);
-    prisma.reservation.findMany.mockResolvedValue([
-      {
-        id: 'res-1',
-        usageDate: new Date('2026-01-12T00:00:00.000Z'),
-        startTime: new Date('2026-01-01T07:30:00.000Z'),
-        endTime: new Date('2026-01-01T09:00:00.000Z'),
-        requestedQuantity: 2,
-        status: 'APPROVED',
-      },
-      {
-        id: 'res-2',
-        usageDate: new Date('2026-01-12T00:00:00.000Z'),
-        startTime: new Date('2026-01-01T08:00:00.000Z'),
-        endTime: new Date('2026-01-01T09:30:00.000Z'),
-        requestedQuantity: 1,
-        status: 'PENDING',
-      },
-    ]);
-
-    const result = await service.previewMaintenanceImpact(
-      'facility-1',
-      new Date('2026-01-12T00:00:00.000Z'), // 07:00 WIB
-      new Date('2026-01-12T13:00:00.000Z'), // 20:00 WIB
+    prisma.facilityReport.findUnique.mockResolvedValue(
+      createMockReport({ status: ReportStatus.IN_PROGRESS }),
     );
+    prisma.facility.findUnique.mockResolvedValue(mockFacility);
+    prisma.reservation.findMany.mockImplementation(
+      async ({ where }: { where: { status?: string } }) =>
+        where.status === 'APPROVED'
+          ? [
+              {
+                id: 'res-1',
+                usageDate: new Date('2026-01-12T00:00:00.000Z'),
+                startTime: new Date('2026-01-01T07:30:00.000Z'),
+                endTime: new Date('2026-01-01T09:00:00.000Z'),
+                requestedQuantity: 2,
+                status: 'APPROVED',
+              },
+            ]
+          : [
+              {
+                id: 'res-2',
+                usageDate: new Date('2026-01-12T00:00:00.000Z'),
+                startTime: new Date('2026-01-01T08:00:00.000Z'),
+                endTime: new Date('2026-01-01T09:30:00.000Z'),
+                requestedQuantity: 1,
+                status: 'PENDING',
+              },
+            ],
+    );
+
+    const result = await service.previewReportMaintenanceImpact('report-1', {
+      mode: MaintenanceMode.TIME_RANGE,
+      date: '2026-01-12',
+      startTime: '07:00',
+      endTime: '20:00',
+    });
 
     expect(result.approvedReservations).toHaveLength(1);
     expect(result.pendingReservations).toHaveLength(1);
     expect(result.approvedReservations[0].id).toBe('res-1');
+  });
+
+  it('recalculates impact during confirmation instead of trusting a stale preview', async () => {
+    prisma.facilityReport.findUnique.mockResolvedValue(
+      createMockReport({ status: ReportStatus.IN_PROGRESS }),
+    );
+    prisma.facility.findUnique.mockResolvedValue(mockFacility);
+    let approvedExists = false;
+    prisma.reservation.findMany.mockImplementation(
+      async ({ where }: { where: { status?: string } }) =>
+        where.status === 'APPROVED' && approvedExists
+          ? [
+              {
+                id: 'res-late',
+                usageDate: new Date('2026-01-12T00:00:00.000Z'),
+                startTime: new Date('2026-01-01T08:00:00.000Z'),
+                endTime: new Date('2026-01-01T09:00:00.000Z'),
+                requestedQuantity: 1,
+                status: 'APPROVED',
+              },
+            ]
+          : [],
+    );
+
+    const window = {
+      mode: MaintenanceMode.DATE_RANGE,
+      startDate: '2026-01-12',
+      endDate: '2026-01-12',
+    } as const;
+    const preview = await service.previewReportMaintenanceImpact(
+      'report-1',
+      window,
+    );
+    expect(preview.approvedReservations).toHaveLength(0);
+
+    approvedExists = true;
+    prisma.reservation.updateMany.mockResolvedValue({ count: 1 });
+    prisma.maintenancePeriod.create.mockResolvedValue({
+      id: 'period-stale-preview',
+      reportId: 'report-1',
+      facilityId: 'facility-1',
+      startAt: new Date('2026-01-12T00:00:00.000Z'),
+      endAt: new Date('2026-01-12T13:00:00.000Z'),
+      note: 'Pemeliharaan AC',
+    });
+
+    const result = await service.confirmMaintenancePeriod(
+      'staff-1',
+      'report-1',
+      {
+        ...window,
+        cancelImpactedReservations: true,
+        cancellationReason: 'Pemeliharaan AC',
+      },
+    );
+
+    expect(result.approvedCancelled).toBe(1);
+    expect(prisma.reservation.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'res-late', status: 'APPROVED' },
+      }),
+    );
   });
 
   it('cancels approved and rejects pending reservations for an EXCLUSIVE facility on confirmation', async () => {
@@ -563,28 +685,34 @@ describe('ReportsService lifecycle', () => {
       createMockReport({ status: ReportStatus.IN_PROGRESS }),
     );
     prisma.facility.findUnique.mockResolvedValue(mockFacility);
-    prisma.reservation.findMany.mockResolvedValue([
-      {
-        id: 'res-1',
-        usageDate: new Date('2026-01-12T00:00:00.000Z'),
-        startTime: new Date('2026-01-01T07:30:00.000Z'),
-        endTime: new Date('2026-01-01T09:00:00.000Z'),
-        requestedQuantity: 2,
-        status: 'APPROVED',
-        facilityId: 'facility-1',
-        facilityGroupId: 'group-1',
-      },
-      {
-        id: 'res-2',
-        usageDate: new Date('2026-01-12T00:00:00.000Z'),
-        startTime: new Date('2026-01-01T08:00:00.000Z'),
-        endTime: new Date('2026-01-01T09:30:00.000Z'),
-        requestedQuantity: 1,
-        status: 'PENDING',
-        facilityId: 'facility-1',
-        facilityGroupId: 'group-1',
-      },
-    ]);
+    prisma.reservation.findMany.mockImplementation(
+      async ({ where }: { where: { status?: string } }) =>
+        where.status === 'APPROVED'
+          ? [
+              {
+                id: 'res-1',
+                usageDate: new Date('2026-01-12T00:00:00.000Z'),
+                startTime: new Date('2026-01-01T07:30:00.000Z'),
+                endTime: new Date('2026-01-01T09:00:00.000Z'),
+                requestedQuantity: 2,
+                status: 'APPROVED',
+                facilityId: 'facility-1',
+                facilityGroupId: 'group-1',
+              },
+            ]
+          : [
+              {
+                id: 'res-2',
+                usageDate: new Date('2026-01-12T00:00:00.000Z'),
+                startTime: new Date('2026-01-01T08:00:00.000Z'),
+                endTime: new Date('2026-01-01T09:30:00.000Z'),
+                requestedQuantity: 1,
+                status: 'PENDING',
+                facilityId: 'facility-1',
+                facilityGroupId: 'group-1',
+              },
+            ],
+    );
     prisma.reservation.updateMany.mockResolvedValue({ count: 1 });
     prisma.maintenancePeriod.create.mockResolvedValue({
       id: 'period-1',
@@ -614,7 +742,16 @@ describe('ReportsService lifecycle', () => {
 
   it('creates maintenance atomically and rejects only insufficient QUANTITY pending reservations', async () => {
     prisma.facilityReport.findUnique.mockResolvedValue(
-      createMockReport({ status: ReportStatus.IN_PROGRESS }),
+      createMockReport({
+        status: ReportStatus.IN_PROGRESS,
+        facility: {
+          ...createMockReport().facility,
+          facilityGroup: {
+            name: 'Alat',
+            reservationMode: 'QUANTITY',
+          },
+        },
+      }),
     );
     prisma.facility.findUnique.mockResolvedValue({
       id: 'facility-1',
@@ -630,28 +767,44 @@ describe('ReportsService lifecycle', () => {
         ],
       },
     });
-    prisma.reservation.findMany.mockResolvedValue([
-      {
-        id: 'approved-1',
-        usageDate: new Date('2026-01-12T00:00:00.000Z'),
-        startTime: new Date('2026-01-01T08:00:00.000Z'),
-        endTime: new Date('2026-01-01T09:00:00.000Z'),
-        requestedQuantity: 2,
-        status: 'APPROVED',
-        facilityId: null,
-        facilityGroupId: 'group-1',
-      },
-      {
-        id: 'pending-1',
-        usageDate: new Date('2026-01-12T00:00:00.000Z'),
-        startTime: new Date('2026-01-01T08:00:00.000Z'),
-        endTime: new Date('2026-01-01T09:00:00.000Z'),
-        requestedQuantity: 1,
-        status: 'PENDING',
-        facilityId: null,
-        facilityGroupId: 'group-1',
-      },
+    prisma.facility.findMany.mockResolvedValue([
+      { id: 'facility-1' },
+      { id: 'facility-2' },
+      { id: 'facility-3' },
+      { id: 'facility-4' },
     ]);
+    let approvedIsCancelled = false;
+    prisma.reservation.findMany.mockImplementation(
+      async ({ where }: { where: { status?: string } }) => {
+        return where.status === 'APPROVED'
+          ? approvedIsCancelled
+            ? []
+            : [
+                {
+                  id: 'approved-1',
+                  usageDate: new Date('2026-01-12T00:00:00.000Z'),
+                  startTime: new Date('2026-01-01T08:00:00.000Z'),
+                  endTime: new Date('2026-01-01T09:00:00.000Z'),
+                  requestedQuantity: 2,
+                  status: 'APPROVED',
+                  facilityId: null,
+                  facilityGroupId: 'group-1',
+                },
+              ]
+          : [
+              {
+                id: 'pending-1',
+                usageDate: new Date('2026-01-12T00:00:00.000Z'),
+                startTime: new Date('2026-01-01T08:00:00.000Z'),
+                endTime: new Date('2026-01-01T09:00:00.000Z'),
+                requestedQuantity: 1,
+                status: 'PENDING',
+                facilityId: null,
+                facilityGroupId: 'group-1',
+              },
+            ];
+      },
+    );
     prisma.maintenancePeriod.create.mockResolvedValue({
       id: 'period-2',
       reportId: 'report-1',
@@ -660,7 +813,14 @@ describe('ReportsService lifecycle', () => {
       endAt: new Date('2026-01-12T13:00:00.000Z'),
       note: 'Pemeliharaan AC',
     });
-    prisma.reservation.updateMany.mockResolvedValue({ count: 1 });
+    prisma.reservation.updateMany.mockImplementation(
+      async ({ where }: { where: { id?: string } }) => {
+        if (where.id === 'approved-1') {
+          approvedIsCancelled = true;
+        }
+        return { count: 1 };
+      },
+    );
 
     const result = await service.confirmMaintenancePeriod(
       'staff-1',
@@ -760,18 +920,23 @@ describe('ReportsService lifecycle', () => {
       createMockReport({ status: ReportStatus.IN_PROGRESS }),
     );
     prisma.facility.findUnique.mockResolvedValue(mockFacility);
-    prisma.reservation.findMany.mockResolvedValue([
-      {
-        id: 'res-1',
-        usageDate: new Date('2026-01-12T00:00:00.000Z'),
-        startTime: new Date('2026-01-01T07:30:00.000Z'),
-        endTime: new Date('2026-01-01T09:00:00.000Z'),
-        requestedQuantity: 2,
-        status: 'APPROVED',
-        facilityId: 'facility-1',
-        facilityGroupId: 'group-1',
-      },
-    ]);
+    prisma.reservation.findMany.mockImplementation(
+      async ({ where }: { where: { status?: string } }) =>
+        where.status === 'APPROVED'
+          ? [
+              {
+                id: 'res-1',
+                usageDate: new Date('2026-01-12T00:00:00.000Z'),
+                startTime: new Date('2026-01-01T07:30:00.000Z'),
+                endTime: new Date('2026-01-01T09:00:00.000Z'),
+                requestedQuantity: 2,
+                status: 'APPROVED',
+                facilityId: 'facility-1',
+                facilityGroupId: 'group-1',
+              },
+            ]
+          : [],
+    );
     prisma.reservation.updateMany.mockResolvedValue({ count: 1 });
     prisma.maintenancePeriod.create.mockResolvedValue({
       id: 'period-1',
@@ -803,59 +968,6 @@ describe('ReportsService lifecycle', () => {
         }),
       }),
     );
-  });
-
-  it('automatically syncs facility status for started and ended maintenance periods', async () => {
-    prisma.facility.findMany.mockResolvedValue([
-      { id: 'facility-1' },
-      { id: 'facility-2' },
-    ]);
-    const now = new Date('2026-01-12T09:00:00.000Z');
-
-    prisma.facility.findUnique
-      .mockResolvedValueOnce({ status: 'IN_MAINTENANCE' })
-      .mockResolvedValueOnce({ status: 'ACTIVE' });
-    prisma.maintenancePeriod.findFirst
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ id: 'active-period' });
-
-    const result = await service.syncEffectiveFacilityStatuses(now);
-
-    expect(result.facilitiesChecked).toBe(2);
-    expect(result.facilitiesUpdated).toBe(2);
-    expect(prisma.facility.update).toHaveBeenCalledTimes(2);
-    expect(prisma.facilityStatusHistory.create).toHaveBeenCalledTimes(2);
-    expect(prisma.facilityStatusHistory.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          changedById: null,
-          effectiveAt: now,
-        }),
-      }),
-    );
-    expect(prisma.auditLog.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          actorId: null,
-          action: 'FACILITY_STATUS_CHANGED',
-          metadata: expect.objectContaining({ automatic: true }),
-        }),
-      }),
-    );
-  });
-
-  it('skips automatic sync when the facility is already in the effective status', async () => {
-    prisma.facility.findMany.mockResolvedValue([{ id: 'facility-1' }]);
-    prisma.facility.findUnique.mockResolvedValue({ status: 'ACTIVE' });
-    prisma.maintenancePeriod.findFirst.mockResolvedValue(null);
-
-    const result = await service.syncEffectiveFacilityStatuses(
-      new Date('2026-01-12T09:00:00.000Z'),
-    );
-
-    expect(result.facilitiesUpdated).toBe(0);
-    expect(prisma.facility.update).not.toHaveBeenCalled();
-    expect(prisma.facilityStatusHistory.create).not.toHaveBeenCalled();
   });
 });
 
@@ -942,5 +1054,19 @@ describe('CreateMaintenancePeriodDto validation', () => {
     });
     const errors = await validate(dto);
     expect(errors.length).toBeGreaterThan(0);
+  });
+});
+
+describe('PreviewMaintenanceImpactDto validation', () => {
+  it('uses the same maintenance window contract as confirmation', async () => {
+    const dto = new PreviewMaintenanceImpactDto();
+    Object.assign(dto, {
+      mode: MaintenanceMode.TIME_RANGE,
+      date: '2026-01-12',
+      startTime: '08:00',
+      endTime: '10:00',
+    });
+
+    expect(await validate(dto)).toHaveLength(0);
   });
 });

@@ -5,9 +5,16 @@ import {
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import type { Prisma } from '../generated/prisma/client';
-import { FacilityStatus, ReportStatus } from '../generated/prisma/client';
+import {
+  FacilityStatus,
+  Prisma as PrismaNamespace,
+  ReportStatus,
+  ReservationMode,
+  ReservationStatus,
+} from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { ObjectStorageService } from '../common/storage/object-storage.service';
+import { QuantityReservationReconciliationService } from '../facilities/quantity-reservation-reconciliation.service';
 import { CreateReportDto } from './dto/create-report.dto';
 import { ListMyReportsDto } from './dto/list-my-reports.dto';
 import { ListStaffReportsDto } from './dto/list-staff-reports.dto';
@@ -24,7 +31,6 @@ import { ListReportAuditDto } from './dto/list-report-audit.dto';
 import {
   formatToJakartaDateString,
   TIMEZONE,
-  toJakartaMinutesOfDay,
 } from '../reservations/utils/reservation-time.util';
 import type {
   MaintenancePeriodResponse,
@@ -32,6 +38,7 @@ import type {
   ReportAuditLogResponse,
   ReportResponse,
 } from './reports.types';
+import type { MaintenanceWindowDto } from './dto/maintenance-window.dto';
 
 const reportSelect = {
   id: true,
@@ -125,28 +132,59 @@ type MaintenanceImpact = {
   }>;
 };
 
-type ImpactReservation = {
-  id: string;
-  usageDate: Date;
-  startTime: Date;
-  endTime: Date;
-  requestedQuantity: number;
-  status: string;
-  facilityId: string | null;
-  facilityGroupId: string | null;
-};
-
-type MaintenanceSyncResult = {
-  facilitiesChecked: number;
-  facilitiesUpdated: number;
-};
-
 @Injectable()
 export class ReportsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: ObjectStorageService,
+    private readonly reconciliation: QuantityReservationReconciliationService,
   ) {}
+
+  private async runSerializableTransaction<T>(
+    operation: (transaction: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        return await this.prisma.$transaction(operation, {
+          isolationLevel:
+            PrismaNamespace.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error) {
+        if (
+          error instanceof PrismaNamespace.PrismaClientKnownRequestError &&
+          error.code === 'P2034' &&
+          attempt < 3
+        ) {
+          continue;
+        }
+        if (
+          error instanceof PrismaNamespace.PrismaClientKnownRequestError &&
+          error.code === 'P2034'
+        ) {
+          throw new ConflictException(
+            'Data laporan atau ketersediaan berubah karena proses lain. Silakan muat ulang lalu coba kembali.',
+          );
+        }
+        throw error;
+      }
+    }
+
+    throw new ConflictException(
+      'Perubahan laporan tidak dapat diproses. Silakan coba kembali.',
+    );
+  }
+
+  private async lockReport(
+    transaction: Pick<Prisma.TransactionClient, '$executeRaw'>,
+    reportId: string,
+  ) {
+    await transaction.$executeRaw`
+      SELECT pg_advisory_xact_lock(
+        hashtext('facility-report'),
+        hashtext(${reportId})
+      )
+    `;
+  }
 
   async create(
     reporterId: string,
@@ -427,43 +465,45 @@ export class ReportsService {
   }
 
   async accept(staffId: string, reportId: string): Promise<ReportResponse> {
-    const report = await this.prisma.facilityReport.findUnique({
-      where: { id: reportId },
-      select: reportSelect,
-    });
-
-    if (!report) {
-      throw new NotFoundException({
-        code: 'REPORT_NOT_FOUND',
-        message: 'The report was not found.',
-      });
-    }
-
-    if (
-      report.status === ReportStatus.RESOLVED ||
-      report.status === ReportStatus.REJECTED
-    ) {
-      throw new ConflictException({
-        code: 'REPORT_INVALID_TRANSITION',
-        message: 'This report is no longer actionable.',
-      });
-    }
-
-    const now = new Date();
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const changed = await tx.facilityReport.update({
+    return this.runSerializableTransaction(async (tx) => {
+      await this.lockReport(tx, reportId);
+      const report = await tx.facilityReport.findUnique({
         where: { id: reportId },
-        data: {
-          status:
-            report.status === ReportStatus.NEW
-              ? ReportStatus.IN_PROGRESS
-              : report.status,
-          acceptedById: report.acceptedById ?? staffId,
-          acceptedAt: report.acceptedAt ?? now,
-          processedById: staffId,
-        },
         select: reportSelect,
       });
+
+      if (!report) {
+        throw new NotFoundException({
+          code: 'REPORT_NOT_FOUND',
+          message: 'The report was not found.',
+        });
+      }
+      if (report.status === ReportStatus.IN_PROGRESS) {
+        return this.toResponse(report);
+      }
+      if (report.status !== ReportStatus.NEW) {
+        throw new ConflictException({
+          code: 'REPORT_INVALID_TRANSITION',
+          message: 'This report is no longer actionable.',
+        });
+      }
+
+      const now = new Date();
+      const changed = await tx.facilityReport.updateMany({
+        where: { id: reportId, status: ReportStatus.NEW },
+        data: {
+          status: ReportStatus.IN_PROGRESS,
+          acceptedById: staffId,
+          acceptedAt: now,
+          processedById: staffId,
+        },
+      });
+      if (changed.count !== 1) {
+        throw new ConflictException({
+          code: 'REPORT_ALREADY_ACCEPTED',
+          message: 'Laporan sudah diterima oleh petugas lain.',
+        });
+      }
 
       await tx.auditLog.create({
         data: {
@@ -472,18 +512,27 @@ export class ReportsService {
           entityType: REPORT_ENTITY_TYPE,
           entityId: reportId,
           metadata: {
-            fromStatus: report.status,
-            toStatus: changed.status,
-            acceptedById: changed.acceptedById,
-            acceptedAt: changed.acceptedAt?.toISOString() ?? null,
+            fromStatus: ReportStatus.NEW,
+            toStatus: ReportStatus.IN_PROGRESS,
+            acceptedById: staffId,
+            acceptedAt: now.toISOString(),
             processedById: staffId,
           },
         },
       });
-      return changed;
-    });
 
-    return this.toResponse(updated);
+      const updated = await tx.facilityReport.findUnique({
+        where: { id: reportId },
+        select: reportSelect,
+      });
+      if (!updated) {
+        throw new NotFoundException({
+          code: 'REPORT_NOT_FOUND',
+          message: 'The report was not found after acceptance.',
+        });
+      }
+      return this.toResponse(updated);
+    });
   }
 
   async reject(
@@ -498,41 +547,58 @@ export class ReportsService {
       });
     }
 
-    const report = await this.prisma.facilityReport.findUnique({
-      where: { id: reportId },
-      select: reportSelect,
-    });
-
-    if (!report) {
-      throw new NotFoundException({
-        code: 'REPORT_NOT_FOUND',
-        message: 'The report was not found.',
-      });
-    }
-
-    if (
-      report.status === ReportStatus.RESOLVED ||
-      report.status === ReportStatus.REJECTED
-    ) {
-      throw new ConflictException({
-        code: 'REPORT_INVALID_TRANSITION',
-        message: 'A rejected or resolved report cannot be rejected again.',
-      });
-    }
-
-    const now = new Date();
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const changed = await tx.facilityReport.update({
+    return this.runSerializableTransaction(async (tx) => {
+      await this.lockReport(tx, reportId);
+      const report = await tx.facilityReport.findUnique({
         where: { id: reportId },
+        select: reportSelect,
+      });
+      if (!report) {
+        throw new NotFoundException({
+          code: 'REPORT_NOT_FOUND',
+          message: 'The report was not found.',
+        });
+      }
+      if (
+        report.status !== ReportStatus.NEW &&
+        report.status !== ReportStatus.IN_PROGRESS
+      ) {
+        throw new ConflictException({
+          code: 'REPORT_INVALID_TRANSITION',
+          message: 'A rejected or resolved report cannot be rejected again.',
+        });
+      }
+
+      const maintenance = await tx.maintenancePeriod.findFirst({
+        where: { reportId, endAt: { gt: new Date() } },
+        select: { id: true },
+      });
+      if (maintenance) {
+        throw new ConflictException({
+          code: 'REPORT_MAINTENANCE_STILL_ACTIVE_OR_SCHEDULED',
+          message:
+            'This report cannot be rejected while maintenance is active or scheduled.',
+        });
+      }
+
+      const now = new Date();
+      const changed = await tx.facilityReport.updateMany({
+        where: {
+          id: reportId,
+          status: { in: [ReportStatus.NEW, ReportStatus.IN_PROGRESS] },
+        },
         data: {
           status: ReportStatus.REJECTED,
           decisionReason: reason.trim(),
-          acceptedById: report.acceptedById ?? staffId,
-          acceptedAt: report.acceptedAt ?? now,
           processedById: staffId,
         },
-        select: reportSelect,
       });
+      if (changed.count !== 1) {
+        throw new ConflictException({
+          code: 'REPORT_INVALID_TRANSITION',
+          message: 'Laporan sudah diproses oleh petugas lain.',
+        });
+      }
 
       await tx.auditLog.create({
         data: {
@@ -542,18 +608,26 @@ export class ReportsService {
           entityId: reportId,
           metadata: {
             fromStatus: report.status,
-            toStatus: changed.status,
+            toStatus: ReportStatus.REJECTED,
             decisionReason: reason.trim(),
-            acceptedById: changed.acceptedById,
-            acceptedAt: changed.acceptedAt?.toISOString() ?? null,
             processedById: staffId,
+            decidedAt: now.toISOString(),
           },
         },
       });
-      return changed;
-    });
 
-    return this.toResponse(updated);
+      const updated = await tx.facilityReport.findUnique({
+        where: { id: reportId },
+        select: reportSelect,
+      });
+      if (!updated) {
+        throw new NotFoundException({
+          code: 'REPORT_NOT_FOUND',
+          message: 'The report was not found after rejection.',
+        });
+      }
+      return this.toResponse(updated);
+    });
   }
 
   async resolve(
@@ -568,56 +642,54 @@ export class ReportsService {
       });
     }
 
-    const report = await this.prisma.facilityReport.findUnique({
-      where: { id: reportId },
-      select: reportSelect,
-    });
-
-    if (!report) {
-      throw new NotFoundException({
-        code: 'REPORT_NOT_FOUND',
-        message: 'The report was not found.',
-      });
-    }
-
-    if (report.status !== ReportStatus.IN_PROGRESS) {
-      throw new ConflictException({
-        code: 'REPORT_INVALID_TRANSITION',
-        message: 'Only a report in progress can be resolved.',
-      });
-    }
-
-    const scheduledMaintenance = await this.prisma.maintenancePeriod.findFirst({
-      where: {
-        reportId,
-        endAt: { gt: new Date() },
-      },
-      select: { id: true },
-    });
-
-    if (scheduledMaintenance) {
-      throw new ConflictException({
-        code: 'REPORT_MAINTENANCE_STILL_ACTIVE_OR_SCHEDULED',
-        message:
-          'This report cannot be resolved while maintenance is active or scheduled.',
-      });
-    }
-
-    const now = new Date();
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const changed = await tx.facilityReport.update({
+    return this.runSerializableTransaction(async (tx) => {
+      await this.lockReport(tx, reportId);
+      const report = await tx.facilityReport.findUnique({
         where: { id: reportId },
+        select: reportSelect,
+      });
+      if (!report) {
+        throw new NotFoundException({
+          code: 'REPORT_NOT_FOUND',
+          message: 'The report was not found.',
+        });
+      }
+      if (report.status !== ReportStatus.IN_PROGRESS) {
+        throw new ConflictException({
+          code: 'REPORT_INVALID_TRANSITION',
+          message: 'Only a report in progress can be resolved.',
+        });
+      }
+
+      const scheduledMaintenance = await tx.maintenancePeriod.findFirst({
+        where: { reportId, endAt: { gt: new Date() } },
+        select: { id: true },
+      });
+      if (scheduledMaintenance) {
+        throw new ConflictException({
+          code: 'REPORT_MAINTENANCE_STILL_ACTIVE_OR_SCHEDULED',
+          message:
+            'This report cannot be resolved while maintenance is active or scheduled.',
+        });
+      }
+
+      const now = new Date();
+      const changed = await tx.facilityReport.updateMany({
+        where: { id: reportId, status: ReportStatus.IN_PROGRESS },
         data: {
           status: ReportStatus.RESOLVED,
           resolutionNote: resolutionNote.trim(),
-          acceptedById: report.acceptedById ?? staffId,
-          acceptedAt: report.acceptedAt ?? now,
           resolvedById: staffId,
           resolvedAt: now,
           processedById: staffId,
         },
-        select: reportSelect,
       });
+      if (changed.count !== 1) {
+        throw new ConflictException({
+          code: 'REPORT_INVALID_TRANSITION',
+          message: 'Laporan sudah diproses oleh petugas lain.',
+        });
+      }
 
       await tx.auditLog.create({
         data: {
@@ -627,28 +699,30 @@ export class ReportsService {
           entityId: reportId,
           metadata: {
             fromStatus: report.status,
-            toStatus: changed.status,
+            toStatus: ReportStatus.RESOLVED,
             resolutionNote: resolutionNote.trim(),
-            resolvedById: changed.resolvedById,
-            resolvedAt: changed.resolvedAt?.toISOString() ?? null,
+            resolvedById: staffId,
+            resolvedAt: now.toISOString(),
             processedById: staffId,
           },
         },
       });
-      return changed;
-    });
 
-    return this.toResponse(updated);
+      const updated = await tx.facilityReport.findUnique({
+        where: { id: reportId },
+        select: reportSelect,
+      });
+      if (!updated) {
+        throw new NotFoundException({
+          code: 'REPORT_NOT_FOUND',
+          message: 'The report was not found after resolution.',
+        });
+      }
+      return this.toResponse(updated);
+    });
   }
 
-  private maintenanceDates(input: {
-    mode: MaintenanceMode;
-    startDate?: string;
-    endDate?: string;
-    date?: string;
-    startTime?: string;
-    endTime?: string;
-  }) {
+  private maintenanceDates(input: MaintenanceWindowDto) {
     const dateStart =
       input.mode === MaintenanceMode.DATE_RANGE
         ? new Date(`${input.startDate ?? ''}T07:00:00.000+07:00`)
@@ -672,74 +746,95 @@ export class ReportsService {
       });
     }
 
+    if (dateStart < new Date()) {
+      throw new ConflictException({
+        code: 'MAINTENANCE_PERIOD_IN_PAST',
+        message: 'Maintenance must start now or be scheduled for the future.',
+      });
+    }
+
     return { dateStart, dateEnd };
   }
 
   async previewReportMaintenanceImpact(
     reportId: string,
-    startAt: Date,
-    endAt: Date,
+    input: MaintenanceWindowDto,
   ) {
-    const report = await this.prisma.facilityReport.findUnique({
-      where: { id: reportId },
-      select: { id: true, status: true, facilityId: true },
+    const { dateStart, dateEnd } = this.maintenanceDates(input);
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockReport(tx, reportId);
+      const report = await tx.facilityReport.findUnique({
+        where: { id: reportId },
+        select: {
+          id: true,
+          status: true,
+          facilityId: true,
+          facility: {
+            select: {
+              status: true,
+              facilityGroupId: true,
+              facilityGroup: { select: { reservationMode: true } },
+            },
+          },
+        },
+      });
+      if (!report) {
+        throw new NotFoundException({
+          code: 'REPORT_NOT_FOUND',
+          message: 'The report was not found.',
+        });
+      }
+      if (report.status !== ReportStatus.IN_PROGRESS) {
+        throw new ConflictException({
+          code: 'REPORT_NOT_IN_PROGRESS',
+          message: 'Only IN_PROGRESS reports can create maintenance periods.',
+        });
+      }
+      if (report.facility.status === FacilityStatus.NONACTIVE) {
+        throw new ConflictException({
+          code: 'FACILITY_NOT_ACTIVE',
+          message: 'Maintenance cannot be scheduled for a nonactive facility.',
+        });
+      }
+
+      const scope =
+        report.facility.facilityGroup.reservationMode ===
+        ReservationMode.QUANTITY
+          ? 'FACILITY_GROUP'
+          : 'FACILITY';
+      const scopeId =
+        scope === 'FACILITY_GROUP'
+          ? report.facility.facilityGroupId
+          : report.facilityId;
+      await this.reconciliation.lockAvailabilityWindow(
+        tx,
+        scope,
+        scopeId,
+        dateStart,
+        dateEnd,
+      );
+
+      return {
+        reportId,
+        ...(await this.getMaintenanceImpact(
+          report.facilityId,
+          dateStart,
+          dateEnd,
+          tx,
+        )),
+      };
     });
-
-    if (!report) {
-      throw new NotFoundException({
-        code: 'REPORT_NOT_FOUND',
-        message: 'The report was not found.',
-      });
-    }
-    if (report.status !== ReportStatus.IN_PROGRESS) {
-      throw new ConflictException({
-        code: 'REPORT_NOT_IN_PROGRESS',
-        message: 'Only IN_PROGRESS reports can create maintenance periods.',
-      });
-    }
-
-    return {
-      reportId,
-      ...(await this.previewMaintenanceImpact(
-        report.facilityId,
-        startAt,
-        endAt,
-      )),
-    };
   }
 
   async confirmMaintenancePeriod(
     staffId: string,
     reportId: string,
-    input: {
-      mode: MaintenanceMode;
-      startDate?: string;
-      endDate?: string;
-      date?: string;
-      startTime?: string;
-      endTime?: string;
+    input: MaintenanceWindowDto & {
       cancelImpactedReservations: boolean;
       cancellationReason?: string;
       note?: string;
     },
   ) {
-    const report = await this.prisma.facilityReport.findUnique({
-      where: { id: reportId },
-      select: { id: true, status: true, facilityId: true },
-    });
-
-    if (!report) {
-      throw new NotFoundException({
-        code: 'REPORT_NOT_FOUND',
-        message: 'The report was not found.',
-      });
-    }
-    if (report.status !== ReportStatus.IN_PROGRESS) {
-      throw new ConflictException({
-        code: 'REPORT_NOT_IN_PROGRESS',
-        message: 'Only IN_PROGRESS reports can create maintenance periods.',
-      });
-    }
     if (!input.cancelImpactedReservations) {
       throw new ConflictException({
         code: 'MAINTENANCE_CONFIRMATION_REQUIRED',
@@ -755,15 +850,59 @@ export class ReportsService {
     }
 
     const { dateStart, dateEnd } = this.maintenanceDates(input);
-    if (dateEnd <= new Date()) {
-      throw new ConflictException({
-        code: 'MAINTENANCE_PERIOD_IN_PAST',
-        message: 'Maintenance must be current or scheduled for the future.',
-      });
-    }
     const reason = input.cancellationReason.trim();
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.runSerializableTransaction(async (tx) => {
+      await this.lockReport(tx, reportId);
+      const report = await tx.facilityReport.findUnique({
+        where: { id: reportId },
+        select: {
+          id: true,
+          status: true,
+          facilityId: true,
+          facility: {
+            select: {
+              status: true,
+              facilityGroupId: true,
+              facilityGroup: { select: { reservationMode: true } },
+            },
+          },
+        },
+      });
+      if (!report) {
+        throw new NotFoundException({
+          code: 'REPORT_NOT_FOUND',
+          message: 'The report was not found.',
+        });
+      }
+      if (report.status !== ReportStatus.IN_PROGRESS) {
+        throw new ConflictException({
+          code: 'REPORT_NOT_IN_PROGRESS',
+          message: 'Only IN_PROGRESS reports can create maintenance periods.',
+        });
+      }
+      if (report.facility.status === FacilityStatus.NONACTIVE) {
+        throw new ConflictException({
+          code: 'FACILITY_NOT_ACTIVE',
+          message: 'Maintenance cannot be created for a nonactive facility.',
+        });
+      }
+
+      const isQuantity =
+        report.facility.facilityGroup.reservationMode ===
+        ReservationMode.QUANTITY;
+      const scope = isQuantity ? 'FACILITY_GROUP' : 'FACILITY';
+      const scopeId = isQuantity
+        ? report.facility.facilityGroupId
+        : report.facilityId;
+      await this.reconciliation.lockAvailabilityWindow(
+        tx,
+        scope,
+        scopeId,
+        dateStart,
+        dateEnd,
+      );
+
       const impact = await this.getMaintenanceImpact(
         report.facilityId,
         dateStart,
@@ -795,30 +934,93 @@ export class ReportsService {
         },
       });
 
-      const approvedResult =
-        approvedIds.length === 0
-          ? { count: 0 }
-          : await tx.reservation.updateMany({
-              where: { id: { in: approvedIds }, status: 'APPROVED' },
-              data: {
-                status: 'CANCELLED_BY_STAFF',
-                decisionReason: reason,
-                processedById: staffId,
-                cancelledAt: now,
+      let approvedCancelled = 0;
+      for (const reservationId of approvedIds) {
+        const changed = await tx.reservation.updateMany({
+          where: { id: reservationId, status: ReservationStatus.APPROVED },
+          data: {
+            status: ReservationStatus.CANCELLED_BY_STAFF,
+            decisionReason: reason,
+            processedById: staffId,
+            cancelledAt: now,
+          },
+        });
+        if (changed.count !== 1) {
+          continue;
+        }
+        approvedCancelled++;
+        await tx.auditLog.create({
+          data: {
+            actorId: staffId,
+            action: 'RESERVATION_CANCELLED_BY_STAFF',
+            entityType: 'RESERVATION',
+            entityId: reservationId,
+            metadata: {
+              reason,
+              cancellationSource: 'MAINTENANCE_PERIOD',
+              reportId,
+              facilityId: report.facilityId,
+            },
+          },
+        });
+      }
+
+      let pendingRejected = 0;
+      if (isQuantity) {
+        const pendingDates = await tx.reservation.findMany({
+          where: {
+            facilityGroupId: report.facility.facilityGroupId,
+            status: ReservationStatus.PENDING,
+            usageDate: {
+              gte: this.usageDateStartUtc(dateStart),
+              lte: this.usageDateStartUtc(dateEnd),
+            },
+          },
+          select: { usageDate: true },
+          distinct: ['usageDate'],
+        });
+        for (const pendingDate of pendingDates) {
+          const result =
+            await this.reconciliation.rejectInfeasibleQuantityReservations(tx, {
+              facilityGroupId: report.facility.facilityGroupId,
+              usageDate: pendingDate.usageDate,
+              additionalMaintenance: {
+                facilityId: report.facilityId,
+                startAt: dateStart,
+                endAt: dateEnd,
+              },
+              actorId: staffId,
+              processedById: staffId,
+              decidedAt: now,
+              reason,
+              metadata: {
+                reportId,
+                facilityId: report.facilityId,
+                rejectionSource: 'MAINTENANCE_PERIOD',
               },
             });
-      const pendingResult =
-        pendingIds.length === 0
-          ? { count: 0 }
-          : await tx.reservation.updateMany({
-              where: { id: { in: pendingIds }, status: 'PENDING' },
-              data: {
-                status: 'REJECTED',
-                decisionReason: reason,
-                processedById: staffId,
-                decidedAt: now,
-              },
-            });
+          pendingRejected += result.rejectedReservationIds.length;
+        }
+      } else {
+        const result = await this.reconciliation.rejectExclusiveReservations(
+          tx,
+          {
+            facilityId: report.facilityId,
+            startAt: dateStart,
+            endAt: dateEnd,
+            actorId: staffId,
+            processedById: staffId,
+            decidedAt: now,
+            reason,
+            metadata: {
+              reportId,
+              facilityId: report.facilityId,
+              rejectionSource: 'MAINTENANCE_PERIOD',
+            },
+          },
+        );
+        pendingRejected = result.rejectedReservationIds.length;
+      }
 
       const period = await tx.maintenancePeriod.create({
         data: {
@@ -830,12 +1032,6 @@ export class ReportsService {
         },
       });
 
-      await this.syncEffectiveFacilityStatus(
-        tx,
-        report.facilityId,
-        staffId,
-        now,
-      );
       await tx.auditLog.create({
         data: {
           actorId: staffId,
@@ -847,8 +1043,8 @@ export class ReportsService {
             facilityId: report.facilityId,
             startAt: dateStart.toISOString(),
             endAt: dateEnd.toISOString(),
-            approvedCancellations: approvedResult.count,
-            pendingRejections: pendingResult.count,
+            approvedCancellations: approvedCancelled,
+            pendingRejections: pendingRejected,
             reason,
           },
         },
@@ -861,54 +1057,70 @@ export class ReportsService {
         startAt: period.startAt.toISOString(),
         endAt: period.endAt.toISOString(),
         note: period.note,
-        approvedCancelled: approvedResult.count,
-        pendingRejected: pendingResult.count,
+        approvedCancelled,
+        pendingRejected,
       };
     });
   }
 
   async endMaintenancePeriod(staffId: string, periodId: string, endAt: Date) {
-    const maintenance = await this.prisma.maintenancePeriod.findUnique({
-      where: { id: periodId },
-    });
-
-    if (!maintenance) {
-      throw new NotFoundException({
-        code: 'MAINTENANCE_PERIOD_NOT_FOUND',
-        message: 'The maintenance period was not found.',
-      });
-    }
-
-    if (
-      endAt <= maintenance.startAt ||
-      maintenance.startAt > endAt ||
-      maintenance.endAt <= endAt
-    ) {
-      throw new ConflictException({
-        code: 'MAINTENANCE_INVALID_OVERRIDE',
-        message:
-          'Only an active maintenance period can be ended before its scheduled end time.',
-      });
-    }
-
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const changed = await tx.maintenancePeriod.update({
+    const updated = await this.runSerializableTransaction(async (tx) => {
+      const maintenance = await tx.maintenancePeriod.findUnique({
         where: { id: periodId },
+        include: {
+          facility: {
+            select: {
+              facilityGroupId: true,
+              facilityGroup: { select: { reservationMode: true } },
+            },
+          },
+        },
+      });
+      if (!maintenance) {
+        throw new NotFoundException({
+          code: 'MAINTENANCE_PERIOD_NOT_FOUND',
+          message: 'The maintenance period was not found.',
+        });
+      }
+      if (
+        endAt <= maintenance.startAt ||
+        maintenance.endAt <= endAt ||
+        maintenance.startAt > new Date()
+      ) {
+        throw new ConflictException({
+          code: 'MAINTENANCE_INVALID_OVERRIDE',
+          message:
+            'Only an active maintenance period can be ended before its scheduled end time.',
+        });
+      }
+
+      const isQuantity =
+        maintenance.facility.facilityGroup.reservationMode ===
+        ReservationMode.QUANTITY;
+      await this.reconciliation.lockAvailabilityWindow(
+        tx,
+        isQuantity ? 'FACILITY_GROUP' : 'FACILITY',
+        isQuantity
+          ? maintenance.facility.facilityGroupId
+          : maintenance.facilityId,
+        maintenance.startAt,
+        maintenance.endAt,
+      );
+      const changed = await tx.maintenancePeriod.updateMany({
+        where: { id: periodId, endAt: { gt: endAt } },
         data: { endAt },
       });
-
-      await this.syncEffectiveFacilityStatus(
-        tx,
-        maintenance.facilityId,
-        staffId,
-        endAt,
-      );
+      if (changed.count !== 1) {
+        throw new ConflictException(
+          'Periode maintenance sudah diubah oleh petugas lain.',
+        );
+      }
 
       await tx.auditLog.create({
         data: {
           actorId: staffId,
           action: REPORT_AUDIT_ACTIONS.MAINTENANCE_ENDED_EARLY,
-          entityType: 'MAINTENANCE_PERIOD',
+          entityType: MAINTENANCE_ENTITY_TYPE,
           entityId: periodId,
           metadata: {
             facilityId: maintenance.facilityId,
@@ -919,7 +1131,10 @@ export class ReportsService {
         },
       });
 
-      return changed;
+      return {
+        ...maintenance,
+        endAt,
+      };
     });
 
     return {
@@ -932,112 +1147,6 @@ export class ReportsService {
     };
   }
 
-  async syncEffectiveFacilityStatuses(
-    now = new Date(),
-  ): Promise<MaintenanceSyncResult> {
-    const affected = await this.prisma.facility.findMany({
-      where: {
-        OR: [
-          { status: FacilityStatus.IN_MAINTENANCE },
-          {
-            status: FacilityStatus.ACTIVE,
-            maintenancePeriods: {
-              some: { startAt: { lte: now }, endAt: { gt: now } },
-            },
-          },
-        ],
-      },
-      select: { id: true },
-    });
-
-    let facilitiesUpdated = 0;
-    for (const { id: facilityId } of affected) {
-      const changed = await this.syncEffectiveFacilityStatus(
-        this.prisma,
-        facilityId,
-        null,
-        now,
-      );
-      if (changed) {
-        facilitiesUpdated++;
-      }
-    }
-
-    return {
-      facilitiesChecked: affected.length,
-      facilitiesUpdated,
-    };
-  }
-
-  private async syncEffectiveFacilityStatus(
-    transaction: Prisma.TransactionClient,
-    facilityId: string,
-    actorId: string | null,
-    effectiveAt: Date,
-  ): Promise<boolean> {
-    const facility = await transaction.facility.findUnique({
-      where: { id: facilityId },
-      select: { status: true },
-    });
-
-    if (!facility || facility.status === FacilityStatus.NONACTIVE) {
-      return false;
-    }
-
-    const activePeriod = await transaction.maintenancePeriod.findFirst({
-      where: {
-        facilityId,
-        startAt: { lte: effectiveAt },
-        endAt: { gt: effectiveAt },
-      },
-      select: { id: true },
-    });
-    const nextStatus = activePeriod
-      ? FacilityStatus.IN_MAINTENANCE
-      : FacilityStatus.ACTIVE;
-
-    if (facility.status === nextStatus) {
-      return false;
-    }
-
-    await transaction.facility.update({
-      where: { id: facilityId },
-      data: { status: nextStatus },
-    });
-    await transaction.facilityStatusHistory.create({
-      data: {
-        facilityId,
-        status: nextStatus,
-        changedById: actorId,
-        effectiveAt,
-      },
-    });
-    await transaction.auditLog.create({
-      data: {
-        actorId,
-        action: REPORT_AUDIT_ACTIONS.FACILITY_STATUS_CHANGED,
-        entityType: FACILITY_ENTITY_TYPE,
-        entityId: facilityId,
-        metadata: {
-          fromStatus: facility.status,
-          toStatus: nextStatus,
-          effectiveAt: effectiveAt.toISOString(),
-          source: 'MAINTENANCE_PERIOD',
-          automatic: actorId === null,
-        },
-      },
-    });
-    return true;
-  }
-
-  async previewMaintenanceImpact(
-    facilityId: string,
-    startAt: Date,
-    endAt: Date,
-  ) {
-    return this.getMaintenanceImpact(facilityId, startAt, endAt, this.prisma);
-  }
-
   private async getMaintenanceImpact(
     facilityId: string,
     startAt: Date,
@@ -1047,29 +1156,12 @@ export class ReportsService {
       'facility' | 'reservation' | 'maintenancePeriod'
     >,
   ): Promise<MaintenanceImpact> {
-    const toMinutesOfDay = (value: Date) => {
-      const time = new Date(value);
-      return time.getUTCHours() * 60 + time.getUTCMinutes();
-    };
-
-    const toJakartaInstant = (usageDate: Date, timeMinutes: number) => {
-      const pad = (n: number) => n.toString().padStart(2, '0');
-      const dateStr = formatToJakartaDateString(usageDate);
-      const hour = Math.floor(timeMinutes / 60);
-      const minute = timeMinutes % 60;
-      return new Date(`${dateStr}T${pad(hour)}:${pad(minute)}:00.000+07:00`);
-    };
-
-    const windowStartMinutes = toJakartaMinutesOfDay(startAt);
-    const windowEndMinutes = toJakartaMinutesOfDay(endAt);
-    const windowStartJakarta = formatToJakartaDateString(startAt);
-    const windowEndJakarta = formatToJakartaDateString(endAt);
-
     const facility = await client.facility.findUnique({
       where: { id: facilityId },
       select: {
         id: true,
         facilityGroupId: true,
+        status: true,
         facilityGroup: {
           select: {
             reservationMode: true,
@@ -1089,138 +1181,146 @@ export class ReportsService {
       });
     }
 
-    const impacted: ImpactReservation[] = await client.reservation.findMany({
-      where: {
-        OR: [
-          { facilityId, status: 'APPROVED' },
-          { facilityId, status: 'PENDING' },
-          { facilityGroupId: facility.facilityGroupId, status: 'APPROVED' },
-          { facilityGroupId: facility.facilityGroupId, status: 'PENDING' },
-        ],
-        usageDate: {
-          gte: new Date(`${windowStartJakarta}T00:00:00.000+07:00`),
-          lte: new Date(`${windowEndJakarta}T23:59:59.999+07:00`),
-        },
-      },
-      select: {
-        id: true,
-        usageDate: true,
-        startTime: true,
-        endTime: true,
-        requestedQuantity: true,
-        status: true,
-        facilityId: true,
-        facilityGroupId: true,
-      },
-    });
-    const maintenancePeriods =
-      (await client.maintenancePeriod.findMany({
-        where: {
-          facilityId: {
-            in: (facility.facilityGroup.facilities ?? []).map(
-              (unit: { id: string }) => unit.id,
-            ),
-          },
-          startAt: { lt: endAt },
-          endAt: { gt: startAt },
-        },
-        select: { facilityId: true, startAt: true, endAt: true },
-      })) ?? [];
+    if (facility.status === FacilityStatus.NONACTIVE) {
+      throw new ConflictException({
+        code: 'FACILITY_NOT_ACTIVE',
+        message: 'Maintenance cannot be scheduled for a nonactive facility.',
+      });
+    }
 
-    const approvedReservations = impacted
-      .filter((reservation) => reservation.status === 'APPROVED')
-      .filter((reservation) => {
-        const reservationStartMinutes = toMinutesOfDay(reservation.startTime);
-        const reservationEndMinutes = toMinutesOfDay(reservation.endTime);
-        return (
-          reservationStartMinutes < windowEndMinutes &&
-          reservationEndMinutes > windowStartMinutes
-        );
-      })
-      .map((reservation) => ({
-        id: reservation.id,
-        usageDate: reservation.usageDate.toISOString(),
-        startTime: reservation.startTime.toISOString(),
-        endTime: reservation.endTime.toISOString(),
-      }));
-
-    const pendingReservations = impacted
-      .filter((reservation) => reservation.status === 'PENDING')
-      .filter((reservation) => {
-        const reservationStartMinutes = toMinutesOfDay(reservation.startTime);
-        const reservationEndMinutes = toMinutesOfDay(reservation.endTime);
-        return (
-          reservationStartMinutes < windowEndMinutes &&
-          reservationEndMinutes > windowStartMinutes
-        );
-      })
-      .filter((reservation) => {
-        if (facility.facilityGroup.reservationMode !== 'QUANTITY') {
-          return true;
-        }
-
-        const reservationStart = toMinutesOfDay(reservation.startTime);
-        const reservationEnd = toMinutesOfDay(reservation.endTime);
-        const usageDate = reservation.usageDate;
-        const reservationStartAt = toJakartaInstant(
+    const usageDate = {
+      gte: this.usageDateStartUtc(startAt),
+      lte: this.usageDateStartUtc(endAt),
+    };
+    const isQuantity =
+      facility.facilityGroup.reservationMode === ReservationMode.QUANTITY;
+    const approvedWhere: Prisma.ReservationWhereInput = isQuantity
+      ? {
+          facilityGroupId: facility.facilityGroupId,
+          items: { some: { facilityId } },
+          status: ReservationStatus.APPROVED,
           usageDate,
-          reservationStart,
-        );
-        const reservationEndAt = toJakartaInstant(usageDate, reservationEnd);
-        const overlappingApprovedQuantity = impacted
-          .filter(
-            (candidate) =>
-              candidate.status === 'APPROVED' &&
-              candidate.facilityGroupId === facility.facilityGroupId &&
-              candidate.usageDate.getTime() ===
-                reservation.usageDate.getTime() &&
-              toMinutesOfDay(candidate.startTime) < reservationEnd &&
-              toMinutesOfDay(candidate.endTime) > reservationStart,
-          )
-          .reduce((sum, candidate) => sum + candidate.requestedQuantity, 0);
-        const existingMaintenanceCount = new Set(
-          maintenancePeriods
-            .filter(
-              (period: { startAt: Date; endAt: Date }) =>
-                period.startAt < reservationEndAt &&
-                period.endAt > reservationStartAt,
-            )
-            .map((period: { facilityId: string }) => period.facilityId),
-        ).size;
-        const targetUnitOverlaps =
-          startAt < reservationEndAt && endAt > reservationStartAt;
-        const targetUnitAlreadyCounted = maintenancePeriods.some(
-          (period: { facilityId: string; startAt: Date; endAt: Date }) =>
-            period.facilityId === facilityId &&
-            period.startAt < reservationEndAt &&
-            period.endAt > reservationStartAt,
-        );
-        const maintenanceCount =
-          existingMaintenanceCount +
-          (targetUnitOverlaps && !targetUnitAlreadyCounted ? 1 : 0);
-        const activeUnits = facility.facilityGroup.facilities?.length ?? 0;
+        }
+      : { facilityId, status: ReservationStatus.APPROVED, usageDate };
+    const pendingWhere: Prisma.ReservationWhereInput = isQuantity
+      ? {
+          facilityGroupId: facility.facilityGroupId,
+          status: ReservationStatus.PENDING,
+          usageDate,
+        }
+      : { facilityId, status: ReservationStatus.PENDING, usageDate };
+    const reservationSelect = {
+      id: true,
+      usageDate: true,
+      startTime: true,
+      endTime: true,
+      requestedQuantity: true,
+    } satisfies Prisma.ReservationSelect;
+    const [approved, pending] = await Promise.all([
+      client.reservation.findMany({
+        where: approvedWhere,
+        select: reservationSelect,
+      }),
+      client.reservation.findMany({
+        where: pendingWhere,
+        select: reservationSelect,
+      }),
+    ]);
 
-        return (
-          reservation.requestedQuantity >
-          Math.max(
-            0,
-            activeUnits - maintenanceCount - overlappingApprovedQuantity,
-          )
-        );
-      })
+    const approvedReservations = approved
+      .filter((reservation) =>
+        this.reservationOverlapsWindow(reservation, startAt, endAt),
+      )
       .map((reservation) => ({
         id: reservation.id,
         usageDate: reservation.usageDate.toISOString(),
         startTime: reservation.startTime.toISOString(),
         endTime: reservation.endTime.toISOString(),
-        requestedQuantity: reservation.requestedQuantity,
       }));
+
+    let pendingReservations: MaintenanceImpact['pendingReservations'] = [];
+    if (!isQuantity) {
+      pendingReservations = pending
+        .filter((reservation) =>
+          this.reservationOverlapsWindow(reservation, startAt, endAt),
+        )
+        .map((reservation) => ({
+          id: reservation.id,
+          usageDate: reservation.usageDate.toISOString(),
+          startTime: reservation.startTime.toISOString(),
+          endTime: reservation.endTime.toISOString(),
+          requestedQuantity: reservation.requestedQuantity,
+        }));
+    } else {
+      const excludedApproved = new Set(
+        approvedReservations.map((reservation) => reservation.id),
+      );
+      const seen = new Set<string>();
+      for (const reservation of pending) {
+        const dateKey = formatToJakartaDateString(reservation.usageDate);
+        if (seen.has(dateKey)) {
+          continue;
+        }
+        seen.add(dateKey);
+        const infeasible =
+          await this.reconciliation.findInfeasibleQuantityReservations(client, {
+            facilityGroupId: facility.facilityGroupId,
+            usageDate: reservation.usageDate,
+            additionalMaintenance: { facilityId, startAt, endAt },
+            excludedApprovedReservationIds: excludedApproved,
+            overlapWindow: { startAt, endAt },
+          });
+        pendingReservations.push(
+          ...infeasible.map((item) => ({
+            id: item.id,
+            usageDate: item.usageDate.toISOString(),
+            startTime: item.startTime.toISOString(),
+            endTime: item.endTime.toISOString(),
+            requestedQuantity: item.requestedQuantity,
+          })),
+        );
+      }
+    }
 
     return {
       facilityId,
       approvedReservations,
       pendingReservations,
     };
+  }
+
+  private reservationOverlapsWindow(
+    reservation: { usageDate: Date; startTime: Date; endTime: Date },
+    startAt: Date,
+    endAt: Date,
+  ) {
+    const reservationStart = this.reservationInstant(
+      reservation.usageDate,
+      this.timeMinutes(reservation.startTime),
+    );
+    const reservationEnd = this.reservationInstant(
+      reservation.usageDate,
+      this.timeMinutes(reservation.endTime),
+    );
+    return reservationStart < endAt && reservationEnd > startAt;
+  }
+
+  private reservationInstant(usageDate: Date, minutes: number) {
+    const date = formatToJakartaDateString(usageDate);
+    const hours = Math.floor(minutes / 60);
+    const minute = minutes % 60;
+    return new Date(
+      `${date}T${String(hours).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000+07:00`,
+    );
+  }
+
+  private timeMinutes(value: Date) {
+    return value.getUTCHours() * 60 + value.getUTCMinutes();
+  }
+
+  private usageDateStartUtc(value: Date) {
+    const date = formatToJakartaDateString(value);
+    return new Date(`${date}T00:00:00.000Z`);
   }
 
   private generateReportNumber(now: Date): string {
