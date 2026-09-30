@@ -24,6 +24,8 @@ function formatSlaTime(deadlineStr?: string | null): string {
     if (isNaN(d.getTime())) return "-";
     const time = new Intl.DateTimeFormat("id-ID", {
       timeZone: "Asia/Jakarta",
+      day: "numeric",
+      month: "short",
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
@@ -51,16 +53,16 @@ export function StaffReservationTable({
   if (isLoading && reservations.length === 0) {
     return (
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 8px", minWidth: "960px" }}>
+        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 8px", minWidth: "1000px", tableLayout: "fixed" }}>
           <thead>
             <tr style={{ color: "#64748b", textTransform: "uppercase", fontSize: "0.6875rem", letterSpacing: "0.04em" }}>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Pemohon</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Fasilitas</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Waktu</th>
+              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center", width: "160px" }}>Pemohon</th>
+              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center", width: "220px" }}>Fasilitas</th>
+              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center", width: "140px" }}>Waktu</th>
               <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Tujuan</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Batas SLA</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Status</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Aksi</th>
+              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center", width: "125px" }}>Batas SLA</th>
+              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center", width: "145px" }}>Status</th>
+              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center", width: "180px" }}>Aksi</th>
             </tr>
           </thead>
           <tbody>
@@ -100,16 +102,16 @@ export function StaffReservationTable({
 
   return (
     <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 8px", minWidth: "1000px", fontSize: "0.8125rem" }}>
+      <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 8px", minWidth: "1000px", tableLayout: "fixed", fontSize: "0.8125rem" }}>
         <thead>
           <tr style={{ color: "#64748b", textTransform: "uppercase", fontSize: "0.6875rem", letterSpacing: "0.04em" }}>
             <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "160px" }}>Pemohon</th>
             <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "220px" }}>Fasilitas</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "190px" }}>Waktu</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", minWidth: "170px" }}>Tujuan</th>
+            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "140px" }}>Waktu</th>
+            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center" }}>Tujuan</th>
             <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "125px" }}>Batas SLA</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "125px" }}>Status</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "140px" }}>Aksi</th>
+            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "145px" }}>Status</th>
+            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "180px" }}>Aksi</th>
           </tr>
         </thead>
         <tbody>
@@ -145,7 +147,7 @@ export function StaffReservationTable({
                 {/* Kolom 1: Pemohon (Hanya Nama Saja, Center) */}
                 <td
                   style={{
-                    padding: "0.55rem 0.85rem",
+                    padding: "0.35rem 0.5rem",
                     verticalAlign: "middle",
                     textAlign: "center",
                     borderLeft: "1px solid #e2e8f0",
@@ -162,14 +164,14 @@ export function StaffReservationTable({
                 {/* Kolom 2: Fasilitas (Nama di Atas, Badge di Bawah, Center) */}
                 <td
                   style={{
-                    padding: "0.55rem 0.85rem",
+                    padding: "0.35rem 0.5rem",
                     verticalAlign: "middle",
                     textAlign: "center",
                     borderTop: "1px solid #e2e8f0",
                     borderBottom: "1px solid #e2e8f0",
                   }}
                 >
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0", alignItems: "center", justifyContent: "center" }}>
                     <strong style={{ color: "#1e293b", fontSize: "0.8125rem", whiteSpace: "nowrap" }}>
                       {targetName}
                     </strong>
@@ -192,7 +194,7 @@ export function StaffReservationTable({
                 {/* Kolom 3: Waktu (Tanggal dan Rentang Jam, Center) */}
                 <td
                   style={{
-                    padding: "0.55rem 0.85rem",
+                    padding: "0.35rem 0.5rem",
                     verticalAlign: "middle",
                     textAlign: "center",
                     borderTop: "1px solid #e2e8f0",
@@ -211,7 +213,7 @@ export function StaffReservationTable({
                 {/* Kolom 4: Tujuan (Truncated, Center) */}
                 <td
                   style={{
-                    padding: "0.55rem 0.85rem",
+                    padding: "0.35rem 0.5rem",
                     verticalAlign: "middle",
                     textAlign: "center",
                     borderTop: "1px solid #e2e8f0",
@@ -227,7 +229,7 @@ export function StaffReservationTable({
                 {/* Kolom 5: Batas SLA (Waktu 20.00 WIB, Center) */}
                 <td
                   style={{
-                    padding: "0.55rem 0.85rem",
+                    padding: "0.35rem 0.5rem",
                     verticalAlign: "middle",
                     textAlign: "center",
                     borderTop: "1px solid #e2e8f0",
@@ -272,7 +274,7 @@ export function StaffReservationTable({
                 {/* Kolom 6: Status (Badge Center) */}
                 <td
                   style={{
-                    padding: "0.55rem 0.85rem",
+                    padding: "0.35rem 0.5rem",
                     verticalAlign: "middle",
                     textAlign: "center",
                     borderTop: "1px solid #e2e8f0",
@@ -291,7 +293,7 @@ export function StaffReservationTable({
                 {/* Kolom 7: Aksi Petugas (Rincian, Centang [Setujui], Silang [Tolak]) */}
                 <td
                   style={{
-                    padding: "0.55rem 0.85rem",
+                    padding: "0.35rem 0.5rem",
                     verticalAlign: "middle",
                     textAlign: "center",
                     borderRight: "1px solid #e2e8f0",

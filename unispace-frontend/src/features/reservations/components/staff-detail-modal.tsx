@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef } from "react";
 
 import {
@@ -84,9 +85,6 @@ export function StaffDetailModal({
               <span className={`user-res-badge ${statusConfig.badgeClass}`}>
                 <span className="user-res-badge__dot" aria-hidden="true" />
                 <span>{statusConfig.label}</span>
-              </span>
-              <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                ID: {reservation.id}
               </span>
             </div>
             <h2 id="detail-modal-title" style={{ fontSize: "1.25rem", fontWeight: 700, color: "#0f172a", margin: 0 }}>
@@ -218,6 +216,12 @@ export function StaffDetailModal({
         </div>
 
         <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.75rem", flexWrap: "wrap" }}>
+          <Link
+            href={`/staff/reservations/${reservation.id}`}
+            style={{ padding: "0.5rem 1rem", fontSize: "0.875rem", fontWeight: 600, color: "#2563eb", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "6px", textDecoration: "none" }}
+          >
+            Halaman Penuh
+          </Link>
           <button
             onClick={onClose}
             style={{ padding: "0.5rem 1rem", fontSize: "0.875rem", fontWeight: 600, color: "#475569", background: "#f1f5f9", border: "none", borderRadius: "6px", cursor: "pointer" }}

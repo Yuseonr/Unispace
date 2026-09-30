@@ -70,9 +70,6 @@ export function StaffReservationCard({
             <span style={{ fontSize: "0.75rem", fontWeight: 700, padding: "2px 8px", borderRadius: "4px", background: isExclusive ? "#e0e7ff" : "#fef3c7", color: isExclusive ? "#3730a3" : "#92400e" }}>
               {modeLabel}
             </span>
-            <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-              #{reservation.id.slice(0, 8)}
-            </span>
           </div>
           <h3 style={{ fontSize: "1.125rem", fontWeight: 700, color: "#0f172a", margin: 0 }}>
             {targetName}
