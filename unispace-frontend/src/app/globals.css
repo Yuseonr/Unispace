@@ -41,9 +41,10 @@
   display: flex;
   flex-direction: column;
   isolation: isolate;
-  min-height: 100vh;
+  height: 100vh;
   padding: 2rem 1.15rem 1.3rem;
-  position: relative;
+  position: sticky;
+  top: 0;
 }
 
 .admin-sidebar::after {
@@ -1188,7 +1189,9 @@
   }
 
   .admin-sidebar {
+    height: auto;
     min-height: auto;
+    position: relative;
     padding: 1rem;
   }
 
@@ -6244,4 +6247,12 @@ button {
   .analytics-table:not(.audit-table):has(th:nth-child(5):last-child) td:nth-child(3)::before { content: "Pelapor"; }
   .analytics-table:not(.audit-table):has(th:nth-child(5):last-child) td:nth-child(4)::before { content: "Status"; }
   .analytics-table:not(.audit-table):has(th:nth-child(5):last-child) td:nth-child(5)::before { content: "Dibuat"; }
+}
+
+/* Responsive Display Helpers */
+.desktop-only { display: block; }
+.mobile-only { display: none; }
+@media (max-width: 900px) {
+  .desktop-only { display: none; }
+  .mobile-only { display: flex; flex-direction: column; gap: 1rem; }
 }
