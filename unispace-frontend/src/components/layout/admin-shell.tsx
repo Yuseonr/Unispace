@@ -128,7 +128,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             </button>
             {isProfileOpen ? <div className="admin-profile-dropdown" role="menu">
               <p><strong>{user.name}</strong><span>{user.email}</span></p>
-              <Link href="/profile" onClick={() => setIsProfileOpen(false)} role="menuitem">Profil & kata sandi</Link>
+              <Link href="/admin/profile" onClick={() => setIsProfileOpen(false)} role="menuitem">Profil & kata sandi</Link>
               <button onClick={() => void handleLogout()} role="menuitem" type="button">Keluar</button>
             </div> : null}
           </div>

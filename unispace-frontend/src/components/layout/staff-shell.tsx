@@ -140,7 +140,7 @@ export function StaffShell({ children }: { children: ReactNode }) {
     },
     { href: "/staff/facilities", icon: "facility", label: "Katalog Fasilitas" },
     { href: "/staff/maintenance", icon: "maintenance", label: "Jadwal Perbaikan" },
-    { href: "/profile", icon: "profile", label: "Profil Akun" },
+    { href: "/staff/profile", icon: "profile", label: "Profil Akun" },
   ];
 
   async function handleLogout() {
