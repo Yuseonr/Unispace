@@ -309,7 +309,7 @@ export function StaffFacilityCatalog() {
                     </label>
                     <label className="ui-field" style={{ display: "grid", gap: "0.35rem" }}>
                       <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#334155" }}>Tanggal Selesai</span>
-                      <input type="date" required value={endDate} onChange={e => setEndDate(e.target.value)} className="ui-input" />
+                      <input type="date" required min={startDate || undefined} value={endDate} onChange={e => setEndDate(e.target.value)} className="ui-input" />
                     </label>
                   </div>
                 ) : (
@@ -329,7 +329,7 @@ export function StaffFacilityCatalog() {
                       <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#334155" }}>Jam Selesai</span>
                       <select required value={endTime} onChange={e => setEndTime(e.target.value)} className="ui-input">
                         <option value="" disabled>Pilih Jam</option>
-                        {TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
+                        {TIME_OPTIONS.map(time => <option key={time} value={time} disabled={Boolean(startTime) && time <= startTime}>{time}</option>)}
                       </select>
                     </label>
                   </div>
