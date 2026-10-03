@@ -100,8 +100,17 @@ export function ReservationCard({
           <span>{locationText}</span>
         </div>
         <div className="user-res-card__detail-item">
-          <span className="user-res-card__detail-icon" aria-hidden="true">#</span>
-          <span>{isQuantity ? `Kelompok alat · ${reservation.requestedQuantity} unit` : "Ruang eksklusif"}</span>
+          <span
+            className={`user-res-card__mode ${
+              isQuantity
+                ? "user-res-card__mode--quantity"
+                : "user-res-card__mode--exclusive"
+            }`}
+          >
+            {isQuantity
+              ? `Kelompok alat · ${reservation.requestedQuantity} unit`
+              : "Ruang Eksklusif"}
+          </span>
         </div>
       </div>
 
