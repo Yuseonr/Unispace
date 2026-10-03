@@ -26,12 +26,17 @@ export function ConfirmDialog({
   const dialog = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (isOpen) {
+      dialog.current?.focus();
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !busy) onClose();
     };
     window.addEventListener("keydown", closeOnEscape);
-    dialog.current?.focus();
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [busy, isOpen, onClose]);
 

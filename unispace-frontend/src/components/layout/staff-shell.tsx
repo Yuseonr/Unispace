@@ -248,7 +248,7 @@ export function StaffShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <main style={{ minWidth: 0, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+      <main style={{ minWidth: 0, overflowY: "scroll", display: "flex", flexDirection: "column" }}>
         {children}
       </main>
     </div>
