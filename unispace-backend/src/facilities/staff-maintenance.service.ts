@@ -127,6 +127,7 @@ export class StaffMaintenanceService {
           startAt: dateStart,
           endAt: dateEnd,
           note: input.note,
+          createdById: staffId,
         },
       });
     });
