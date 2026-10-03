@@ -12,6 +12,7 @@ import { FacilitiesController } from './facilities.controller';
 import { QuantityReservationReconciliationService } from './quantity-reservation-reconciliation.service';
 import { StaffFacilitiesController } from './staff-facilities.controller';
 import { StaffFacilitiesService } from './staff-facilities.service';
+import { StaffMaintenanceService } from './staff-maintenance.service';
 
 @Module({
   imports: [MulterModule.register({})],
@@ -30,6 +31,7 @@ import { StaffFacilitiesService } from './staff-facilities.service';
     FacilityImageStorageService,
     QuantityReservationReconciliationService,
     StaffFacilitiesService,
+    StaffMaintenanceService,
   ],
   exports: [
     FacilityAvailabilityService,

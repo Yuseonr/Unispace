@@ -11,6 +11,7 @@ import type { Prisma } from '../generated/prisma/client';
 import {
   FacilityStatus,
   Prisma as PrismaNamespace,
+  ReportCategory,
   ReportStatus,
   ReservationMode,
   ReservationStatus,
@@ -665,6 +666,53 @@ export class ReportsService {
       total,
       totalPages: Math.ceil(total / query.limit),
     };
+  }
+
+  /**
+   * Membuat laporan internal otomatis oleh sistem (Petugas) tanpa butuh foto.
+   * Langsung berstatus IN_PROGRESS agar siap dibuatkan jadwal Maintenance.
+   */
+  async createInternalReport(staffId: string, facilityId: string, reason: string): Promise<{ id: string }> {
+    const facility = await this.prisma.facility.findUnique({ where: { id: facilityId } });
+    if (!facility) {
+      throw new NotFoundException('Fasilitas tidak ditemukan.');
+    }
+
+    const now = new Date();
+    const report = await this.prisma.$transaction(async (tx) => {
+      const rep = await tx.facilityReport.create({
+        data: {
+          reportNumber: this.generateReportNumber(now),
+          reporterId: staffId,
+          facilityId,
+          category: ReportCategory.OTHER,
+          description: `[LAPORAN INTERNAL PETUGAS] ${reason}`,
+          status: ReportStatus.IN_PROGRESS,
+          acceptedById: staffId,
+          acceptedAt: now,
+          processedById: staffId,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: staffId,
+          action: 'CREATED_INTERNAL',
+          entityType: 'REPORT',
+          entityId: rep.id,
+          metadata: {
+            note: 'Dibuat otomatis oleh sistem untuk kebutuhan penutupan fasilitas sepihak.',
+            facilityId,
+            category: ReportCategory.OTHER,
+            status: ReportStatus.IN_PROGRESS,
+          },
+        },
+      });
+
+      return rep;
+    });
+
+    return report;
   }
 
   async accept(staffId: string, reportId: string): Promise<ReportResponse> {

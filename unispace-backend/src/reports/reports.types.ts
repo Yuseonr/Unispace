@@ -33,7 +33,7 @@ export type ReportUserResponse = {
 
 export type MaintenancePeriodResponse = {
   id: string;
-  reportId: string;
+  reportId: string | null;
   facilityId: string;
   startAt: string;
   endAt: string;

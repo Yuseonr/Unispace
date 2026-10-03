@@ -2,9 +2,11 @@
 /* eslint-disable react-hooks/set-state-in-effect -- availability reconciliation intentionally updates controlled quantity state. */
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/features/auth/auth-provider";
+import { createInternalReport } from "@/features/facility-reports/api";
 import {
   createReservation,
   getAvailableOperationalDates,
@@ -18,6 +20,7 @@ import { FacilityVisual } from "./facility-card";
 import type { FacilityAvailabilityData } from "@/features/reservations/types";
 
 export function FacilityDetailView({ facilityId }: { facilityId: string }) {
+  const router = useRouter();
   const { isReady, request, user } = useAuth();
   const [facility, setFacility] = useState<CatalogFacilityDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,6 +36,7 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
   const [availability, setAvailability] = useState<FacilityAvailabilityData | null>(null);
   const [availabilityRefreshKey, setAvailabilityRefreshKey] = useState(0);
   const [purpose, setPurpose] = useState<string>("");
+  const [staffReason, setStaffReason] = useState<string>("");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -103,6 +107,20 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
     setShouldReloadAvailability(false);
   }
 
+  async function handleStaffMaintenanceSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!facility || !staffReason.trim()) return;
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await createInternalReport(request, facility.id, staffReason);
+      router.push(`/staff/reports?reportId=${res.id}`);
+    } catch (err: any) {
+      setSubmitError(err.message || "Gagal membuat laporan maintenance.");
+      setIsSubmitting(false);
+    }
+  }
+
   async function handleReservationSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!facility || !selectedStartTime || !selectedEndTime) return;
@@ -166,6 +184,7 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
   const isMaintenance = facility.status === "MAINTENANCE";
   const capacityText =
     facility.capacity === null ? "Kapasitas fleksibel" : `${facility.capacity} orang`;
+  const isStaff = Boolean(isReady && user && user.role === "STAFF");
   const isUserActive =
     Boolean(isReady && user && user.role === "USER" && user.accountStatus === "ACTIVE");
   const isGuest = Boolean(isReady && !user);
@@ -290,6 +309,36 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
                 </button>
               </div>
             </div>
+          ) : isStaff ? (
+            <form className="facility-inpage-form" onSubmit={handleStaffMaintenanceSubmit}>
+              <div className="facility-inpage-field">
+                <label className="facility-inpage-label" htmlFor="inpage-staff-reason">
+                  Tutup Fasilitas (Maintenance)
+                </label>
+                <textarea
+                  className="facility-inpage-textarea"
+                  id="inpage-staff-reason"
+                  maxLength={500}
+                  onChange={(e) => setStaffReason(e.target.value)}
+                  placeholder="Alasan penutupan (misal: perbaikan, kegiatan internal)..."
+                  required
+                  rows={3}
+                  value={staffReason}
+                  disabled={isSubmitting}
+                />
+              </div>
+              {submitError && (
+                <p className="ui-form-feedback ui-form-feedback--error">{submitError}</p>
+              )}
+              <button
+                className="button-primary"
+                disabled={isSubmitting || !staffReason.trim()}
+                style={{ width: "100%", marginTop: "1rem" }}
+                type="submit"
+              >
+                {isSubmitting ? "Memproses..." : "Lanjut Atur Jadwal"}
+              </button>
+            </form>
           ) : isGuest ? (
             <div className="facility-inpage-cta">
               <div className="facility-inpage-cta__text">

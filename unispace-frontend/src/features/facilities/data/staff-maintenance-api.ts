@@ -12,7 +12,7 @@ export type StaffMaintenancePeriod = {
   };
   id: string;
   note: string | null;
-  report: { categoryLabel: string; id: string; reportNumber: string; status: string };
+  report: { categoryLabel: string; id: string; reportNumber: string; status: string } | null;
   startAt: string;
   state: StaffMaintenanceState;
 };
@@ -25,7 +25,50 @@ export type StaffMaintenanceResponse = {
   totalPages: number;
 };
 
+export type CreateDirectMaintenancePayload = {
+  mode: "DATE_RANGE" | "TIME_RANGE";
+  startDate?: string;
+  endDate?: string;
+  date?: string;
+  startTime?: string;
+  endTime?: string;
+  note: string;
+  cancellationReason?: string;
+  cancelImpactedReservations?: boolean;
+};
+
+export type MaintenanceImpactResponse = {
+  facilityId: string;
+  approvedReservations: Array<{
+    id: string;
+    usageDate: string;
+    startTime: string;
+    endTime: string;
+  }>;
+  pendingReservations: Array<{
+    id: string;
+    usageDate: string;
+    startTime: string;
+    endTime: string;
+    requestedQuantity: number;
+  }>;
+};
+
 export function listStaffMaintenance(request: AuthenticatedRequestFn, input: { page?: number; state?: "ALL" | StaffMaintenanceState }) {
   const query = new URLSearchParams({ limit: "20", page: String(input.page ?? 1), state: input.state ?? "ALL" });
   return request<StaffMaintenanceResponse>(`/staff/facilities/maintenance?${query.toString()}`);
+}
+
+export function previewDirectFacilityMaintenance(request: AuthenticatedRequestFn, facilityId: string, payload: CreateDirectMaintenancePayload) {
+  return request<MaintenanceImpactResponse>(`/staff/facilities/${facilityId}/maintenance/preview`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function createDirectFacilityMaintenance(request: AuthenticatedRequestFn, facilityId: string, payload: CreateDirectMaintenancePayload) {
+  return request<void>(`/staff/facilities/${facilityId}/maintenance`, {
+    method: "POST",
+    body: payload,
+  });
 }

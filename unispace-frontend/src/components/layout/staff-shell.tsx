@@ -11,7 +11,7 @@ import { useAuth } from "@/features/auth/auth-provider";
 type SidebarItem = {
   badge?: string;
   href?: string;
-  icon: "calendar" | "report" | "facility" | "profile";
+  icon: "calendar" | "report" | "facility" | "maintenance" | "profile";
   label: string;
 };
 
@@ -36,6 +36,11 @@ function StaffSidebarIcon({ name }: { name: SidebarItem["icon"] }) {
     facility: (
       <>
         <path d="M5 20V5h10v15M15 10h4v10M8 8h2M8 12h2M8 16h2M17 13h.1M17 16h.1M3 20h18" />
+      </>
+    ),
+    maintenance: (
+      <>
+        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 9.36l-7.19 7.19a2.12 2.12 0 0 1-3-3l7.19-7.19a6 6 0 0 1 9.36-7.94z" />
       </>
     ),
     profile: (
@@ -133,7 +138,8 @@ export function StaffShell({ children }: { children: ReactNode }) {
       icon: "report",
       label: "Laporan Kendala",
     },
-    { href: "/staff/facilities", icon: "facility", label: "Fasilitas & Perbaikan" },
+    { href: "/staff/facilities", icon: "facility", label: "Katalog Fasilitas" },
+    { href: "/staff/maintenance", icon: "maintenance", label: "Jadwal Perbaikan" },
     { href: "/profile", icon: "profile", label: "Profil Akun" },
   ];
 

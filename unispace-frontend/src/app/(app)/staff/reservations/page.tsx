@@ -1,19 +1,16 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect -- URL-driven async queries intentionally update local request state. */
 
-import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination, StatusBadge } from "@/components/ui/page-primitives";
+import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination } from "@/components/ui/page-primitives";
 import { useAuth } from "@/features/auth/auth-provider";
 import { readableApiError } from "@/lib/api/error-message";
-import { displayOptionalText, formatJakartaDate, formatJakartaDateTime } from "@/lib/format";
 import {
   approveStaffReservation,
   cancelStaffReservation,
   fetchStaffReservations,
-  formatSlotTime,
   rejectStaffReservation,
   triggerAutoRejectExpired,
 } from "@/features/reservations/api";

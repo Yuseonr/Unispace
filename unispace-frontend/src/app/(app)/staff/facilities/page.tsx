@@ -1,7 +1,11 @@
 import { Suspense } from "react";
 
-import { StaffFacilities } from "@/features/facilities/components/staff-facilities";
+import { StaffFacilityCatalog } from "@/features/facilities/components/staff-facility-catalog";
 
 export default function StaffFacilitiesPage() {
-  return <Suspense><StaffFacilities /></Suspense>;
+  return (
+    <Suspense fallback={<main className="admin-loading">Memuat katalog…</main>}>
+      <StaffFacilityCatalog />
+    </Suspense>
+  );
 }
