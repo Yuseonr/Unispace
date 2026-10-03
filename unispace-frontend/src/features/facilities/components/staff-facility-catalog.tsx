@@ -18,6 +18,13 @@ function SearchIcon() {
   );
 }
 
+const TIME_OPTIONS = Array.from({ length: 27 }, (_, i) => {
+  const totalMinutes = 7 * 60 + i * 30;
+  const h = Math.floor(totalMinutes / 60).toString().padStart(2, "0");
+  const m = (totalMinutes % 60).toString().padStart(2, "0");
+  return `${h}:${m}`;
+});
+
 export function StaffFacilityCatalog() {
   const router = useRouter();
   const { request } = useAuth();
@@ -273,14 +280,24 @@ export function StaffFacilityCatalog() {
                 
                 <label className="ui-field" style={{ display: "grid", gap: "0.35rem" }}>
                   <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#334155" }}>Mode Penutupan</span>
-                  <select
-                    value={mode}
-                    onChange={(e) => setMode(e.target.value as "DATE_RANGE" | "TIME_RANGE")}
-                    className="ui-input"
-                  >
-                    <option value="DATE_RANGE">Rentang Tanggal Penuh (Harian)</option>
-                    <option value="TIME_RANGE">Rentang Waktu (Jam Spesifik)</option>
-                  </select>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <button
+                      type="button"
+                      onClick={() => setMode("DATE_RANGE")}
+                      className={mode === "DATE_RANGE" ? "button-primary" : "admin-secondary-button"}
+                      style={{ flex: 1, padding: "0.5rem", borderRadius: "6px" }}
+                    >
+                      Harian (Penuh)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMode("TIME_RANGE")}
+                      className={mode === "TIME_RANGE" ? "button-primary" : "admin-secondary-button"}
+                      style={{ flex: 1, padding: "0.5rem", borderRadius: "6px" }}
+                    >
+                      Jam Spesifik
+                    </button>
+                  </div>
                 </label>
 
                 {mode === "DATE_RANGE" ? (
@@ -302,11 +319,17 @@ export function StaffFacilityCatalog() {
                     </label>
                     <label className="ui-field" style={{ display: "grid", gap: "0.35rem" }}>
                       <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#334155" }}>Jam Mulai</span>
-                      <input type="time" required value={startTime} onChange={e => setStartTime(e.target.value)} className="ui-input" />
+                      <select required value={startTime} onChange={e => setStartTime(e.target.value)} className="ui-input">
+                        <option value="" disabled>Pilih Jam</option>
+                        {TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
+                      </select>
                     </label>
                     <label className="ui-field" style={{ display: "grid", gap: "0.35rem" }}>
                       <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#334155" }}>Jam Selesai</span>
-                      <input type="time" required value={endTime} onChange={e => setEndTime(e.target.value)} className="ui-input" />
+                      <select required value={endTime} onChange={e => setEndTime(e.target.value)} className="ui-input">
+                        <option value="" disabled>Pilih Jam</option>
+                        {TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
+                      </select>
                     </label>
                   </div>
                 )}
