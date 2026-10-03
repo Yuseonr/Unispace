@@ -1,8 +1,17 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { QuantityReservationReconciliationService } from './quantity-reservation-reconciliation.service';
 import { CreateDirectMaintenanceDto } from './dto/create-direct-maintenance.dto';
-import { FacilityStatus, ReservationMode, ReservationStatus, Prisma } from '../generated/prisma/client';
+import {
+  FacilityStatus,
+  ReservationMode,
+  ReservationStatus,
+  Prisma,
+} from '../generated/prisma/client';
 import { MaintenanceMode } from '../reports/reports.constants';
 import { formatToJakartaDateString } from '../reservations/utils/reservation-time.util';
 
@@ -13,7 +22,10 @@ export class StaffMaintenanceService {
     private readonly reconciliation: QuantityReservationReconciliationService,
   ) {}
 
-  async previewDirectMaintenance(facilityId: string, input: CreateDirectMaintenanceDto) {
+  async previewDirectMaintenance(
+    facilityId: string,
+    input: CreateDirectMaintenanceDto,
+  ) {
     const { dateStart, dateEnd } = this.maintenanceDates(input);
     return this.prisma.$transaction(async (tx) => {
       const facility = await tx.facility.findUnique({
@@ -39,25 +51,45 @@ export class StaffMaintenanceService {
         });
       }
 
-      const scope = facility.facilityGroup.reservationMode === ReservationMode.QUANTITY ? 'FACILITY_GROUP' : 'FACILITY';
-      const scopeId = scope === 'FACILITY_GROUP' ? facility.facilityGroupId : facility.id;
-      
-      await this.reconciliation.lockAvailabilityWindow(tx, scope, scopeId, dateStart, dateEnd);
+      const scope =
+        facility.facilityGroup.reservationMode === ReservationMode.QUANTITY
+          ? 'FACILITY_GROUP'
+          : 'FACILITY';
+      const scopeId =
+        scope === 'FACILITY_GROUP' ? facility.facilityGroupId : facility.id;
+
+      await this.reconciliation.lockAvailabilityWindow(
+        tx,
+        scope,
+        scopeId,
+        dateStart,
+        dateEnd,
+      );
 
       return {
         facilityId,
-        ...(await this.getMaintenanceImpact(facilityId, dateStart, dateEnd, tx)),
+        ...(await this.getMaintenanceImpact(
+          facilityId,
+          dateStart,
+          dateEnd,
+          tx,
+        )),
       };
     });
   }
 
-  async createDirectMaintenance(staffId: string, facilityId: string, input: CreateDirectMaintenanceDto) {
+  async createDirectMaintenance(
+    staffId: string,
+    facilityId: string,
+    input: CreateDirectMaintenanceDto,
+  ) {
     const { dateStart, dateEnd } = this.maintenanceDates(input);
 
     if (!input.cancelImpactedReservations) {
       throw new ConflictException({
         code: 'MAINTENANCE_CONFIRMATION_REQUIRED',
-        message: 'Maintenance impact must be confirmed before the period is created.',
+        message:
+          'Maintenance impact must be confirmed before the period is created.',
       });
     }
 
@@ -72,16 +104,37 @@ export class StaffMaintenanceService {
         },
       });
 
-      if (!facility) throw new NotFoundException({ code: 'FACILITY_NOT_FOUND', message: 'Facility not found.' });
+      if (!facility) {
+        throw new NotFoundException({
+          code: 'FACILITY_NOT_FOUND',
+          message: 'Facility not found.',
+        });
+      }
 
-      const scope = facility.facilityGroup.reservationMode === ReservationMode.QUANTITY ? 'FACILITY_GROUP' : 'FACILITY';
-      const scopeId = scope === 'FACILITY_GROUP' ? facility.facilityGroupId : facility.id;
-      
-      await this.reconciliation.lockAvailabilityWindow(tx, scope, scopeId, dateStart, dateEnd);
+      const scope =
+        facility.facilityGroup.reservationMode === ReservationMode.QUANTITY
+          ? 'FACILITY_GROUP'
+          : 'FACILITY';
+      const scopeId =
+        scope === 'FACILITY_GROUP' ? facility.facilityGroupId : facility.id;
 
-      const impact = await this.getMaintenanceImpact(facilityId, dateStart, dateEnd, tx);
+      await this.reconciliation.lockAvailabilityWindow(
+        tx,
+        scope,
+        scopeId,
+        dateStart,
+        dateEnd,
+      );
+
+      const impact = await this.getMaintenanceImpact(
+        facilityId,
+        dateStart,
+        dateEnd,
+        tx,
+      );
       const now = new Date();
-      const reason = input.cancellationReason?.trim() || 'Fasilitas ditutup untuk perbaikan';
+      const reason =
+        input.cancellationReason?.trim() || 'Fasilitas ditutup untuk perbaikan';
 
       await tx.auditLog.create({
         data: {
@@ -99,7 +152,7 @@ export class StaffMaintenanceService {
 
       if (impact.pendingReservations.length > 0) {
         await tx.reservation.updateMany({
-          where: { id: { in: impact.pendingReservations.map(r => r.id) } },
+          where: { id: { in: impact.pendingReservations.map((r) => r.id) } },
           data: {
             status: ReservationStatus.REJECTED,
             processedById: staffId,
@@ -111,7 +164,7 @@ export class StaffMaintenanceService {
 
       if (impact.approvedReservations.length > 0) {
         await tx.reservation.updateMany({
-          where: { id: { in: impact.approvedReservations.map(r => r.id) } },
+          where: { id: { in: impact.approvedReservations.map((r) => r.id) } },
           data: {
             status: ReservationStatus.CANCELLED_BY_STAFF,
             processedById: staffId,
@@ -168,7 +221,10 @@ export class StaffMaintenanceService {
     facilityId: string,
     startAt: Date,
     endAt: Date,
-    client: Pick<Prisma.TransactionClient, 'facility' | 'reservation' | 'maintenancePeriod' | 'auditLog'>,
+    client: Pick<
+      Prisma.TransactionClient,
+      'facility' | 'reservation' | 'maintenancePeriod' | 'auditLog'
+    >,
   ) {
     const facility = await client.facility.findUnique({
       where: { id: facilityId },
@@ -188,21 +244,33 @@ export class StaffMaintenanceService {
       },
     });
 
-    if (!facility) throw new NotFoundException('Facility not found');
-    
+    if (!facility) {
+      throw new NotFoundException('Facility not found');
+    }
+
     const usageDate = {
       gte: this.usageDateStartUtc(startAt),
       lte: this.usageDateStartUtc(endAt),
     };
-    
-    const isQuantity = facility.facilityGroup.reservationMode === ReservationMode.QUANTITY;
+
+    const isQuantity =
+      facility.facilityGroup.reservationMode === ReservationMode.QUANTITY;
     const approvedWhere: Prisma.ReservationWhereInput = isQuantity
-      ? { facilityGroupId: facility.facilityGroupId, items: { some: { facilityId } }, status: ReservationStatus.APPROVED, usageDate }
+      ? {
+          facilityGroupId: facility.facilityGroupId,
+          items: { some: { facilityId } },
+          status: ReservationStatus.APPROVED,
+          usageDate,
+        }
       : { facilityId, status: ReservationStatus.APPROVED, usageDate };
     const pendingWhere: Prisma.ReservationWhereInput = isQuantity
-      ? { facilityGroupId: facility.facilityGroupId, status: ReservationStatus.PENDING, usageDate }
+      ? {
+          facilityGroupId: facility.facilityGroupId,
+          status: ReservationStatus.PENDING,
+          usageDate,
+        }
       : { facilityId, status: ReservationStatus.PENDING, usageDate };
-      
+
     const reservationSelect = {
       id: true,
       usageDate: true,
@@ -210,14 +278,22 @@ export class StaffMaintenanceService {
       endTime: true,
       requestedQuantity: true,
     } satisfies Prisma.ReservationSelect;
-    
+
     const [approved, pending] = await Promise.all([
-      client.reservation.findMany({ where: approvedWhere, select: reservationSelect }),
-      client.reservation.findMany({ where: pendingWhere, select: reservationSelect }),
+      client.reservation.findMany({
+        where: approvedWhere,
+        select: reservationSelect,
+      }),
+      client.reservation.findMany({
+        where: pendingWhere,
+        select: reservationSelect,
+      }),
     ]);
 
     const approvedReservations = approved
-      .filter((reservation) => this.reservationOverlapsWindow(reservation, startAt, endAt))
+      .filter((reservation) =>
+        this.reservationOverlapsWindow(reservation, startAt, endAt),
+      )
       .map((reservation) => ({
         id: reservation.id,
         usageDate: reservation.usageDate.toISOString(),
@@ -225,10 +301,18 @@ export class StaffMaintenanceService {
         endTime: reservation.endTime.toISOString(),
       }));
 
-    let pendingReservations: Array<{id: string, usageDate: string, startTime: string, endTime: string, requestedQuantity: number}> = [];
+    let pendingReservations: Array<{
+      id: string;
+      usageDate: string;
+      startTime: string;
+      endTime: string;
+      requestedQuantity: number;
+    }> = [];
     if (!isQuantity) {
       pendingReservations = pending
-        .filter((reservation) => this.reservationOverlapsWindow(reservation, startAt, endAt))
+        .filter((reservation) =>
+          this.reservationOverlapsWindow(reservation, startAt, endAt),
+        )
         .map((reservation) => ({
           id: reservation.id,
           usageDate: reservation.usageDate.toISOString(),
@@ -241,24 +325,29 @@ export class StaffMaintenanceService {
       const seen = new Set<string>();
       for (const reservation of pending) {
         const dateKey = formatToJakartaDateString(reservation.usageDate);
-        if (seen.has(dateKey)) continue;
+        if (seen.has(dateKey)) {
+          continue;
+        }
         seen.add(dateKey);
-        
-        const infeasible = await this.reconciliation.findInfeasibleQuantityReservations(client, {
-          facilityGroupId: facility.facilityGroupId,
-          usageDate: reservation.usageDate,
-          additionalMaintenance: { facilityId, startAt, endAt },
-          excludedApprovedReservationIds: excludedApproved,
-          overlapWindow: { startAt, endAt },
-        });
-        
-        pendingReservations.push(...infeasible.map((item) => ({
-          id: item.id,
-          usageDate: item.usageDate.toISOString(),
-          startTime: item.startTime.toISOString(),
-          endTime: item.endTime.toISOString(),
-          requestedQuantity: item.requestedQuantity,
-        })));
+
+        const infeasible =
+          await this.reconciliation.findInfeasibleQuantityReservations(client, {
+            facilityGroupId: facility.facilityGroupId,
+            usageDate: reservation.usageDate,
+            additionalMaintenance: { facilityId, startAt, endAt },
+            excludedApprovedReservationIds: excludedApproved,
+            overlapWindow: { startAt, endAt },
+          });
+
+        pendingReservations.push(
+          ...infeasible.map((item) => ({
+            id: item.id,
+            usageDate: item.usageDate.toISOString(),
+            startTime: item.startTime.toISOString(),
+            endTime: item.endTime.toISOString(),
+            requestedQuantity: item.requestedQuantity,
+          })),
+        );
       }
     }
 
@@ -270,8 +359,14 @@ export class StaffMaintenanceService {
     windowStart: Date,
     windowEnd: Date,
   ) {
-    const startAt = this.reservationInstant(reservation.usageDate, this.timeMinutes(reservation.startTime));
-    const endAt = this.reservationInstant(reservation.usageDate, this.timeMinutes(reservation.endTime));
+    const startAt = this.reservationInstant(
+      reservation.usageDate,
+      this.timeMinutes(reservation.startTime),
+    );
+    const endAt = this.reservationInstant(
+      reservation.usageDate,
+      this.timeMinutes(reservation.endTime),
+    );
     return startAt < windowEnd && endAt > windowStart;
   }
 
@@ -290,6 +385,8 @@ export class StaffMaintenanceService {
     const date = formatToJakartaDateString(usageDate);
     const hours = Math.floor(minutes / 60);
     const remainder = minutes % 60;
-    return new Date(`${date}T${String(hours).padStart(2, '0')}:${String(remainder).padStart(2, '0')}:00.000+07:00`);
+    return new Date(
+      `${date}T${String(hours).padStart(2, '0')}:${String(remainder).padStart(2, '0')}:00.000+07:00`,
+    );
   }
 }

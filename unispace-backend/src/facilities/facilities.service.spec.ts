@@ -439,8 +439,8 @@ describe('facility domain services', () => {
     });
 
     it('menampilkan maintenance mendatang tanpa mengubah status ACTIVE saat ini', async () => {
-      const nextStart = new Date('2026-10-01T03:00:00.000Z');
-      const nextEnd = new Date('2026-10-01T05:00:00.000Z');
+      const nextStart = new Date('2030-10-01T03:00:00.000Z');
+      const nextEnd = new Date('2030-10-01T05:00:00.000Z');
       prismaMock.facility.findFirst.mockResolvedValue({
         ...stubExclusiveFacility,
         maintenancePeriods: [{ startAt: nextStart, endAt: nextEnd }],

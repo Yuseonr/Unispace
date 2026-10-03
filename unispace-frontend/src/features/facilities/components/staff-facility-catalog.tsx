@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination } from "@/components/ui/page-primitives";
+import { ErrorState, LoadingState, PageHeader, Pagination } from "@/components/ui/page-primitives";
 import { useAuth } from "@/features/auth/auth-provider";
 import { fetchPublicCatalog } from "../data/catalog-api";
 import type { CatalogFacility } from "../types";
@@ -56,6 +56,7 @@ export function StaffFacilityCatalog() {
 
   useEffect(() => {
     let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(true);
     fetchPublicCatalog({ search: activeSearch || undefined, page })
       .then((catalog) => {
@@ -115,8 +116,8 @@ export function StaffFacilityCatalog() {
       const res = await previewDirectFacilityMaintenance(request, selectedFacility.id, payload);
       setImpact(res);
       setStep(2);
-    } catch (err: any) {
-      setSubmitError(err.message || "Gagal mempratinjau jadwal.");
+    } catch (err: unknown) {
+      setSubmitError((err as Error).message || "Gagal mempratinjau jadwal.");
     } finally {
       setIsSubmitting(false);
     }
@@ -142,8 +143,8 @@ export function StaffFacilityCatalog() {
       await createDirectFacilityMaintenance(request, selectedFacility.id, payload);
       router.push(`/staff/maintenance`);
       resetModal();
-    } catch (err: any) {
-      setSubmitError(err.message || "Gagal menyimpan jadwal perbaikan.");
+    } catch (err: unknown) {
+      setSubmitError((err as Error).message || "Gagal menyimpan jadwal perbaikan.");
       setIsSubmitting(false);
     }
   }
@@ -360,7 +361,7 @@ export function StaffFacilityCatalog() {
               <form onSubmit={handleConfirmSubmit} style={{ display: "grid", gap: "1rem" }}>
                 <div style={{ padding: "0.85rem", background: "#fffbeb", borderRadius: "8px", border: "1px solid #fde68a" }}>
                   <p style={{ margin: 0, fontSize: "0.85rem", color: "#92400e" }}>
-                    Terdapat <strong>{impact?.approvedReservations.length}</strong> reservasi disetujui dan <strong>{impact?.pendingReservations.length}</strong> reservasi tertunda yang terdampak (bertabrakan) dengan jadwal ini. Semua reservasi ini akan dibatalkan otomatis dengan catatan: "{note}".
+                    Terdapat <strong>{impact?.approvedReservations.length}</strong> reservasi disetujui dan <strong>{impact?.pendingReservations.length}</strong> reservasi tertunda yang terdampak (bertabrakan) dengan jadwal ini. Semua reservasi ini akan dibatalkan otomatis dengan catatan: &quot;{note}&quot;.
                   </p>
                 </div>
                 

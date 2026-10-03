@@ -477,7 +477,12 @@ export class ReportsService {
                 facility: {
                   is: {
                     OR: [
-                      { assetCode: { contains: query.search, mode: 'insensitive' } },
+                      {
+                        assetCode: {
+                          contains: query.search,
+                          mode: 'insensitive',
+                        },
+                      },
                       { name: { contains: query.search, mode: 'insensitive' } },
                       {
                         facilityGroup: {
@@ -672,8 +677,14 @@ export class ReportsService {
    * Membuat laporan internal otomatis oleh sistem (Petugas) tanpa butuh foto.
    * Langsung berstatus IN_PROGRESS agar siap dibuatkan jadwal Maintenance.
    */
-  async createInternalReport(staffId: string, facilityId: string, reason: string): Promise<{ id: string }> {
-    const facility = await this.prisma.facility.findUnique({ where: { id: facilityId } });
+  async createInternalReport(
+    staffId: string,
+    facilityId: string,
+    reason: string,
+  ): Promise<{ id: string }> {
+    const facility = await this.prisma.facility.findUnique({
+      where: { id: facilityId },
+    });
     if (!facility) {
       throw new NotFoundException('Fasilitas tidak ditemukan.');
     }

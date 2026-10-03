@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { UserRole } from '../generated/prisma/client';
 import { Roles } from '../accounts/auth/decorators/roles.decorator';
 import { CurrentUser } from '../accounts/auth/decorators/current-user.decorator';
@@ -35,6 +43,10 @@ export class StaffFacilitiesController {
     @Body() dto: CreateDirectMaintenanceDto,
     @CurrentUser() staff: AuthenticatedUser,
   ) {
-    return this.staffMaintenance.createDirectMaintenance(staff.id, facilityId, dto);
+    return this.staffMaintenance.createDirectMaintenance(
+      staff.id,
+      facilityId,
+      dto,
+    );
   }
 }
