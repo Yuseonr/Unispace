@@ -64,10 +64,12 @@ export class StaffFacilitiesService {
       items: items.map((item) => ({
         ...item,
         endAt: item.endAt.toISOString(),
-        report: {
-          ...item.report,
-          categoryLabel: REPORT_CATEGORY_LABELS[item.report.category],
-        },
+        report: item.report
+          ? {
+              ...item.report,
+              categoryLabel: REPORT_CATEGORY_LABELS[item.report.category],
+            }
+          : null,
         startAt: item.startAt.toISOString(),
         state: item.startAt <= now && item.endAt > now ? 'ACTIVE' : 'SCHEDULED',
       })),

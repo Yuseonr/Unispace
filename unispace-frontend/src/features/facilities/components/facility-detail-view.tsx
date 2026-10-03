@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/features/auth/auth-provider";
+
 import {
   createReservation,
   getAvailableOperationalDates,
@@ -18,6 +19,7 @@ import { FacilityVisual } from "./facility-card";
 import type { FacilityAvailabilityData } from "@/features/reservations/types";
 
 export function FacilityDetailView({ facilityId }: { facilityId: string }) {
+
   const { isReady, request, user } = useAuth();
   const [facility, setFacility] = useState<CatalogFacilityDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,6 +35,7 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
   const [availability, setAvailability] = useState<FacilityAvailabilityData | null>(null);
   const [availabilityRefreshKey, setAvailabilityRefreshKey] = useState(0);
   const [purpose, setPurpose] = useState<string>("");
+
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -103,6 +106,8 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
     setShouldReloadAvailability(false);
   }
 
+
+
   async function handleReservationSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!facility || !selectedStartTime || !selectedEndTime) return;
@@ -166,6 +171,7 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
   const isMaintenance = facility.status === "MAINTENANCE";
   const capacityText =
     facility.capacity === null ? "Kapasitas fleksibel" : `${facility.capacity} orang`;
+  const isStaff = Boolean(isReady && user && user.role === "STAFF");
   const isUserActive =
     Boolean(isReady && user && user.role === "USER" && user.accountStatus === "ACTIVE");
   const isGuest = Boolean(isReady && !user);
@@ -289,6 +295,18 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
                   Pesan Jadwal Lain
                 </button>
               </div>
+            </div>
+          ) : isStaff ? (
+            <div className="facility-inpage-cta">
+              <div className="facility-inpage-cta__text">
+                <strong>Manajemen Operasional</strong>
+                <p>
+                  Gunakan menu Manajemen Fasilitas di dashboard untuk menutup atau mengatur jadwal perbaikan fasilitas ini secara mandiri.
+                </p>
+              </div>
+              <Link className="button-primary" href="/staff/facilities">
+                Ke Manajemen Fasilitas
+              </Link>
             </div>
           ) : isGuest ? (
             <div className="facility-inpage-cta">

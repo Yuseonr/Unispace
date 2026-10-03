@@ -79,3 +79,10 @@ export type MaintenanceInput = { mode: MaintenanceMode; startDate?: string; endD
 export function previewMaintenance(request: AuthenticatedRequestFn, reportId: string, input: MaintenanceInput) { return request<MaintenancePreview>(`/staff/reports/${reportId}/maintenance/preview`, { body: input, method: "POST" }); }
 export function confirmMaintenance(request: AuthenticatedRequestFn, reportId: string, input: MaintenanceInput & { cancelImpactedReservations: true; cancellationReason: string; note?: string }, idempotencyKey: string) { return request<MaintenancePeriod>(`/staff/reports/${reportId}/maintenance`, { body: input, headers: { "Idempotency-Key": idempotencyKey }, method: "POST" }); }
 export function endMaintenance(request: AuthenticatedRequestFn, periodId: string) { return request<MaintenancePeriod>(`/staff/reports/maintenance/${periodId}/end`, { method: "PATCH" }); }
+
+export function createInternalReport(request: AuthenticatedRequestFn, facilityId: string, reason: string): Promise<{ id: string }> {
+  return request<{ id: string }>('/staff/reports/internal', { 
+    method: 'POST', 
+    body: { facilityId, reason },
+  });
+}

@@ -98,7 +98,7 @@ function CapacityIcon() {
   );
 }
 
-export function FacilityCard({ facility }: { facility: CatalogFacility }) {
+export function FacilityCard({ facility, href, onClick }: { facility: CatalogFacility; href?: string; onClick?: () => void }) {
   const isMaintenance = facility.status === "MAINTENANCE";
   const unitText =
     facility.availability.kind === "QUANTITY"
@@ -112,8 +112,8 @@ export function FacilityCard({ facility }: { facility: CatalogFacility }) {
     isMaintenance ? "facility-status--maintenance" : "facility-status--active"
   }`;
 
-  return (
-    <Link className="facility-card" href={`/facilities/${facility.id}`}>
+  const InnerContent = (
+    <>
       <div
         aria-label={`Ilustrasi ${facility.type}`}
         className="facility-visual"
@@ -152,10 +152,24 @@ export function FacilityCard({ facility }: { facility: CatalogFacility }) {
             <span className="facility-card__unit-info">{unitText}</span>
           ) : null}
           <span className="facility-card__action">
-            Lihat Jadwal
+            {onClick ? "Tutup Fasilitas" : "Lihat Jadwal"}
           </span>
         </div>
       </div>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button className="facility-card" onClick={onClick} type="button" style={{ textAlign: "left", padding: 0, background: "none", border: "none" }}>
+        {InnerContent}
+      </button>
+    );
+  }
+
+  return (
+    <Link className="facility-card" href={href ?? `/facilities/${facility.id}`}>
+      {InnerContent}
     </Link>
   );
 }

@@ -110,8 +110,9 @@ model User {
   resolvedReports       FacilityReport[]        @relation("ReportResolver")
   processedReports      FacilityReport[]        @relation("ReportProcessor")
   facilityStatusChanges FacilityStatusHistory[] @relation("FacilityStatusChanger")
+  maintenancePeriods    MaintenancePeriod[]
   auditLogs             AuditLog[]              @relation("AuditActor")
-  idempotencyRecords    IdempotencyRecord[]      @relation("IdempotencyActor")
+  idempotencyRecords    IdempotencyRecord[]     @relation("IdempotencyActor")
 
   @@index([accountStatus, role])
   @@map("users")
@@ -141,16 +142,16 @@ model FacilityArea {
 }
 
 model FacilityGroup {
-  id              String          @id @default(uuid()) @db.Uuid
-  name            String          @db.VarChar(150)
-  facilityTypeId  String          @map("facility_type_id") @db.Uuid
-  reservationMode ReservationMode @map("reservation_mode")
-  facilityAreaId  String          @map("facility_area_id") @db.Uuid
-  locationDetail  String          @map("location_detail") @db.Text
-  capacity        Int?
-  description     String?         @db.Text
-  primaryImageUrl String?         @map("primary_image_url") @db.Text
-  primaryImageObjectKey String?   @map("primary_image_object_key") @db.Text
+  id                    String          @id @default(uuid()) @db.Uuid
+  name                  String          @db.VarChar(150)
+  facilityTypeId        String          @map("facility_type_id") @db.Uuid
+  reservationMode       ReservationMode @map("reservation_mode")
+  facilityAreaId        String          @map("facility_area_id") @db.Uuid
+  locationDetail        String          @map("location_detail") @db.Text
+  capacity              Int?
+  description           String?         @db.Text
+  primaryImageUrl       String?         @map("primary_image_url") @db.Text
+  primaryImageObjectKey String?         @map("primary_image_object_key") @db.Text
 
   facilityType FacilityType  @relation(fields: [facilityTypeId], references: [id], onDelete: Restrict)
   facilityArea FacilityArea  @relation(fields: [facilityAreaId], references: [id], onDelete: Restrict)
@@ -163,17 +164,17 @@ model FacilityGroup {
 }
 
 model Facility {
-  id              String         @id @default(uuid()) @db.Uuid
-  facilityGroupId String         @map("facility_group_id") @db.Uuid
-  assetCode       String         @unique @map("asset_code") @db.VarChar(64)
-  name            String?        @db.VarChar(150)
-  capacity        Int?
-  description     String?        @db.Text
-  primaryImageUrl String?        @map("primary_image_url") @db.Text
-  primaryImageObjectKey String?  @map("primary_image_object_key") @db.Text
-  status          FacilityStatus @default(ACTIVE)
-  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id                    String         @id @default(uuid()) @db.Uuid
+  facilityGroupId       String         @map("facility_group_id") @db.Uuid
+  assetCode             String         @unique @map("asset_code") @db.VarChar(64)
+  name                  String?        @db.VarChar(150)
+  capacity              Int?
+  description           String?        @db.Text
+  primaryImageUrl       String?        @map("primary_image_url") @db.Text
+  primaryImageObjectKey String?        @map("primary_image_object_key") @db.Text
+  status                FacilityStatus @default(ACTIVE)
+  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   facilityGroup      FacilityGroup           @relation(fields: [facilityGroupId], references: [id], onDelete: Restrict)
   reservations       Reservation[]
@@ -303,15 +304,18 @@ model ReportAttachment {
 }
 
 model MaintenancePeriod {
-  id         String   @id @default(uuid()) @db.Uuid
-  facilityId String   @map("facility_id") @db.Uuid
-  reportId   String   @map("report_id") @db.Uuid
-  startAt    DateTime @map("start_at") @db.Timestamptz(3)
-  endAt      DateTime @map("end_at") @db.Timestamptz(3)
-  note       String?  @db.Text
+  id          String   @id @default(uuid()) @db.Uuid
+  facilityId  String   @map("facility_id") @db.Uuid
+  reportId    String?  @map("report_id") @db.Uuid
+  createdById String?  @map("created_by_id") @db.Uuid
+  startAt     DateTime @map("start_at") @db.Timestamptz(3)
+  endAt       DateTime @map("end_at") @db.Timestamptz(3)
+  note        String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  facility Facility       @relation(fields: [facilityId], references: [id], onDelete: Restrict)
-  report   FacilityReport @relation(fields: [reportId], references: [id], onDelete: Restrict)
+  facility  Facility        @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  report    FacilityReport? @relation(fields: [reportId], references: [id], onDelete: SetNull)
+  createdBy User?           @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([facilityId, startAt, endAt])
   @@index([reportId, startAt, endAt])
@@ -337,15 +341,15 @@ model AuditLog {
 }
 
 model IdempotencyRecord {
-  id           String    @id @default(uuid()) @db.Uuid
-  actorId      String    @map("actor_id") @db.Uuid
-  key          String    @db.VarChar(255)
-  requestHash  String    @map("request_hash") @db.Char(64)
-  response     Json?
-  statusCode   Int       @default(200) @map("status_code")
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  completedAt  DateTime? @map("completed_at") @db.Timestamptz(3)
-  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(3)
+  id          String    @id @default(uuid()) @db.Uuid
+  actorId     String    @map("actor_id") @db.Uuid
+  key         String    @db.VarChar(255)
+  requestHash String    @map("request_hash") @db.Char(64)
+  response    Json?
+  statusCode  Int       @default(200) @map("status_code")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(3)
 
   actor User @relation("IdempotencyActor", fields: [actorId], references: [id], onDelete: Cascade)
 
