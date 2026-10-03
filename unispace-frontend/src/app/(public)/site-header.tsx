@@ -136,7 +136,7 @@ export function SiteHeader() {
                   ) : null}
                   <Link
                     className="header-profile__item"
-                    href="/profile"
+                    href={user.role === "ADMIN" ? "/admin/profile" : user.role === "STAFF" ? "/staff/profile" : "/profile"}
                     onClick={() => setIsProfileOpen(false)}
                     role="menuitem"
                   >
