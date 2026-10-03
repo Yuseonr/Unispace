@@ -1288,11 +1288,24 @@
 .report-create-form > section { display: grid; gap: 0.75rem; }
 .report-create-form h2 { color: var(--forest-deep); font-size: 1rem; margin: 0; }
 .report-create-form > footer { align-items: center; border-top: 1px solid #e7efe9; display: flex; gap: 0.7rem; justify-content: flex-end; padding-top: 1rem; }
-.reportable-list { border: 1px solid #e0ebe3; display: grid; max-height: 310px; overflow-y: auto; }
-.reportable-item { background: #fff; border: 0; border-bottom: 1px solid #eaf0eb; color: #365a49; display: grid; font: inherit; gap: 0.18rem; padding: 0.7rem; text-align: left; }
-.reportable-item strong { color: #244d3c; font-size: 0.77rem; }
-.reportable-item span { color: #71887a; font-size: 0.69rem; line-height: 1.4; }
-.reportable-item:hover, .reportable-item:focus-visible, .reportable-item.is-selected { background: #edf8f0; box-shadow: inset 3px 0 0 var(--forest); }
+.report-facility-picker { position: relative; }
+.report-facility-suggestions { background: #ffffff; border: 1px solid #d2e4d8; border-radius: 6px; box-shadow: 0 10px 24px rgb(18 64 52 / 12%); left: 0; overflow: hidden; position: absolute; right: 0; top: calc(100% + 4px); z-index: 35; }
+.report-facility-suggestions__list { display: flex; flex-direction: column; max-height: 240px; overflow-y: auto; }
+.report-facility-suggestion-item { background: #fff; border: 0; border-bottom: 1px solid #f0f5f2; color: #365a49; cursor: pointer; display: flex; flex-direction: column; font: inherit; gap: 0.2rem; padding: 0.65rem 0.85rem; text-align: left; transition: background 0.15s ease; width: 100%; }
+.report-facility-suggestion-item:last-child { border-bottom: 0; }
+.report-facility-suggestion-item:hover, .report-facility-suggestion-item:focus-visible { background: #edf8f0; }
+.report-facility-suggestion-item strong { color: #1e4535; font-size: 0.82rem; }
+.report-facility-suggestion-item small { color: #6b8577; font-size: 0.72rem; line-height: 1.35; }
+.report-facility-suggestions__more { background: #f7faf8; border: 0; border-top: 1px solid #e2ece5; color: var(--forest); cursor: pointer; font: inherit; font-size: 0.75rem; font-weight: 700; padding: 0.55rem; text-align: center; transition: background 0.15s; }
+.report-facility-suggestions__more:hover, .report-facility-suggestions__more:focus-visible { background: #edf6f0; }
+
+.report-selected-facility { align-items: center; background: #f3faf5; border: 1px solid #c7e2cf; border-radius: 6px; display: flex; gap: 0.75rem; justify-content: space-between; margin-top: 0.65rem; padding: 0.7rem 0.85rem; }
+.report-selected-facility__info { display: flex; flex-direction: column; gap: 0.2rem; }
+.report-selected-facility__badge { background: #dcf2e2; border-radius: 4px; color: #1a623c; display: inline-block; font-size: 0.64rem; font-weight: 750; letter-spacing: 0.04em; padding: 0.15rem 0.45rem; text-transform: uppercase; width: fit-content; }
+.report-selected-facility__info strong { color: #173d2e; font-size: 0.85rem; }
+.report-selected-facility__info small { color: #557263; font-size: 0.72rem; }
+.report-selected-facility__remove { background: #ffffff; border: 1px solid #c6dcce; border-radius: 5px; color: #3b5f4d; cursor: pointer; font: inherit; font-size: 0.72rem; font-weight: 700; padding: 0.35rem 0.65rem; transition: all 0.15s ease; white-space: nowrap; }
+.report-selected-facility__remove:hover, .report-selected-facility__remove:focus-visible { background: #fff0ef; border-color: #efc8c5; color: #b84640; }
 .report-upload { background: #f7fbf8; border: 1px dashed #b8d5c0; color: #537363; cursor: pointer; display: grid; font-size: 0.74rem; font-weight: 650; gap: 0.5rem; padding: 0.8rem; }
 .report-upload input { max-width: 100%; }
 .report-upload-preview { display: flex; flex-wrap: wrap; gap: 0.7rem; }
@@ -5226,13 +5239,26 @@ button {
 .user-res-card__number { color: #73867b; font-family: var(--font-mono, monospace); font-size: 0.67rem; margin: -0.15rem 0 0.5rem; }
 
 .user-res-card__mode {
-  background: var(--soft-green);
-  border: 1px solid #cce5cf;
-  border-radius: 0.3rem;
-  color: var(--forest-deep);
-  font-size: 0.7rem;
+  align-items: center;
+  border-radius: 0.35rem;
+  display: inline-flex;
+  font-size: 0.68rem;
   font-weight: 700;
-  padding: 0.1rem 0.35rem;
+  letter-spacing: 0.02em;
+  padding: 0.18rem 0.5rem;
+  white-space: nowrap;
+}
+
+.user-res-card__mode--exclusive {
+  background: #eef2ff;
+  border: 1px solid #e0e7ff;
+  color: #4338ca;
+}
+
+.user-res-card__mode--quantity {
+  background: #fefce8;
+  border: 1px solid #fef08a;
+  color: #854d0e;
 }
 
 .user-res-card__actions {
