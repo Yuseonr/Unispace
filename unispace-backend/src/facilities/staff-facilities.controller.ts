@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestj
 import { UserRole } from '../generated/prisma/client';
 import { Roles } from '../accounts/auth/decorators/roles.decorator';
 import { CurrentUser } from '../accounts/auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../accounts/auth/auth.types';
 import { ListStaffMaintenanceDto } from './dto/staff/list-staff-maintenance.dto';
 import { CreateDirectMaintenanceDto } from './dto/create-direct-maintenance.dto';
 import { StaffFacilitiesService } from './staff-facilities.service';
@@ -32,8 +33,8 @@ export class StaffFacilitiesController {
   createMaintenance(
     @Param('facilityId', ParseUUIDPipe) facilityId: string,
     @Body() dto: CreateDirectMaintenanceDto,
-    @CurrentUser('id') staffId: string,
+    @CurrentUser() staff: AuthenticatedUser,
   ) {
-    return this.staffMaintenance.createDirectMaintenance(staffId, facilityId, dto);
+    return this.staffMaintenance.createDirectMaintenance(staff.id, facilityId, dto);
   }
 }
