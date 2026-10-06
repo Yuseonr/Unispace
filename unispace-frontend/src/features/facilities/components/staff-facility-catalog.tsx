@@ -111,7 +111,6 @@ export function StaffFacilityCatalog() {
         date: mode === "TIME_RANGE" ? date : undefined,
         startTime: mode === "TIME_RANGE" ? startTime : undefined,
         endTime: mode === "TIME_RANGE" ? endTime : undefined,
-        note,
       };
       const res = await previewDirectFacilityMaintenance(request, selectedFacility.id, payload);
       setImpact(res);
@@ -138,9 +137,9 @@ export function StaffFacilityCatalog() {
         endTime: mode === "TIME_RANGE" ? endTime : undefined,
         note,
         cancellationReason: note,
-        cancelImpactedReservations: true,
+        cancelImpactedReservations: true as const,
       };
-      await createDirectFacilityMaintenance(request, selectedFacility.id, payload);
+      await createDirectFacilityMaintenance(request, selectedFacility.id, payload, crypto.randomUUID());
       router.push(`/staff/maintenance`);
       resetModal();
     } catch (err: unknown) {
