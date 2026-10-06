@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   ParseUUIDPipe,
   Post,
@@ -13,6 +14,7 @@ import { CurrentUser } from '../accounts/auth/decorators/current-user.decorator'
 import type { AuthenticatedUser } from '../accounts/auth/auth.types';
 import { ListStaffMaintenanceDto } from './dto/staff/list-staff-maintenance.dto';
 import { CreateDirectMaintenanceDto } from './dto/create-direct-maintenance.dto';
+import { PreviewDirectMaintenanceDto } from './dto/preview-direct-maintenance.dto';
 import { StaffFacilitiesService } from './staff-facilities.service';
 import { StaffMaintenanceService } from './staff-maintenance.service';
 
@@ -32,7 +34,7 @@ export class StaffFacilitiesController {
   @Post(':facilityId/maintenance/preview')
   previewMaintenance(
     @Param('facilityId', ParseUUIDPipe) facilityId: string,
-    @Body() dto: CreateDirectMaintenanceDto,
+    @Body() dto: PreviewDirectMaintenanceDto,
   ) {
     return this.staffMaintenance.previewDirectMaintenance(facilityId, dto);
   }
@@ -42,11 +44,13 @@ export class StaffFacilitiesController {
     @Param('facilityId', ParseUUIDPipe) facilityId: string,
     @Body() dto: CreateDirectMaintenanceDto,
     @CurrentUser() staff: AuthenticatedUser,
+    @Headers('Idempotency-Key') idempotencyKey?: string,
   ) {
     return this.staffMaintenance.createDirectMaintenance(
       staff.id,
       facilityId,
       dto,
+      idempotencyKey,
     );
   }
 }

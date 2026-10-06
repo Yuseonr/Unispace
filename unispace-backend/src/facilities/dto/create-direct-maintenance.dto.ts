@@ -1,70 +1,30 @@
 import {
   IsBoolean,
-  IsEnum,
+  IsDefined,
   IsNotEmpty,
-  IsOptional,
   IsString,
-  Matches,
   MaxLength,
-  ValidateIf,
 } from 'class-validator';
-import { MaintenanceMode } from '../../reports/reports.constants';
+import { Transform } from 'class-transformer';
+import { MaintenanceWindowDto } from './maintenance-window.dto';
 
-export class CreateDirectMaintenanceDto {
-  @IsEnum(MaintenanceMode)
-  mode: MaintenanceMode;
+const trimValue = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
 
-  @ValidateIf((o) => o.mode === MaintenanceMode.DATE_RANGE)
-  @IsString()
-  @IsNotEmpty()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
-    message: 'startDate harus berformat YYYY-MM-DD',
-  })
-  startDate?: string;
-
-  @ValidateIf((o) => o.mode === MaintenanceMode.DATE_RANGE)
-  @IsString()
-  @IsNotEmpty()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
-    message: 'endDate harus berformat YYYY-MM-DD',
-  })
-  endDate?: string;
-
-  @ValidateIf((o) => o.mode === MaintenanceMode.TIME_RANGE)
-  @IsString()
-  @IsNotEmpty()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
-    message: 'date harus berformat YYYY-MM-DD',
-  })
-  date?: string;
-
-  @ValidateIf((o) => o.mode === MaintenanceMode.TIME_RANGE)
-  @IsString()
-  @IsNotEmpty()
-  @Matches(/^(?:[01]\d|2[0-3]):[0-5]\d$/, {
-    message: 'startTime harus berformat HH:mm',
-  })
-  startTime?: string;
-
-  @ValidateIf((o) => o.mode === MaintenanceMode.TIME_RANGE)
-  @IsString()
-  @IsNotEmpty()
-  @Matches(/^(?:[01]\d|2[0-3]):[0-5]\d$/, {
-    message: 'endTime harus berformat HH:mm',
-  })
-  endTime?: string;
-
+export class CreateDirectMaintenanceDto extends MaintenanceWindowDto {
+  @Transform(trimValue)
   @IsString()
   @IsNotEmpty()
   @MaxLength(500)
-  note: string;
+  note!: string;
 
-  @IsOptional()
+  @Transform(trimValue)
   @IsString()
+  @IsNotEmpty({ message: 'cancellationReason is required.' })
   @MaxLength(500)
-  cancellationReason?: string;
+  cancellationReason!: string;
 
-  @IsOptional()
+  @IsDefined({ message: 'cancelImpactedReservations is required.' })
   @IsBoolean()
-  cancelImpactedReservations?: boolean;
+  cancelImpactedReservations!: boolean;
 }
