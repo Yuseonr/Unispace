@@ -4,6 +4,8 @@ import {
   StorageProvider,
 } from '../generated/prisma/client';
 
+export { MaintenanceMode } from '../facilities/maintenance.constants';
+
 export const REPORT_CATEGORY_LABELS: Record<ReportCategory, string> = {
   [ReportCategory.PHYSICAL_DAMAGE]: 'Kerusakan Fisik',
   [ReportCategory.ELECTRICAL_ELECTRONICS]: 'Listrik/Elektronik',
@@ -24,11 +26,6 @@ export const STORAGE_PROVIDER_LABELS: Record<StorageProvider, string> = {
   [StorageProvider.MINIO]: 'MinIO',
   [StorageProvider.S3]: 'S3',
 };
-
-export enum MaintenanceMode {
-  DATE_RANGE = 'DATE_RANGE',
-  TIME_RANGE = 'TIME_RANGE',
-}
 
 export const REPORT_ATTACHMENT_LIMITS = {
   maxCount: 3,

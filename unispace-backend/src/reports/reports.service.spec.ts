@@ -10,6 +10,7 @@ import { CreateMaintenancePeriodDto } from './dto/create-maintenance-period.dto'
 import { PreviewMaintenanceImpactDto } from './dto/preview-maintenance-impact.dto';
 import { MaintenanceMode } from './reports.constants';
 import { QuantityReservationReconciliationService } from '../facilities/quantity-reservation-reconciliation.service';
+import { MaintenanceWorkflowService } from '../facilities/maintenance-workflow.service';
 
 const createMockReport = (overrides: Record<string, unknown> = {}) => ({
   id: 'report-1',
@@ -98,6 +99,7 @@ describe('ReportsService lifecycle', () => {
       providers: [
         ReportsService,
         QuantityReservationReconciliationService,
+        MaintenanceWorkflowService,
         {
           provide: PrismaService,
           useValue: { ...mockDelegates(), $transaction: jest.fn() },
