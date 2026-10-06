@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
+import { IdempotencyService } from '../common/idempotency/idempotency.service';
 import { AdminFacilitiesController } from './admin-facilities.controller';
 import { FacilityManagementService } from './admin/facility-management.service';
 import { FacilityMasterService } from './admin/facility-master.service';
@@ -9,6 +10,7 @@ import { FacilityCatalogService } from './catalog/facility-catalog.service';
 import { FacilityImagesController } from './facility-images.controller';
 import { FacilityImageStorageService } from './facility-image-storage.service';
 import { FacilitiesController } from './facilities.controller';
+import { MaintenanceWorkflowService } from './maintenance-workflow.service';
 import { QuantityReservationReconciliationService } from './quantity-reservation-reconciliation.service';
 import { StaffFacilitiesController } from './staff-facilities.controller';
 import { StaffFacilitiesService } from './staff-facilities.service';
@@ -30,12 +32,15 @@ import { StaffMaintenanceService } from './staff-maintenance.service';
     FacilityStatusService,
     FacilityImageStorageService,
     QuantityReservationReconciliationService,
+    MaintenanceWorkflowService,
     StaffFacilitiesService,
     StaffMaintenanceService,
+    IdempotencyService,
   ],
   exports: [
     FacilityAvailabilityService,
     QuantityReservationReconciliationService,
+    MaintenanceWorkflowService,
   ],
 })
 export class FacilitiesModule {}

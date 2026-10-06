@@ -14,19 +14,18 @@ import {
   ReportCategory,
   ReportStatus,
   ReservationMode,
-  ReservationStatus,
   UserRole,
 } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { IdempotencyService } from '../common/idempotency/idempotency.service';
 import { ObjectStorageService } from '../common/storage/object-storage.service';
 import { QuantityReservationReconciliationService } from '../facilities/quantity-reservation-reconciliation.service';
+import { MaintenanceWorkflowService } from '../facilities/maintenance-workflow.service';
 import { CreateReportDto } from './dto/create-report.dto';
 import { ListMyReportsDto } from './dto/list-my-reports.dto';
 import { ListReportableFacilitiesDto } from './dto/list-reportable-facilities.dto';
 import { ListStaffReportsDto } from './dto/list-staff-reports.dto';
 import {
-  MaintenanceMode,
   REPORT_CATEGORY_LABELS,
   FACILITY_ENTITY_TYPE,
   MAINTENANCE_ENTITY_TYPE,
@@ -35,10 +34,7 @@ import {
   REPORT_STATUS_LABELS,
 } from './reports.constants';
 import { ListReportAuditDto } from './dto/list-report-audit.dto';
-import {
-  formatToJakartaDateString,
-  TIMEZONE,
-} from '../reservations/utils/reservation-time.util';
+import { TIMEZONE } from '../reservations/utils/reservation-time.util';
 import type {
   MaintenancePeriodResponse,
   PaginatedReportsResponse,
@@ -122,29 +118,13 @@ type ReportRecord = Prisma.FacilityReportGetPayload<{
   select: typeof reportSelect;
 }>;
 
-type MaintenanceImpact = {
-  facilityId: string;
-  approvedReservations: Array<{
-    id: string;
-    usageDate: string;
-    startTime: string;
-    endTime: string;
-  }>;
-  pendingReservations: Array<{
-    id: string;
-    usageDate: string;
-    startTime: string;
-    endTime: string;
-    requestedQuantity: number;
-  }>;
-};
-
 @Injectable()
 export class ReportsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: ObjectStorageService,
     private readonly reconciliation: QuantityReservationReconciliationService,
+    private readonly maintenanceWorkflow: MaintenanceWorkflowService,
     @Optional() private readonly idempotency?: IdempotencyService,
   ) {}
 
@@ -984,45 +964,11 @@ export class ReportsService {
     });
   }
 
-  private maintenanceDates(input: MaintenanceWindowDto) {
-    const dateStart =
-      input.mode === MaintenanceMode.DATE_RANGE
-        ? new Date(`${input.startDate ?? ''}T07:00:00.000+07:00`)
-        : new Date(`${input.date ?? ''}T${input.startTime ?? ''}:00.000+07:00`);
-    const dateEnd =
-      input.mode === MaintenanceMode.DATE_RANGE
-        ? new Date(`${input.endDate ?? ''}T20:00:00.000+07:00`)
-        : new Date(`${input.date ?? ''}T${input.endTime ?? ''}:00.000+07:00`);
-
-    if (Number.isNaN(dateStart.getTime()) || Number.isNaN(dateEnd.getTime())) {
-      throw new ConflictException({
-        code: 'MAINTENANCE_INVALID_RANGE',
-        message: 'Maintenance dates and times are incomplete or invalid.',
-      });
-    }
-
-    if (dateEnd <= dateStart) {
-      throw new ConflictException({
-        code: 'MAINTENANCE_INVALID_RANGE',
-        message: 'Maintenance end time must be after start time.',
-      });
-    }
-
-    if (dateStart < new Date()) {
-      throw new ConflictException({
-        code: 'MAINTENANCE_PERIOD_IN_PAST',
-        message: 'Maintenance must start now or be scheduled for the future.',
-      });
-    }
-
-    return { dateStart, dateEnd };
-  }
-
   async previewReportMaintenanceImpact(
     reportId: string,
     input: MaintenanceWindowDto,
   ) {
-    const { dateStart, dateEnd } = this.maintenanceDates(input);
+    const { dateStart, dateEnd } = this.maintenanceWorkflow.dates(input);
     return this.prisma.$transaction(async (tx) => {
       await this.lockReport(tx, reportId);
       const report = await tx.facilityReport.findUnique({
@@ -1052,38 +998,16 @@ export class ReportsService {
           message: 'Only IN_PROGRESS reports can create maintenance periods.',
         });
       }
-      if (report.facility.status === FacilityStatus.NONACTIVE) {
-        throw new ConflictException({
-          code: 'FACILITY_NOT_ACTIVE',
-          message: 'Maintenance cannot be scheduled for a nonactive facility.',
-        });
-      }
-
-      const scope =
-        report.facility.facilityGroup.reservationMode ===
-        ReservationMode.QUANTITY
-          ? 'FACILITY_GROUP'
-          : 'FACILITY';
-      const scopeId =
-        scope === 'FACILITY_GROUP'
-          ? report.facility.facilityGroupId
-          : report.facilityId;
-      await this.reconciliation.lockAvailabilityWindow(
+      const prepared = await this.maintenanceWorkflow.prepare(
         tx,
-        scope,
-        scopeId,
+        report.facilityId,
         dateStart,
         dateEnd,
       );
 
       return {
         reportId,
-        ...(await this.getMaintenanceImpact(
-          report.facilityId,
-          dateStart,
-          dateEnd,
-          tx,
-        )),
+        ...prepared.impact,
       };
     });
   }
@@ -1112,7 +1036,7 @@ export class ReportsService {
       });
     }
 
-    const { dateStart, dateEnd } = this.maintenanceDates(input);
+    const { dateStart, dateEnd } = this.maintenanceWorkflow.dates(input);
     const reason = input.cancellationReason.trim();
 
     return this.runIdempotently(
@@ -1150,40 +1074,17 @@ export class ReportsService {
                 'Only IN_PROGRESS reports can create maintenance periods.',
             });
           }
-          if (report.facility.status === FacilityStatus.NONACTIVE) {
-            throw new ConflictException({
-              code: 'FACILITY_NOT_ACTIVE',
-              message:
-                'Maintenance cannot be created for a nonactive facility.',
-            });
-          }
-
-          const isQuantity =
-            report.facility.facilityGroup.reservationMode ===
-            ReservationMode.QUANTITY;
-          const scope = isQuantity ? 'FACILITY_GROUP' : 'FACILITY';
-          const scopeId = isQuantity
-            ? report.facility.facilityGroupId
-            : report.facilityId;
-          await this.reconciliation.lockAvailabilityWindow(
+          const prepared = await this.maintenanceWorkflow.prepare(
             tx,
-            scope,
-            scopeId,
-            dateStart,
-            dateEnd,
-          );
-
-          const impact = await this.getMaintenanceImpact(
             report.facilityId,
             dateStart,
             dateEnd,
-            tx,
           );
           const now = new Date();
-          const approvedIds = impact.approvedReservations.map(
+          const approvedIds = prepared.impact.approvedReservations.map(
             (reservation) => reservation.id,
           );
-          const pendingIds = impact.pendingReservations.map(
+          const pendingIds = prepared.impact.pendingReservations.map(
             (reservation) => reservation.id,
           );
 
@@ -1204,94 +1105,16 @@ export class ReportsService {
             },
           });
 
-          let approvedCancelled = 0;
-          for (const reservationId of approvedIds) {
-            const changed = await tx.reservation.updateMany({
-              where: { id: reservationId, status: ReservationStatus.APPROVED },
-              data: {
-                status: ReservationStatus.CANCELLED_BY_STAFF,
-                decisionReason: reason,
-                processedById: staffId,
-                cancelledAt: now,
-              },
+          const { approvedCancelled, pendingRejected } =
+            await this.maintenanceWorkflow.applyReservationImpact(tx, {
+              prepared,
+              startAt: dateStart,
+              endAt: dateEnd,
+              staffId,
+              reason,
+              now,
+              source: { kind: 'REPORT_MAINTENANCE', reportId },
             });
-            if (changed.count !== 1) {
-              continue;
-            }
-            approvedCancelled++;
-            await tx.auditLog.create({
-              data: {
-                actorId: staffId,
-                action: 'RESERVATION_CANCELLED_BY_STAFF',
-                entityType: 'RESERVATION',
-                entityId: reservationId,
-                metadata: {
-                  reason,
-                  cancellationSource: 'MAINTENANCE_PERIOD',
-                  reportId,
-                  facilityId: report.facilityId,
-                },
-              },
-            });
-          }
-
-          let pendingRejected = 0;
-          if (isQuantity) {
-            const pendingDates = await tx.reservation.findMany({
-              where: {
-                facilityGroupId: report.facility.facilityGroupId,
-                status: ReservationStatus.PENDING,
-                usageDate: {
-                  gte: this.usageDateStartUtc(dateStart),
-                  lte: this.usageDateStartUtc(dateEnd),
-                },
-              },
-              select: { usageDate: true },
-              distinct: ['usageDate'],
-            });
-            for (const pendingDate of pendingDates) {
-              const result =
-                await this.reconciliation.rejectInfeasibleQuantityReservations(
-                  tx,
-                  {
-                    facilityGroupId: report.facility.facilityGroupId,
-                    usageDate: pendingDate.usageDate,
-                    additionalMaintenance: {
-                      facilityId: report.facilityId,
-                      startAt: dateStart,
-                      endAt: dateEnd,
-                    },
-                    actorId: staffId,
-                    processedById: staffId,
-                    decidedAt: now,
-                    reason,
-                    metadata: {
-                      reportId,
-                      facilityId: report.facilityId,
-                      rejectionSource: 'MAINTENANCE_PERIOD',
-                    },
-                  },
-                );
-              pendingRejected += result.rejectedReservationIds.length;
-            }
-          } else {
-            const result =
-              await this.reconciliation.rejectExclusiveReservations(tx, {
-                facilityId: report.facilityId,
-                startAt: dateStart,
-                endAt: dateEnd,
-                actorId: staffId,
-                processedById: staffId,
-                decidedAt: now,
-                reason,
-                metadata: {
-                  reportId,
-                  facilityId: report.facilityId,
-                  rejectionSource: 'MAINTENANCE_PERIOD',
-                },
-              });
-            pendingRejected = result.rejectedReservationIds.length;
-          }
 
           const period = await tx.maintenancePeriod.create({
             data: {
@@ -1417,182 +1240,6 @@ export class ReportsService {
       endAt: updated.endAt.toISOString(),
       note: updated.note,
     };
-  }
-
-  private async getMaintenanceImpact(
-    facilityId: string,
-    startAt: Date,
-    endAt: Date,
-    client: Pick<
-      Prisma.TransactionClient,
-      'facility' | 'reservation' | 'maintenancePeriod'
-    >,
-  ): Promise<MaintenanceImpact> {
-    const facility = await client.facility.findUnique({
-      where: { id: facilityId },
-      select: {
-        id: true,
-        facilityGroupId: true,
-        status: true,
-        facilityGroup: {
-          select: {
-            reservationMode: true,
-            facilities: {
-              where: { status: { not: FacilityStatus.NONACTIVE } },
-              select: { id: true },
-            },
-          },
-        },
-      },
-    });
-
-    if (!facility) {
-      throw new NotFoundException({
-        code: 'FACILITY_NOT_FOUND',
-        message: 'The facility was not found.',
-      });
-    }
-
-    if (facility.status === FacilityStatus.NONACTIVE) {
-      throw new ConflictException({
-        code: 'FACILITY_NOT_ACTIVE',
-        message: 'Maintenance cannot be scheduled for a nonactive facility.',
-      });
-    }
-
-    const usageDate = {
-      gte: this.usageDateStartUtc(startAt),
-      lte: this.usageDateStartUtc(endAt),
-    };
-    const isQuantity =
-      facility.facilityGroup.reservationMode === ReservationMode.QUANTITY;
-    const approvedWhere: Prisma.ReservationWhereInput = isQuantity
-      ? {
-          facilityGroupId: facility.facilityGroupId,
-          items: { some: { facilityId } },
-          status: ReservationStatus.APPROVED,
-          usageDate,
-        }
-      : { facilityId, status: ReservationStatus.APPROVED, usageDate };
-    const pendingWhere: Prisma.ReservationWhereInput = isQuantity
-      ? {
-          facilityGroupId: facility.facilityGroupId,
-          status: ReservationStatus.PENDING,
-          usageDate,
-        }
-      : { facilityId, status: ReservationStatus.PENDING, usageDate };
-    const reservationSelect = {
-      id: true,
-      usageDate: true,
-      startTime: true,
-      endTime: true,
-      requestedQuantity: true,
-    } satisfies Prisma.ReservationSelect;
-    const [approved, pending] = await Promise.all([
-      client.reservation.findMany({
-        where: approvedWhere,
-        select: reservationSelect,
-      }),
-      client.reservation.findMany({
-        where: pendingWhere,
-        select: reservationSelect,
-      }),
-    ]);
-
-    const approvedReservations = approved
-      .filter((reservation) =>
-        this.reservationOverlapsWindow(reservation, startAt, endAt),
-      )
-      .map((reservation) => ({
-        id: reservation.id,
-        usageDate: reservation.usageDate.toISOString(),
-        startTime: reservation.startTime.toISOString(),
-        endTime: reservation.endTime.toISOString(),
-      }));
-
-    let pendingReservations: MaintenanceImpact['pendingReservations'] = [];
-    if (!isQuantity) {
-      pendingReservations = pending
-        .filter((reservation) =>
-          this.reservationOverlapsWindow(reservation, startAt, endAt),
-        )
-        .map((reservation) => ({
-          id: reservation.id,
-          usageDate: reservation.usageDate.toISOString(),
-          startTime: reservation.startTime.toISOString(),
-          endTime: reservation.endTime.toISOString(),
-          requestedQuantity: reservation.requestedQuantity,
-        }));
-    } else {
-      const excludedApproved = new Set(
-        approvedReservations.map((reservation) => reservation.id),
-      );
-      const seen = new Set<string>();
-      for (const reservation of pending) {
-        const dateKey = formatToJakartaDateString(reservation.usageDate);
-        if (seen.has(dateKey)) {
-          continue;
-        }
-        seen.add(dateKey);
-        const infeasible =
-          await this.reconciliation.findInfeasibleQuantityReservations(client, {
-            facilityGroupId: facility.facilityGroupId,
-            usageDate: reservation.usageDate,
-            additionalMaintenance: { facilityId, startAt, endAt },
-            excludedApprovedReservationIds: excludedApproved,
-            overlapWindow: { startAt, endAt },
-          });
-        pendingReservations.push(
-          ...infeasible.map((item) => ({
-            id: item.id,
-            usageDate: item.usageDate.toISOString(),
-            startTime: item.startTime.toISOString(),
-            endTime: item.endTime.toISOString(),
-            requestedQuantity: item.requestedQuantity,
-          })),
-        );
-      }
-    }
-
-    return {
-      facilityId,
-      approvedReservations,
-      pendingReservations,
-    };
-  }
-
-  private reservationOverlapsWindow(
-    reservation: { usageDate: Date; startTime: Date; endTime: Date },
-    startAt: Date,
-    endAt: Date,
-  ) {
-    const reservationStart = this.reservationInstant(
-      reservation.usageDate,
-      this.timeMinutes(reservation.startTime),
-    );
-    const reservationEnd = this.reservationInstant(
-      reservation.usageDate,
-      this.timeMinutes(reservation.endTime),
-    );
-    return reservationStart < endAt && reservationEnd > startAt;
-  }
-
-  private reservationInstant(usageDate: Date, minutes: number) {
-    const date = formatToJakartaDateString(usageDate);
-    const hours = Math.floor(minutes / 60);
-    const minute = minutes % 60;
-    return new Date(
-      `${date}T${String(hours).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000+07:00`,
-    );
-  }
-
-  private timeMinutes(value: Date) {
-    return value.getUTCHours() * 60 + value.getUTCMinutes();
-  }
-
-  private usageDateStartUtc(value: Date) {
-    const date = formatToJakartaDateString(value);
-    return new Date(`${date}T00:00:00.000Z`);
   }
 
   private generateReportNumber(now: Date): string {

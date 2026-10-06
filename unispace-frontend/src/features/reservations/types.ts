@@ -45,7 +45,7 @@ export type CreateReservationInput = {
   usageDate: string;
   startTime: string;
   endTime: string;
-  purpose?: string;
+  purpose: string;
 };
 
 export type ReservationSummary = {
@@ -55,7 +55,7 @@ export type ReservationSummary = {
   decisionDeadline?: string;
   endTime: string;
   id: string;
-  purpose: string | null;
+  purpose: string;
   rejectionReason?: string | null;
   requestedQuantity: number;
   reservationNumber: string;
@@ -95,7 +95,7 @@ export type UserReservationItem = {
   usageDate: string;
   startTime: string;
   endTime: string;
-  purpose: string | null;
+  purpose: string;
   status: ReservationStatus;
   decisionDeadline: string;
   decisionReason?: string | null;
@@ -171,7 +171,7 @@ export type StaffReservationItem = {
   usageDate: string;
   startTime: string;
   endTime: string;
-  purpose: string | null;
+  purpose: string;
   status: ReservationStatus;
   decisionDeadline: string;
   decisionReason?: string | null;

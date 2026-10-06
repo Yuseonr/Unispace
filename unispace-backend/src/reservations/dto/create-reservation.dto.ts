@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsDefined,
   IsInt,
   IsISO8601,
   IsNotEmpty,
@@ -13,19 +14,6 @@ import {
 
 const trimValue = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
-
-const normalizePurpose = ({ value }: { value: unknown }) => {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-
-  if (typeof value !== 'string') {
-    return value;
-  }
-
-  const trimmed = value.trim();
-  return trimmed || undefined;
-};
 
 export class CreateReservationDto {
   @IsOptional()
@@ -66,9 +54,10 @@ export class CreateReservationDto {
   })
   endTime: string;
 
-  @Transform(normalizePurpose)
-  @IsOptional()
+  @Transform(trimValue)
+  @IsDefined({ message: 'purpose is required' })
   @IsString({ message: 'purpose must be a string' })
+  @IsNotEmpty({ message: 'purpose must not be blank' })
   @MaxLength(500, { message: 'purpose must not exceed 500 characters' })
-  purpose?: string;
+  purpose!: string;
 }

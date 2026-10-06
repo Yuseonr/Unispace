@@ -25,16 +25,19 @@ export type StaffMaintenanceResponse = {
   totalPages: number;
 };
 
-export type CreateDirectMaintenancePayload = {
+export type DirectMaintenanceWindowPayload = {
   mode: "DATE_RANGE" | "TIME_RANGE";
   startDate?: string;
   endDate?: string;
   date?: string;
   startTime?: string;
   endTime?: string;
+};
+
+export type CreateDirectMaintenancePayload = DirectMaintenanceWindowPayload & {
   note: string;
-  cancellationReason?: string;
-  cancelImpactedReservations?: boolean;
+  cancellationReason: string;
+  cancelImpactedReservations: true;
 };
 
 export type MaintenanceImpactResponse = {
@@ -59,16 +62,17 @@ export function listStaffMaintenance(request: AuthenticatedRequestFn, input: { p
   return request<StaffMaintenanceResponse>(`/staff/facilities/maintenance?${query.toString()}`);
 }
 
-export function previewDirectFacilityMaintenance(request: AuthenticatedRequestFn, facilityId: string, payload: CreateDirectMaintenancePayload) {
+export function previewDirectFacilityMaintenance(request: AuthenticatedRequestFn, facilityId: string, payload: DirectMaintenanceWindowPayload) {
   return request<MaintenanceImpactResponse>(`/staff/facilities/${facilityId}/maintenance/preview`, {
     method: "POST",
     body: payload,
   });
 }
 
-export function createDirectFacilityMaintenance(request: AuthenticatedRequestFn, facilityId: string, payload: CreateDirectMaintenancePayload) {
+export function createDirectFacilityMaintenance(request: AuthenticatedRequestFn, facilityId: string, payload: CreateDirectMaintenancePayload, idempotencyKey: string) {
   return request<void>(`/staff/facilities/${facilityId}/maintenance`, {
     method: "POST",
     body: payload,
+    headers: { "Idempotency-Key": idempotencyKey },
   });
 }

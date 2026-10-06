@@ -251,8 +251,7 @@ export class ReservationsService {
       endTime,
       purpose,
     } = dto;
-    const normalizedPurpose =
-      typeof purpose === 'string' && purpose.trim() ? purpose.trim() : null;
+    const normalizedPurpose = purpose.trim();
 
     // 1. Validasi Pemilihan Target (Pilih salah satu)
     if ((!facilityId && !facilityGroupId) || (facilityId && facilityGroupId)) {
