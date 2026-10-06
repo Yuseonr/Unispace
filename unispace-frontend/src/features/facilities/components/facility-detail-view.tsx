@@ -115,6 +115,11 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
       setSubmitError("Silakan pilih tanggal penggunaan fasilitas.");
       return;
     }
+    const normalizedPurpose = purpose.trim();
+    if (!normalizedPurpose) {
+      setSubmitError("Tujuan penggunaan fasilitas wajib diisi.");
+      return;
+    }
     setIsSubmitting(true);
     setSubmitError(null);
 
@@ -123,7 +128,7 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
         endTime: selectedEndTime,
         facilityGroupId: facility.kind === "QUANTITY" ? facility.id : undefined,
         facilityId: facility.kind === "EXCLUSIVE" ? facility.id : undefined,
-        purpose: purpose.trim() || undefined,
+        purpose: normalizedPurpose,
         requestedQuantity: facility.kind === "QUANTITY" ? requestedQuantity : 1,
         startTime: selectedStartTime,
         usageDate: selectedDate,
@@ -336,14 +341,15 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
               <form className="facility-inpage-form" onSubmit={handleReservationSubmit}>
                 <div className="facility-inpage-field">
                   <label className="facility-inpage-label" htmlFor="inpage-purpose-input">
-                    Tujuan Penggunaan
+                    Tujuan Penggunaan <span aria-hidden="true">*</span>
                   </label>
                   <textarea
                     className="facility-inpage-textarea"
                     id="inpage-purpose-input"
                     maxLength={500}
                     onChange={(e) => setPurpose(e.target.value)}
-                    placeholder="Tuliskan tujuan penggunaan fasilitas (opsional)..."
+                    placeholder="Tuliskan tujuan penggunaan fasilitas..."
+                    required
                     rows={2}
                     value={purpose}
                   />

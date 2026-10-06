@@ -401,7 +401,7 @@ describe('Reservations HTTP Integration (E2E)', () => {
       expect(response.body.data.status).toBe('PENDING');
     });
 
-    it('menyimpan tujuan yang kosong sebagai literal NULL', async () => {
+    it('menolak tujuan penggunaan yang hanya berisi spasi', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/reservations')
         .set('Authorization', `Bearer ${userToken}`)
@@ -413,11 +413,10 @@ describe('Reservations HTTP Integration (E2E)', () => {
           purpose: '   ',
         });
 
-      expect(response.status).toBe(201);
-      expect(response.body.data.purpose).toBe('NULL');
+      expect(response.status).toBe(400);
     });
 
-    it('menerima reservasi tanpa field tujuan', async () => {
+    it('menolak reservasi tanpa tujuan penggunaan', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/reservations')
         .set('Authorization', `Bearer ${userToken}`)
@@ -428,8 +427,7 @@ describe('Reservations HTTP Integration (E2E)', () => {
           endTime: '10:00',
         });
 
-      expect(response.status).toBe(201);
-      expect(response.body.data.purpose).toBe('NULL');
+      expect(response.status).toBe(400);
     });
 
     it('mengizinkan USER mengambil riwayat permohonan reservasi miliknya (GET /my)', async () => {
