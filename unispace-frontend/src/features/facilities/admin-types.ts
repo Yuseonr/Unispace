@@ -1,10 +1,13 @@
 export type FacilityMode = "EXCLUSIVE" | "QUANTITY";
 export type FacilityUnitStatus = "ACTIVE" | "NONACTIVE";
 export type FacilityAreaStatus = "ACTIVE" | "NONACTIVE";
+export type FacilityTypeStatus = "ACTIVE" | "NONACTIVE";
 
 export type AdminFacilityType = {
+  _count?: { facilityGroups: number };
   id: string;
   name: string;
+  status: FacilityTypeStatus;
 };
 
 export type AdminFacilityArea = {
@@ -32,7 +35,7 @@ export type AdminFacilityGroup = {
   facilities: AdminFacilityUnit[];
   facilityArea: Pick<AdminFacilityArea, "code" | "id" | "name">;
   facilityAreaId: string;
-  facilityType: AdminFacilityType;
+  facilityType: Pick<AdminFacilityType, "id" | "name">;
   facilityTypeId: string;
   id: string;
   locationDetail: string;

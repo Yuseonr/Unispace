@@ -8,9 +8,11 @@ import {
   type AdminFacilityArea,
   type AdminFacilityType,
   type FacilityAreaStatus,
+  type FacilityTypeStatus,
 } from "@/features/facilities/admin-types";
 
 type MasterKind = "area" | "type";
+type MasterStatus = "ACTIVE" | "NONACTIVE";
 type AreaForm = { code: string; name: string };
 type TypeForm = { name: string };
 
@@ -57,15 +59,14 @@ export function FacilityMasters({ kind }: { kind: MasterKind }) {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<MasterStatus>("ACTIVE");
 
   const copy = useMemo(() => kind === "area" ? {
     add: "Tambah Area",
-    empty: "Belum ada area kampus.",
     formTitle: editingId ? "Ubah area kampus" : "Area kampus baru",
     title: "Area kampus",
   } : {
     add: "Tambah Tipe",
-    empty: "Belum ada tipe fasilitas.",
     formTitle: editingId ? "Ubah tipe fasilitas" : "Tipe fasilitas baru",
     title: "Tipe fasilitas",
   }, [editingId, kind]);
@@ -90,6 +91,20 @@ export function FacilityMasters({ kind }: { kind: MasterKind }) {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  useEffect(() => {
+    setStatusFilter("ACTIVE");
+  }, [kind]);
+
+  const activeCount = kind === "area"
+    ? areas.filter((area) => area.status === "ACTIVE").length
+    : types.filter((type) => type.status === "ACTIVE").length;
+  const inactiveCount = kind === "area"
+    ? areas.filter((area) => area.status === "NONACTIVE").length
+    : types.filter((type) => type.status === "NONACTIVE").length;
+  const visibleAreas = areas.filter((area) => area.status === statusFilter);
+  const visibleTypes = types.filter((type) => type.status === statusFilter);
+  const emptyStatusLabel = statusFilter === "ACTIVE" ? "aktif" : "nonaktif";
 
   function closeForm() {
     setEditingId(null);
@@ -157,6 +172,17 @@ export function FacilityMasters({ kind }: { kind: MasterKind }) {
     }
   }
 
+  async function toggleType(type: AdminFacilityType) {
+    const status: FacilityTypeStatus = type.status === "ACTIVE" ? "NONACTIVE" : "ACTIVE";
+    setError(null);
+    try {
+      await request(`/admin/facilities/types/${type.id}/status`, { body: { status }, method: "PATCH" });
+      await load();
+    } catch (nextError) {
+      setError(apiErrorMessage(nextError, "Status tipe belum dapat diubah."));
+    }
+  }
+
   return (
     <main className="admin-page admin-master-page">
       <header className="admin-facility-page-header">
@@ -168,30 +194,41 @@ export function FacilityMasters({ kind }: { kind: MasterKind }) {
 
       {error ? <p className="admin-master-error" role="alert">{error}</p> : null}
 
-      <section className="admin-master-surface" aria-label={copy.title}>
+      <div aria-label={"Status " + copy.title} className="admin-master-tabs" role="tablist">
+        <button aria-controls="admin-master-list" aria-selected={statusFilter === "ACTIVE"} className={"admin-master-tab" + (statusFilter === "ACTIVE" ? " is-active" : "")} id="admin-master-active-tab" onClick={() => setStatusFilter("ACTIVE")} role="tab" type="button">
+          Aktif <span>{activeCount}</span>
+        </button>
+        <button aria-controls="admin-master-list" aria-selected={statusFilter === "NONACTIVE"} className={"admin-master-tab" + (statusFilter === "NONACTIVE" ? " is-active" : "")} id="admin-master-inactive-tab" onClick={() => setStatusFilter("NONACTIVE")} role="tab" type="button">
+          Nonaktif <span>{inactiveCount}</span>
+        </button>
+      </div>
+
+      <section aria-labelledby={statusFilter === "ACTIVE" ? "admin-master-active-tab" : "admin-master-inactive-tab"} className="admin-master-surface" id="admin-master-list" role="tabpanel">
         {isLoading ? <p className="admin-master-empty">Memuat data…</p> : null}
         {!isLoading && kind === "area" ? (
           <div className="admin-master-table-wrap">
             <table className="admin-master-table">
               <thead><tr><th>Kode</th><th>Nama area</th><th>Fasilitas</th><th>Status</th><th>Aksi</th></tr></thead>
-              <tbody>{areas.length ? areas.map((area) => <tr key={area.id}>
+              <tbody>{visibleAreas.length ? visibleAreas.map((area) => <tr key={area.id}>
                 <td><code>{area.code}</code></td>
                 <td><strong>{area.name}</strong></td>
                 <td>{area._count.facilityGroups} kelompok</td>
                 <td><span className={`admin-status-pill admin-status-pill--${area.status.toLowerCase()}`}>{area.status === "ACTIVE" ? "Aktif" : "Nonaktif"}</span></td>
                 <td><div className="admin-master-actions"><button aria-label={`Ubah ${area.name}`} className="admin-icon-button" onClick={() => beginEdit(area)} type="button"><EditIcon /></button><button aria-label={`${area.status === "ACTIVE" ? "Nonaktifkan" : "Aktifkan"} ${area.name}`} className="admin-master-toggle" onClick={() => void toggleArea(area)} type="button"><ToggleIcon active={area.status === "ACTIVE"} /></button></div></td>
-              </tr>) : <tr><td className="admin-master-empty" colSpan={5}>{copy.empty}</td></tr>}</tbody>
+              </tr>) : <tr><td className="admin-master-empty" colSpan={5}>Belum ada {kind === "area" ? "area kampus" : "tipe fasilitas"} {emptyStatusLabel}.</td></tr>}</tbody>
             </table>
           </div>
         ) : null}
         {!isLoading && kind === "type" ? (
           <div className="admin-master-table-wrap">
             <table className="admin-master-table admin-master-table--type">
-              <thead><tr><th>Nama tipe</th><th>Aksi</th></tr></thead>
-              <tbody>{types.length ? types.map((type) => <tr key={type.id}>
+              <thead><tr><th>Nama tipe</th><th>Kelompok fasilitas</th><th>Status</th><th>Aksi</th></tr></thead>
+              <tbody>{visibleTypes.length ? visibleTypes.map((type) => <tr key={type.id}>
                 <td><strong>{type.name}</strong></td>
-                <td><button aria-label={`Ubah ${type.name}`} className="admin-icon-button" onClick={() => beginEdit(type)} type="button"><EditIcon /></button></td>
-              </tr>) : <tr><td className="admin-master-empty" colSpan={2}>{copy.empty}</td></tr>}</tbody>
+                <td>{type._count?.facilityGroups ?? 0} kelompok</td>
+                <td><span className={"admin-status-pill admin-status-pill--" + type.status.toLowerCase()}>{type.status === "ACTIVE" ? "Aktif" : "Nonaktif"}</span></td>
+                <td><div className="admin-master-actions"><button aria-label={`Ubah ${type.name}`} className="admin-icon-button" onClick={() => beginEdit(type)} type="button"><EditIcon /></button><button aria-label={(type.status === "ACTIVE" ? "Nonaktifkan" : "Aktifkan") + " " + type.name} className="admin-master-toggle" onClick={() => void toggleType(type)} type="button"><ToggleIcon active={type.status === "ACTIVE"} /></button></div></td>
+              </tr>) : <tr><td className="admin-master-empty" colSpan={4}>Belum ada tipe fasilitas {emptyStatusLabel}.</td></tr>}</tbody>
             </table>
           </div>
         ) : null}

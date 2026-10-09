@@ -23,7 +23,7 @@ import { QuantityReservationReconciliationService } from './quantity-reservation
 // Stub data
 // ---------------------------------------------------------------------------
 
-const stubType = { id: 'type-1', name: 'Ruang Kelas' };
+const stubType = { id: 'type-1', name: 'Ruang Kelas', status: 'ACTIVE' };
 const stubArea = {
   id: 'area-1',
   code: 'FT',
@@ -182,6 +182,7 @@ describe('facility domain services', () => {
       const result = await master.listTypes();
       expect(result).toEqual([stubType]);
       expect(prismaMock.facilityType.findMany).toHaveBeenCalledWith({
+        where: { status: 'ACTIVE' },
         orderBy: { name: 'asc' },
       });
     });

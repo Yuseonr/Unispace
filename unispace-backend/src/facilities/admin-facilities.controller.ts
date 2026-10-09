@@ -26,6 +26,7 @@ import {
   UpdateFacilityGroupDto,
   UpdateFacilityStatusDto,
   UpdateFacilityTypeDto,
+  UpdateFacilityTypeStatusDto,
   UpdateFacilityUnitDto,
 } from './dto/admin';
 import type { FacilityImageUpload } from './facility-image-storage.service';
@@ -137,6 +138,15 @@ export class AdminFacilitiesController {
     @Body() input: UpdateFacilityTypeDto,
   ) {
     return this.master.adminUpdateType(admin.id, id, input);
+  }
+
+  @Patch('types/:id/status')
+  updateTypeStatus(
+    @CurrentUser() admin: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: UpdateFacilityTypeStatusDto,
+  ) {
+    return this.master.adminUpdateTypeStatus(admin.id, id, input.status);
   }
 
   /** Master area kampus. Tidak ada delete fisik untuk menjaga relasi katalog. */

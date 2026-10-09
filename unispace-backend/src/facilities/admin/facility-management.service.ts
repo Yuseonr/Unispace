@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import {
   FacilityStatus,
+  FacilityTypeStatus,
   type Prisma,
   ReservationMode,
 } from '../../generated/prisma/client';
@@ -40,8 +41,8 @@ export class FacilityManagementService {
     const typeExists = await this.prisma.facilityType.findUnique({
       where: { id: input.facilityTypeId },
     });
-    if (!typeExists) {
-      throw new NotFoundException('Tipe fasilitas tidak ditemukan.');
+    if (!typeExists || typeExists.status !== FacilityTypeStatus.ACTIVE) {
+      throw new NotFoundException('Tipe fasilitas aktif tidak ditemukan.');
     }
     const area = await this.prisma.facilityArea.findFirst({
       where: { id: input.facilityAreaId, status: 'ACTIVE' },
@@ -158,8 +159,8 @@ export class FacilityManagementService {
       const typeExists = await this.prisma.facilityType.findUnique({
         where: { id: input.facilityTypeId },
       });
-      if (!typeExists) {
-        throw new NotFoundException('Tipe fasilitas tidak ditemukan.');
+      if (!typeExists || typeExists.status !== FacilityTypeStatus.ACTIVE) {
+        throw new NotFoundException('Tipe fasilitas aktif tidak ditemukan.');
       }
     }
     if (input.facilityAreaId) {
