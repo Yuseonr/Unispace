@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 export function ConfirmDialog({
   busy = false,
   children,
+  className,
   confirmLabel,
   destructive = false,
   error,
@@ -15,6 +16,7 @@ export function ConfirmDialog({
 }: {
   busy?: boolean;
   children: React.ReactNode;
+  className?: string;
   confirmLabel: string;
   destructive?: boolean;
   error?: string | null;
@@ -27,7 +29,7 @@ export function ConfirmDialog({
 
   useEffect(() => {
     if (isOpen) {
-      dialog.current?.focus();
+      dialog.current?.focus({ preventScroll: true });
     }
   }, [isOpen]);
 
@@ -41,5 +43,5 @@ export function ConfirmDialog({
   }, [busy, isOpen, onClose]);
 
   if (!isOpen) return null;
-  return <div className="ui-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }} role="presentation"><section aria-describedby="ui-confirm-description" aria-modal="true" aria-labelledby="ui-confirm-title" className="ui-dialog" ref={dialog} role="dialog" tabIndex={-1}><div><h2 id="ui-confirm-title">{title}</h2><div id="ui-confirm-description">{children}</div></div>{error ? <p className="ui-dialog__error" role="alert">{error}</p> : null}<footer><button disabled={busy} onClick={onClose} type="button">Batal</button><button className={destructive ? "is-destructive" : ""} disabled={busy} onClick={onConfirm} type="button">{busy ? "Memproses…" : confirmLabel}</button></footer></section></div>;
+  return <div className="ui-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }} role="presentation"><section aria-describedby="ui-confirm-description" aria-modal="true" aria-labelledby="ui-confirm-title" className={`ui-dialog${className ? ` ${className}` : ""}`} ref={dialog} role="dialog" tabIndex={-1}><div><h2 id="ui-confirm-title">{title}</h2><div id="ui-confirm-description">{children}</div></div>{error ? <p className="ui-dialog__error" role="alert">{error}</p> : null}<footer><button disabled={busy} onClick={onClose} type="button">Batal</button><button className={destructive ? "is-destructive" : ""} disabled={busy} onClick={onConfirm} type="button">{busy ? "Memproses…" : confirmLabel}</button></footer></section></div>;
 }

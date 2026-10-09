@@ -7,6 +7,7 @@ import { createPortal } from "react-dom";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/features/auth/auth-provider";
 import { ApiError } from "@/lib/api/client";
+import { formatJakartaDate, formatNumber } from "@/lib/format";
 
 type ManagedRole = "USER" | "STAFF";
 type ManagedStatus = "PENDING_VERIFICATION" | "ACTIVE" | "REJECTED" | "NONACTIVE";
@@ -33,6 +34,24 @@ type ManagedAccountsResponse = {
 
 type AccountCounts = Record<RoleFilter, number>;
 
+type DeactivationReservation = {
+  id: string;
+  reservationNumber: string;
+  usageDate: string;
+  startTime: string;
+  endTime: string;
+  facilityName: string;
+  assetCode: string | null;
+  areaName: string | null;
+  requestedQuantity: number;
+};
+
+type DeactivationPreview = {
+  account: Pick<ManagedAccount, "id" | "name" | "identityNumber" | "email">;
+  pendingReservations: DeactivationReservation[];
+  approvedReservations: DeactivationReservation[];
+};
+
 type OpenAction = {
   account: ManagedAccount;
   left: number;
@@ -41,7 +60,8 @@ type OpenAction = {
 
 type PendingConfirmation =
   | { account: ManagedAccount; kind: "reset" }
-  | { account: ManagedAccount; kind: "status"; nextStatus: "ACTIVE" | "NONACTIVE" };
+  | { account: ManagedAccount; kind: "status"; nextStatus: "ACTIVE" }
+  | { account: ManagedAccount; kind: "status"; nextStatus: "NONACTIVE"; preview: DeactivationPreview };
 
 const initialCounts: AccountCounts = { ALL: 0, STAFF: 0, USER: 0 };
 
@@ -71,6 +91,24 @@ function errorMessage(error: unknown) {
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(value));
+}
+
+function DeactivationReservationList({ heading, reservations }: { heading: string; reservations: DeactivationReservation[] }) {
+  if (!reservations.length) return null;
+  return (
+    <section className="admin-deactivation-preview__section">
+      <h3>{heading}</h3>
+      <ul>
+        {reservations.map((reservation) => (
+          <li key={reservation.id}>
+            <strong>{reservation.reservationNumber}</strong>
+            <span>{reservation.assetCode ? `${reservation.assetCode}, ` : ""}{reservation.facilityName}{reservation.requestedQuantity > 1 ? ` (${formatNumber(reservation.requestedQuantity)} unit)` : ""}</span>
+            <small>{formatJakartaDate(reservation.usageDate)}, {reservation.startTime}–{reservation.endTime} WIB{reservation.areaName ? `, ${reservation.areaName}` : ""}</small>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 function initials(name: string) {
@@ -195,11 +233,20 @@ export function UsersManagement() {
     });
   }
 
-  function updateAccountStatus(account: ManagedAccount) {
+  async function updateAccountStatus(account: ManagedAccount) {
     if (account.accountStatus !== "ACTIVE" && account.accountStatus !== "NONACTIVE") return;
     const nextStatus = account.accountStatus === "ACTIVE" ? "NONACTIVE" : "ACTIVE";
-    setPendingConfirmation({ account, kind: "status", nextStatus });
     setOpenAction(null);
+    if (nextStatus === "NONACTIVE") {
+      try {
+        const preview = await request<DeactivationPreview>(`/admin/users/${account.id}/deactivation-preview`);
+        setPendingConfirmation({ account, kind: "status", nextStatus, preview });
+      } catch (nextError) {
+        setNotice(`Penonaktifan ${account.name} belum bisa dikonfirmasi karena reservasinya gagal diperiksa. ${errorMessage(nextError)}`);
+      }
+      return;
+    }
+    setPendingConfirmation({ account, kind: "status", nextStatus });
   }
 
   async function confirmAction() {
@@ -336,7 +383,35 @@ export function UsersManagement() {
         </div>,
         document.body,
       ) : null}
-      <ConfirmDialog busy={isConfirming} confirmLabel={pendingConfirmation?.kind === "reset" ? "Reset kata sandi" : pendingConfirmation?.nextStatus === "NONACTIVE" ? "Nonaktifkan akses" : "Aktifkan akses"} destructive={pendingConfirmation?.kind === "reset" || pendingConfirmation?.nextStatus === "NONACTIVE"} isOpen={Boolean(pendingConfirmation)} onClose={() => !isConfirming && setPendingConfirmation(null)} onConfirm={() => void confirmAction()} title={pendingConfirmation?.kind === "reset" ? "Reset kata sandi akun" : pendingConfirmation?.nextStatus === "NONACTIVE" ? "Nonaktifkan akses akun" : "Aktifkan akses akun"}>{pendingConfirmation?.kind === "reset" ? <p>Kata sandi <strong>{pendingConfirmation.account.name}</strong> akan dikembalikan ke password awal administrasi. Sampaikan password tersebut melalui kanal yang aman.</p> : pendingConfirmation ? <p>{pendingConfirmation.nextStatus === "NONACTIVE" ? <>Akses <strong>{pendingConfirmation.account.name}</strong> akan dinonaktifkan. Sistem juga akan menolak reservasi pending dan membatalkan reservasi mendatang yang sudah disetujui sesuai aturan backend.</> : <>Aktifkan kembali akses <strong>{pendingConfirmation.account.name}</strong>?</>}</p> : null}</ConfirmDialog>
+      <ConfirmDialog
+        busy={isConfirming}
+        className="admin-users-confirm-dialog"
+        confirmLabel={pendingConfirmation?.kind === "reset" ? "Reset kata sandi" : pendingConfirmation?.kind === "status" && pendingConfirmation.nextStatus === "NONACTIVE" ? "Nonaktifkan akses" : "Aktifkan akses"}
+        destructive={pendingConfirmation?.kind === "reset" || (pendingConfirmation?.kind === "status" && pendingConfirmation.nextStatus === "NONACTIVE")}
+        isOpen={Boolean(pendingConfirmation)}
+        onClose={() => !isConfirming && setPendingConfirmation(null)}
+        onConfirm={() => void confirmAction()}
+        title={pendingConfirmation?.kind === "reset" ? "Reset kata sandi akun" : pendingConfirmation?.kind === "status" && pendingConfirmation.nextStatus === "NONACTIVE" ? "Nonaktifkan akses akun" : "Aktifkan akses akun"}
+      >
+        {pendingConfirmation?.kind === "reset" ? (
+          <p>Kata sandi <strong>{pendingConfirmation.account.name}</strong> akan direset ke kata sandi awal administrasi. Sampaikan melalui kanal aman.</p>
+        ) : pendingConfirmation?.kind === "status" && pendingConfirmation.nextStatus === "NONACTIVE" ? (
+          <div className="admin-deactivation-preview">
+            <p className="admin-deactivation-preview__identity"><strong>{pendingConfirmation.preview.account.name}</strong><span>{pendingConfirmation.preview.account.identityNumber}, {pendingConfirmation.preview.account.email}</span></p>
+            <p className="admin-deactivation-preview__summary">{formatNumber(pendingConfirmation.preview.pendingReservations.length)} menunggu → ditolak<br />{formatNumber(pendingConfirmation.preview.approvedReservations.length)} disetujui → dibatalkan</p>
+            {pendingConfirmation.preview.pendingReservations.length || pendingConfirmation.preview.approvedReservations.length ? (
+              <div className="admin-deactivation-preview__lists">
+                <DeactivationReservationList heading="Akan ditolak (menunggu)" reservations={pendingConfirmation.preview.pendingReservations} />
+                <DeactivationReservationList heading="Akan dibatalkan (disetujui)" reservations={pendingConfirmation.preview.approvedReservations} />
+              </div>
+            ) : (
+              <p>Tidak ada reservasi menunggu atau reservasi mendatang yang akan terdampak.</p>
+            )}
+          </div>
+        ) : pendingConfirmation ? (
+          <p>Aktifkan kembali akses <strong>{pendingConfirmation.account.name}</strong>?</p>
+        ) : null}
+      </ConfirmDialog>
     </main>
   );
 }

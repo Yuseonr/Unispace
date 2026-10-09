@@ -28,6 +28,11 @@ export class AdminUsersController {
     return this.users.list(query);
   }
 
+  @Get(':userId/deactivation-preview')
+  deactivationPreview(@Param('userId', new ParseUUIDPipe()) userId: string) {
+    return this.users.deactivationPreview(userId);
+  }
+
   @Get(':userId')
   detail(@Param('userId', new ParseUUIDPipe()) userId: string) {
     return this.users.detail(userId);
