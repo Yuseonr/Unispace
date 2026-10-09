@@ -40,6 +40,7 @@ const ASSET_DIRECTORY = resolve(process.cwd(), 'prisma/seed-asset');
 const API_BASE_URL =
   process.env.PUBLIC_API_URL?.replace(/\/$/, '') ??
   'http://localhost:3001/api/v1';
+const INITIAL_SEED_MODE = process.argv.includes('--initial');
 const FACILITIES: FacilitySeed[] = [
   [
     'aula_auditorium.webp',
@@ -309,6 +310,78 @@ function required(name: string) {
   if (!value) throw new Error(`${name} must be configured before seeding.`);
   return value;
 }
+
+function validateInitialSeedEnvironment() {
+  const defaultPassword = required('DEFAULT_USER_PASSWORD');
+  const adminPassword = required('ADMIN_SEED_PASSWORD');
+  const adminEmail = required('ADMIN_SEED_EMAIL').toLowerCase();
+  const adminIdentityNumber = required('ADMIN_SEED_IDENTITY_NUMBER');
+  const storageProvider = required('STORAGE_PROVIDER').toUpperCase();
+  const publicApiUrl = new URL(required('PUBLIC_API_URL'));
+
+  for (const [name, value] of [
+    ['DEFAULT_USER_PASSWORD', defaultPassword],
+    ['ADMIN_SEED_PASSWORD', adminPassword],
+  ]) {
+    if (!/^\S{12,24}$/.test(value)) {
+      throw new Error(`${name} must be 12 to 24 characters with no whitespace.`);
+    }
+    if (/^(change[_-]?me|password|example)/i.test(value)) {
+      throw new Error(`${name} must be changed from its example value.`);
+    }
+  }
+  if (defaultPassword === adminPassword) {
+    throw new Error('ADMIN_SEED_PASSWORD must differ from DEFAULT_USER_PASSWORD.');
+  }
+  if (adminEmail === 'admin@unispace.local') {
+    throw new Error('ADMIN_SEED_EMAIL must be changed from its local example.');
+  }
+  if (!/^\d{8,30}$/.test(adminIdentityNumber) || adminIdentityNumber === '00000000') {
+    throw new Error('ADMIN_SEED_IDENTITY_NUMBER must be a real 8 to 30 digit value.');
+  }
+  if (storageProvider !== 'S3') {
+    throw new Error('The initial production seed requires STORAGE_PROVIDER=S3.');
+  }
+  if (
+    publicApiUrl.protocol !== 'https:' ||
+    publicApiUrl.pathname.replace(/\/+$/, '') !== '/api/v1' ||
+    publicApiUrl.search ||
+    publicApiUrl.hash
+  ) {
+    throw new Error('PUBLIC_API_URL must be the HTTPS API URL ending in /api/v1.');
+  }
+}
+
+async function assertInitialSeedDatabaseIsEmpty(prisma: PrismaClient) {
+  const populatedTables = await prisma.$queryRaw<Array<{ table_name: string }>>`
+    SELECT table_name
+    FROM (
+      SELECT 'users'::text AS table_name, COUNT(*)::bigint AS row_count FROM users
+      UNION ALL SELECT 'facility_types', COUNT(*)::bigint FROM facility_types
+      UNION ALL SELECT 'facility_areas', COUNT(*)::bigint FROM facility_areas
+      UNION ALL SELECT 'facility_groups', COUNT(*)::bigint FROM facility_groups
+      UNION ALL SELECT 'facilities', COUNT(*)::bigint FROM facilities
+      UNION ALL SELECT 'facility_status_history', COUNT(*)::bigint FROM facility_status_history
+      UNION ALL SELECT 'reservations', COUNT(*)::bigint FROM reservations
+      UNION ALL SELECT 'reservation_items', COUNT(*)::bigint FROM reservation_items
+      UNION ALL SELECT 'facility_reports', COUNT(*)::bigint FROM facility_reports
+      UNION ALL SELECT 'report_attachments', COUNT(*)::bigint FROM report_attachments
+      UNION ALL SELECT 'maintenance_periods', COUNT(*)::bigint FROM maintenance_periods
+      UNION ALL SELECT 'audit_logs', COUNT(*)::bigint FROM audit_logs
+      UNION ALL SELECT 'idempotency_records', COUNT(*)::bigint FROM idempotency_records
+    ) AS application_rows
+    WHERE row_count > 0
+    ORDER BY table_name
+  `;
+
+  if (populatedTables.length > 0) {
+    throw new Error(
+      `Initial seed only runs on an empty application database. Found rows in: ${populatedTables
+        .map(({ table_name }) => table_name)
+        .join(', ')}.`,
+    );
+  }
+}
 function toDate(offset: number, hour = 9) {
   const jakartaNow = new Date(Date.now() + 7 * 60 * 60 * 1000);
   const date = new Date(
@@ -384,9 +457,20 @@ async function upload(
 }
 
 async function seed() {
-  if (process.env.APP_ENV?.trim().toLowerCase() === 'production')
-    throw new Error('Refusing destructive demo seed in APP_ENV=production.');
+  const isProduction = process.env.APP_ENV?.trim().toLowerCase() === 'production';
+  if (isProduction && !INITIAL_SEED_MODE) {
+    throw new Error('Refusing destructive demo reset in APP_ENV=production.');
+  }
+  if (INITIAL_SEED_MODE && !isProduction) {
+    throw new Error('The initial seed mode requires APP_ENV=production.');
+  }
+  if (INITIAL_SEED_MODE) validateInitialSeedEnvironment();
+
   const bucket = required('S3_BUCKET');
+  const seedStorageProvider =
+    process.env.STORAGE_PROVIDER?.trim().toUpperCase() === 'S3'
+      ? StorageProvider.S3
+      : StorageProvider.MINIO;
   const prisma = new PrismaClient({
     adapter: new PrismaPg({ connectionString: required('DATABASE_URL') }),
   });
@@ -397,13 +481,18 @@ async function seed() {
       accessKeyId: required('S3_ACCESS_KEY'),
       secretAccessKey: required('S3_SECRET_KEY'),
     },
-    forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
+    forcePathStyle:
+      process.env.S3_FORCE_PATH_STYLE?.trim().toLowerCase() !== 'false',
   });
   try {
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE TABLE "idempotency_records", "audit_logs", "maintenance_periods", "report_attachments", "facility_reports", "reservation_items", "reservations", "facility_status_history", "facilities", "facility_groups", "facility_areas", "facility_types", "users" RESTART IDENTITY CASCADE',
-    );
-    await clearBucket(storage, bucket);
+    if (INITIAL_SEED_MODE) {
+      await assertInitialSeedDatabaseIsEmpty(prisma);
+    } else {
+      await prisma.$executeRawUnsafe(
+        'TRUNCATE TABLE "idempotency_records", "audit_logs", "maintenance_periods", "report_attachments", "facility_reports", "reservation_items", "reservations", "facility_status_history", "facilities", "facility_groups", "facility_areas", "facility_types", "users" RESTART IDENTITY CASCADE',
+      );
+      await clearBucket(storage, bucket);
+    }
     const defaultPassword = required('DEFAULT_USER_PASSWORD');
     const [adminHash, demoHash] = await Promise.all([
       bcrypt.hash(
@@ -417,7 +506,9 @@ async function seed() {
         name: process.env.ADMIN_SEED_NAME?.trim() || 'Administrator Unispace',
         identityNumber:
           process.env.ADMIN_SEED_IDENTITY_NUMBER?.trim() || '00000000',
-        email: process.env.ADMIN_SEED_EMAIL?.trim() || 'admin@unispace.local',
+        email:
+          process.env.ADMIN_SEED_EMAIL?.trim().toLowerCase() ||
+          'admin@unispace.local',
         passwordHash: adminHash,
         role: UserRole.ADMIN,
         accountStatus: AccountStatus.ACTIVE,
@@ -1074,7 +1165,7 @@ async function seed() {
       await prisma.reportAttachment.create({
         data: {
           reportId: report.id,
-          storageProvider: StorageProvider.MINIO,
+          storageProvider: seedStorageProvider,
           objectKey,
           objectUrl: `s3://${bucket}/${objectKey}`,
           originalFilename: facility.asset,
@@ -1149,8 +1240,15 @@ async function seed() {
       `Demo seed complete: ${FACILITIES.length} facility groups, ${physical.length} physical units, ${users.length} users, ${staff.length} staff, ${allReservations.length} reservations, and ${allReportSeeds.length} reports.`,
     );
     console.log(
-      'Demo user and staff passwords use DEFAULT_USER_PASSWORD; admin uses ADMIN_SEED_PASSWORD when configured.',
+      INITIAL_SEED_MODE
+        ? 'Demo user and staff passwords use DEFAULT_USER_PASSWORD; admin uses ADMIN_SEED_PASSWORD.'
+        : 'Demo user and staff passwords use DEFAULT_USER_PASSWORD; admin uses ADMIN_SEED_PASSWORD when configured.',
     );
+    if (INITIAL_SEED_MODE) {
+      console.log(
+        'Initial production seed finished without clearing database rows or bucket objects.',
+      );
+    }
   } finally {
     await prisma.$disconnect();
   }
