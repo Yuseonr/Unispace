@@ -21,7 +21,7 @@ const filterFields: Array<{ key: Exclude<keyof AuditLogFilters, "page">; label: 
 ];
 
 function formatMetadataValue(value: unknown) {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return "-";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
   return JSON.stringify(value);
 }
@@ -91,9 +91,7 @@ export function AuditLogPage() {
 
   return (
     <section className="admin-page">
-      <PageHeader eyebrow="Jejak aktivitas" title="Audit Log">
-        <span>Riwayat bersifat read-only. Filter tersimpan di URL agar dapat dibagikan atau dibuka kembali.</span>
-      </PageHeader>
+      <PageHeader title="Audit Log" />
 
       <section className="ui-surface">
         <div className="ui-toolbar audit-filter-bar">
@@ -135,7 +133,7 @@ export function AuditLogPage() {
         ) : null}
       </section>
 
-      {selected ? <><button aria-label="Tutup detail audit" className="detail-drawer__backdrop" onClick={() => setSelected(null)} type="button" /><aside aria-label="Detail audit" aria-modal="true" className="detail-drawer" role="dialog"><header className="detail-drawer__header"><div><p className="ui-page-header__eyebrow">{selected.entityType}</p><h2>{selected.action}</h2></div><button onClick={() => setSelected(null)} type="button">Tutup</button></header><dl className="detail-grid"><div><dt>Waktu</dt><dd>{formatJakartaDateTime(selected.createdAt)}</dd></div><div><dt>Pelaku</dt><dd>{selected.actor ? `${selected.actor.name} · ${selected.actor.role}` : "Sistem"}</dd></div><div><dt>ID log</dt><dd><button className="audit-id" onClick={() => void copy(selected.id, "ID log disalin.")} type="button">{selected.id}</button></dd></div><div><dt>ID entitas</dt><dd><button className="audit-id" onClick={() => void copy(selected.entityId, "ID entitas disalin.")} type="button">{selected.entityId}</button></dd></div></dl><section className="audit-metadata"><h3>Metadata</h3>{selected.metadata && Object.keys(selected.metadata).length ? <dl>{Object.entries(selected.metadata).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{formatMetadataValue(value)}</dd></div>)}</dl> : <p>Tidak ada metadata tambahan yang aman untuk ditampilkan.</p>}</section>{copied ? <p className="ui-form-feedback" role="status">{copied}</p> : null}</aside></> : null}
+      {selected ? <><button aria-label="Tutup detail audit" className="detail-drawer__backdrop" onClick={() => setSelected(null)} type="button" /><aside aria-label="Detail audit" aria-modal="true" className="detail-drawer" role="dialog"><header className="detail-drawer__header"><div><p className="ui-page-header__eyebrow">{selected.entityType}</p><h2>{selected.action}</h2></div><button onClick={() => setSelected(null)} type="button">Tutup</button></header><dl className="detail-grid"><div><dt>Waktu</dt><dd>{formatJakartaDateTime(selected.createdAt)}</dd></div><div><dt>Pelaku</dt><dd>{selected.actor ? `${selected.actor.name} (${selected.actor.role})` : "Sistem"}</dd></div><div><dt>ID log</dt><dd><button className="audit-id" onClick={() => void copy(selected.id, "ID log disalin.")} type="button">{selected.id}</button></dd></div><div><dt>ID entitas</dt><dd><button className="audit-id" onClick={() => void copy(selected.entityId, "ID entitas disalin.")} type="button">{selected.entityId}</button></dd></div></dl><section className="audit-metadata"><h3>Metadata</h3>{selected.metadata && Object.keys(selected.metadata).length ? <dl>{Object.entries(selected.metadata).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{formatMetadataValue(value)}</dd></div>)}</dl> : <p>Tidak ada metadata tambahan yang aman untuk ditampilkan.</p>}</section>{copied ? <p className="ui-form-feedback" role="status">{copied}</p> : null}</aside></> : null}
     </section>
   );
 }

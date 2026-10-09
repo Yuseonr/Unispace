@@ -12,6 +12,7 @@ const statusMap: Record<string, { label: string; tone: StatusTone }> = {
   PENDING: { label: "Menunggu", tone: "attention" },
   PENDING_VERIFICATION: { label: "Menunggu verifikasi", tone: "attention" },
   REJECTED: { label: "Ditolak", tone: "danger" },
+  RESOLVED: { label: "Selesai", tone: "active" },
   NONACTIVE: { label: "Nonaktif", tone: "neutral" },
   CANCELLED_BY_STAFF: { label: "Dibatalkan petugas", tone: "neutral" },
   CANCELLED_BY_SYSTEM: { label: "Dibatalkan sistem", tone: "neutral" },
@@ -61,5 +62,5 @@ export function Pagination({
   totalPages: number;
 }) {
   if (totalPages <= 1) return <p className="ui-pagination__summary">{total} hasil</p>;
-  return <nav aria-label="Paginasi" className="ui-pagination"><span>Halaman {page} dari {totalPages} · {total} hasil</span><div><button aria-label="Halaman sebelumnya" disabled={page <= 1} onClick={() => onPageChange(page - 1)} type="button">‹</button><button aria-label="Halaman berikutnya" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)} type="button">›</button></div></nav>;
+  return <nav aria-label="Paginasi" className="ui-pagination"><span>Halaman {page} dari {totalPages} ({total} hasil)</span><div><button aria-label="Halaman sebelumnya" disabled={page <= 1} onClick={() => onPageChange(page - 1)} type="button">‹</button><button aria-label="Halaman berikutnya" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)} type="button">›</button></div></nav>;
 }

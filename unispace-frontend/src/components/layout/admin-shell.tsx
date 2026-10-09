@@ -126,9 +126,12 @@ export function AdminShell({ children }: { children: ReactNode }) {
               <span className="admin-profile-trigger__copy"><strong>{user.name}</strong><small>Super Admin</small></span>
               <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7.5 9.5 4.5 4.5 4.5-4.5" /></svg>
             </button>
-            {isProfileOpen ? <div className="admin-profile-dropdown" role="menu">
-              <p><strong>{user.name}</strong><span>{user.email}</span></p>
-              <Link href="/admin/profile" onClick={() => setIsProfileOpen(false)} role="menuitem">Profil & kata sandi</Link>
+            {isProfileOpen ? <div className="header-profile__menu" role="menu">
+              <div className="header-profile__identity">
+                <strong>{user.name}</strong>
+                <span>{user.email}</span>
+              </div>
+              <Link className="header-profile__item" href="/admin/profile" onClick={() => setIsProfileOpen(false)} role="menuitem">Profil & kata sandi</Link>
               <button onClick={() => void handleLogout()} role="menuitem" type="button">Keluar</button>
             </div> : null}
           </div>
