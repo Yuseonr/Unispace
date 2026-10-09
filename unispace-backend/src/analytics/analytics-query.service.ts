@@ -50,6 +50,7 @@ type AnalyticsWindow = {
 };
 
 type NormalizedAnalyticsFilter = AnalyticsWindow & {
+  allTime: boolean;
   facilityAreaId?: string;
   facilityTypeId?: string;
   facilityGroupId?: string;
@@ -75,6 +76,7 @@ type AnalyticsFacility = {
 
 type AnalyticsReservation = {
   id: string;
+  reservationNumber?: string;
   facilityId: string | null;
   facilityGroupId: string | null;
   requestedQuantity: number;
@@ -84,7 +86,31 @@ type AnalyticsReservation = {
   endTime: Date;
   createdAt: Date;
   decidedAt: Date | null;
-  items: Array<{ facilityId: string }>;
+  purpose?: string;
+  decisionReason?: string | null;
+  cancelledAt?: Date | null;
+  user?: { name: string };
+  processedBy?: { name: string } | null;
+  facility?: {
+    assetCode: string;
+    name: string | null;
+    facilityGroup?: {
+      name: string;
+      reservationMode: ReservationMode;
+      facilityArea?: { code: string; name: string };
+      facilityType?: { name: string };
+    };
+  } | null;
+  facilityGroup?: {
+    name: string;
+    reservationMode: ReservationMode;
+    facilityArea?: { code: string; name: string };
+    facilityType?: { name: string };
+  } | null;
+  items: Array<{
+    facilityId: string;
+    facility?: { assetCode: string; name: string | null };
+  }>;
 };
 
 type AnalyticsReport = {
@@ -92,6 +118,7 @@ type AnalyticsReport = {
   reportNumber: string;
   category: ReportCategory;
   status: ReportStatus;
+  description: string;
   createdAt: Date;
   acceptedAt: Date | null;
   resolvedAt: Date | null;
@@ -100,6 +127,11 @@ type AnalyticsReport = {
   reporter: { id: string; name: string; identityNumber: string; email: string };
   acceptedBy: { id: string; name: string } | null;
   resolvedBy: { id: string; name: string } | null;
+  attachments?: Array<{
+    originalFilename: string;
+    mimeType: string;
+    sizeBytes: number;
+  }>;
   facility: {
     id: string;
     assetCode: string;
@@ -169,7 +201,46 @@ export class AnalyticsQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
   async summary(input: AnalyticsFilterDto) {
-    const dataset = await this.createDataset(input);
+    const dataset = await this.createDataset(input, true);
+    return this.withMetadata(dataset, this.summaryData(dataset));
+  }
+
+  async summaryForExport(input: AnalyticsFilterDto) {
+    const dataset = await this.createDataset(input, true, true, true);
+    const summary = this.withMetadata(dataset, this.summaryData(dataset));
+    const reservations = this.reservationHistoryItems(dataset);
+    const reports = [...dataset.reports]
+      .sort(
+        (left, right) =>
+          right.createdAt.getTime() - left.createdAt.getTime() ||
+          right.id.localeCompare(left.id),
+      )
+      .map((report) => this.reportHistoryItem(report));
+
+    return {
+      summary,
+      reservations: this.withMetadata(dataset, {
+        items: reservations,
+        total: reservations.length,
+      }),
+      occupancy: this.withMetadata(
+        dataset,
+        this.calculateOccupancy(dataset, dataset.filter),
+      ),
+      equipment: this.withMetadata(
+        dataset,
+        this.calculateEquipmentUtilization(dataset, dataset.filter),
+      ),
+      reportHistory: this.withMetadata(dataset, {
+        items: reports,
+        total: reports.length,
+      }),
+      filters: summary.filters,
+      generatedAt: summary.generatedAt,
+    };
+  }
+
+  private summaryData(dataset: AnalyticsDataset) {
     const includedReservations = dataset.reservations.filter((reservation) =>
       INCLUDED_RESERVATION_STATUSES.has(reservation.status),
     );
@@ -188,7 +259,7 @@ export class AnalyticsQueryService {
       )
       .map((report) => this.hoursBetween(report.createdAt, report.resolvedAt!));
 
-    return this.withMetadata(dataset, {
+    return {
       reservations: {
         total: dataset.reservations.length,
         approvedOrCompleted: includedReservations.length,
@@ -225,11 +296,11 @@ export class AnalyticsQueryService {
           this.wasNonactiveInWindow(facility, dataset.filter),
         ).length,
       },
-    });
+    };
   }
 
   async occupancy(input: AnalyticsFilterDto) {
-    const dataset = await this.createDataset(input);
+    const dataset = await this.createDataset(input, true);
     return this.withMetadata(
       dataset,
       this.calculateOccupancy(dataset, dataset.filter),
@@ -237,15 +308,76 @@ export class AnalyticsQueryService {
   }
 
   async equipmentUtilization(input: AnalyticsFilterDto) {
-    const dataset = await this.createDataset(input);
+    const dataset = await this.createDataset(input, true);
     return this.withMetadata(
       dataset,
       this.calculateEquipmentUtilization(dataset, dataset.filter),
     );
   }
 
+  async reservationHistoryForExport(input: AnalyticsFilterDto) {
+    const dataset = await this.createDataset(input, true, true);
+    const items = this.reservationHistoryItems(dataset);
+    return this.withMetadata(dataset, { items, total: items.length });
+  }
+
+  private reservationHistoryItems(dataset: AnalyticsDataset) {
+    return [...dataset.reservations]
+      .sort(
+        (left, right) =>
+          left.usageDate.getTime() - right.usageDate.getTime() ||
+          left.startTime.getTime() - right.startTime.getTime() ||
+          left.id.localeCompare(right.id),
+      )
+      .map((reservation) => ({
+        reservationNumber: reservation.reservationNumber,
+        usageDate: reservation.usageDate.toISOString().slice(0, 10),
+        startTime: reservation.startTime.toISOString().slice(11, 16),
+        endTime: reservation.endTime.toISOString().slice(11, 16),
+        createdAt: reservation.createdAt.toISOString(),
+        decidedAt: reservation.decidedAt?.toISOString() ?? null,
+        cancelledAt: reservation.cancelledAt?.toISOString() ?? null,
+        requester: reservation.user?.name ?? 'Tidak diketahui',
+        facility: reservation.facility
+          ? [reservation.facility.assetCode, reservation.facility.name]
+              .filter(Boolean)
+              .join(' / ')
+          : reservation.facilityGroup?.name ?? 'Fasilitas tidak diketahui',
+        facilityGroup:
+          reservation.facility?.facilityGroup?.name ??
+          reservation.facilityGroup?.name ??
+          'Kelompok tidak diketahui',
+        facilityArea:
+          reservation.facility?.facilityGroup?.facilityArea ??
+          reservation.facilityGroup?.facilityArea ??
+          null,
+        facilityType:
+          reservation.facility?.facilityGroup?.facilityType?.name ??
+          reservation.facilityGroup?.facilityType?.name ??
+          'Tipe tidak diketahui',
+        reservationMode:
+          reservation.facility?.facilityGroup?.reservationMode ??
+          reservation.facilityGroup?.reservationMode ??
+          null,
+        items: reservation.items
+          .map((item) =>
+            item.facility
+              ? [item.facility.assetCode, item.facility.name]
+                  .filter(Boolean)
+                  .join(' / ')
+              : null,
+          )
+          .filter((item): item is string => Boolean(item)),
+        quantity: reservation.requestedQuantity,
+        purpose: reservation.purpose,
+        status: reservation.status,
+        decisionReason: reservation.decisionReason,
+        processedBy: reservation.processedBy?.name ?? null,
+      }));
+  }
+
   async damageFrequency(input: AnalyticsFilterDto) {
-    const dataset = await this.createDataset(input);
+    const dataset = await this.createDataset(input, true);
     return this.withMetadata(
       dataset,
       this.calculateDamageFrequency(dataset, dataset.filter),
@@ -253,7 +385,7 @@ export class AnalyticsQueryService {
   }
 
   async trends(input: AnalyticsTrendDto) {
-    const dataset = await this.createDataset(input);
+    const dataset = await this.createDataset(input, true);
     const windows = this.trendWindows(dataset.filter, input.interval);
     const series = windows.map((window) => {
       if (input.metric === AnalyticsTrendMetric.OCCUPANCY) {
@@ -288,7 +420,7 @@ export class AnalyticsQueryService {
   }
 
   async facilityReportHistory(input: FacilityReportHistoryDto) {
-    const dataset = await this.createDataset(input);
+    const dataset = await this.createDataset(input, true);
     const sorted = [...dataset.reports].sort(
       (left, right) =>
         right.createdAt.getTime() - left.createdAt.getTime() ||
@@ -308,7 +440,7 @@ export class AnalyticsQueryService {
   }
 
   async facilityReportHistoryForExport(input: AnalyticsFilterDto) {
-    const dataset = await this.createDataset(input);
+    const dataset = await this.createDataset(input, true, false, true);
     const items = [...dataset.reports]
       .sort(
         (left, right) =>
@@ -326,6 +458,7 @@ export class AnalyticsQueryService {
       category: report.category,
       categoryLabel: CATEGORY_LABELS[report.category],
       status: report.status,
+      description: report.description,
       facility: {
         id: report.facility.id,
         assetCode: report.facility.assetCode,
@@ -350,13 +483,21 @@ export class AnalyticsQueryService {
           : null,
       decisionReason: report.decisionReason,
       resolutionNote: report.resolutionNote,
+      attachments: report.attachments?.map((attachment) => ({
+        name: attachment.originalFilename,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+      })) ?? [],
     };
   }
 
   private async createDataset(
     input: AnalyticsFilterDto,
+    allowAllTime = false,
+    includeReservationDetails = false,
+    includeReportAttachments = false,
   ): Promise<AnalyticsDataset> {
-    const filter = await this.normalizeFilter(input);
+    const filter = await this.normalizeFilter(input, allowAllTime);
     const facilityWhere: Prisma.FacilityWhereInput = {
       ...(filter.facilityId ? { id: filter.facilityId } : {}),
       facilityGroup: {
@@ -442,7 +583,46 @@ export class AnalyticsQueryService {
           endTime: true,
           createdAt: true,
           decidedAt: true,
-          items: { select: { facilityId: true } },
+          ...(includeReservationDetails ? { cancelledAt: true } : {}),
+          items: {
+            select: {
+              facilityId: true,
+              ...(includeReservationDetails
+                ? { facility: { select: { assetCode: true, name: true } } }
+                : {}),
+            },
+          },
+          ...(includeReservationDetails
+            ? {
+                reservationNumber: true,
+                purpose: true,
+                decisionReason: true,
+                user: { select: { name: true } },
+                processedBy: { select: { name: true } },
+                facility: {
+                  select: {
+                    assetCode: true,
+                    name: true,
+                    facilityGroup: {
+                      select: {
+                        name: true,
+                        reservationMode: true,
+                        facilityArea: { select: { code: true, name: true } },
+                        facilityType: { select: { name: true } },
+                      },
+                    },
+                  },
+                },
+                facilityGroup: {
+                  select: {
+                    name: true,
+                    reservationMode: true,
+                    facilityArea: { select: { code: true, name: true } },
+                    facilityType: { select: { name: true } },
+                  },
+                },
+              }
+            : {}),
         },
       }),
       this.prisma.facilityReport.findMany({
@@ -452,6 +632,7 @@ export class AnalyticsQueryService {
           reportNumber: true,
           category: true,
           status: true,
+          description: true,
           createdAt: true,
           acceptedAt: true,
           resolvedAt: true,
@@ -462,6 +643,17 @@ export class AnalyticsQueryService {
           },
           acceptedBy: { select: { id: true, name: true } },
           resolvedBy: { select: { id: true, name: true } },
+          ...(includeReportAttachments
+            ? {
+                attachments: {
+                  select: {
+                    originalFilename: true,
+                    mimeType: true,
+                    sizeBytes: true,
+                  },
+                },
+              }
+            : {}),
           facility: {
             select: {
               id: true,
@@ -494,9 +686,21 @@ export class AnalyticsQueryService {
 
   private async normalizeFilter(
     input: AnalyticsFilterDto,
+    allowAllTime: boolean,
   ): Promise<NormalizedAnalyticsFilter> {
-    const start = this.parseDate(input.dateFrom);
-    const end = this.parseDate(input.dateTo);
+    if (input.allTime && !allowAllTime) {
+      throw new BadRequestException({
+        code: 'ALL_TIME_ANALYTICS_UNSUPPORTED',
+        message: 'Filter semua waktu hanya tersedia untuk statistik dashboard.',
+      });
+    }
+    const range = input.allTime
+      ? await this.allTimeRange()
+      : { dateFrom: input.dateFrom, dateTo: input.dateTo };
+    const dateFrom = this.parseDate(range.dateFrom);
+    const dateTo = this.parseDate(range.dateTo);
+    const start = dateFrom;
+    const end = dateTo;
     if (start > end) {
       throw new BadRequestException({
         code: 'INVALID_ANALYTICS_DATE_RANGE',
@@ -504,7 +708,7 @@ export class AnalyticsQueryService {
       });
     }
     const days = this.daysBetween(start, end) + 1;
-    if (days > MAX_ANALYTICS_DAYS) {
+    if (!input.allTime && days > MAX_ANALYTICS_DAYS) {
       throw new BadRequestException({
         code: 'ANALYTICS_DATE_RANGE_TOO_LARGE',
         message: 'Rentang analytics maksimal 366 hari.',
@@ -596,20 +800,43 @@ export class AnalyticsQueryService {
         message: 'Kombinasi filter fasilitas tidak konsisten.',
       });
     }
-    const endExclusiveDate = this.addDays(input.dateTo, 1);
+    const endExclusiveDate = this.addDays(dateTo, 1);
     return {
-      dateFrom: input.dateFrom,
-      dateTo: input.dateTo,
-      startAt: this.jakartaInstant(input.dateFrom, 0, 0),
+      dateFrom,
+      dateTo,
+      allTime: input.allTime ?? false,
+      startAt: this.jakartaInstant(dateFrom, 0, 0),
       endExclusiveAt: this.jakartaInstant(endExclusiveDate, 0, 0),
-      usageDateStart: this.usageDate(input.dateFrom),
-      usageDateEnd: this.usageDate(input.dateTo),
+      usageDateStart: this.usageDate(dateFrom),
+      usageDateEnd: this.usageDate(dateTo),
       facilityAreaId: input.facilityAreaId,
       facilityTypeId: input.facilityTypeId,
       facilityGroupId: input.facilityGroupId,
       facilityId: input.facilityId,
       reservationMode: input.reservationMode,
     };
+  }
+
+  private async allTimeRange() {
+    const [earliestFacility, earliestReservation, earliestReport] =
+      await Promise.all([
+        this.prisma.facility.aggregate({ _min: { createdAt: true } }),
+        this.prisma.reservation.aggregate({ _min: { usageDate: true } }),
+        this.prisma.facilityReport.aggregate({ _min: { createdAt: true } }),
+      ]);
+    const dateTo = this.dateInJakarta(new Date());
+    const starts = [
+      earliestFacility._min.createdAt
+        ? this.dateInJakarta(earliestFacility._min.createdAt)
+        : undefined,
+      earliestReservation._min.usageDate
+        ? earliestReservation._min.usageDate.toISOString().slice(0, 10)
+        : undefined,
+      earliestReport._min.createdAt
+        ? this.dateInJakarta(earliestReport._min.createdAt)
+        : undefined,
+    ].filter((date): date is string => Boolean(date && date <= dateTo));
+    return { dateFrom: starts.sort()[0] ?? dateTo, dateTo };
   }
 
   private calculateOccupancy(
@@ -782,12 +1009,27 @@ export class AnalyticsQueryService {
         name: report.facility.name ?? report.facility.facilityGroup.name,
       }),
     );
+    const byFacilityType = this.groupCount(
+      reports,
+      (report) => report.facility.facilityGroup.facilityType.id,
+      (report) => ({
+        facilityTypeId: report.facility.facilityGroup.facilityType.id,
+        name: report.facility.facilityGroup.facilityType.name,
+      }),
+    );
     const byArea = this.groupCount(
       reports,
       (report) => report.facility.facilityGroup.facilityArea.id,
       (report) => report.facility.facilityGroup.facilityArea,
     );
-    return { total: reports.length, byCategory, byStatus, byFacility, byArea };
+    return {
+      total: reports.length,
+      byCategory,
+      byStatus,
+      byFacility,
+      byFacilityType,
+      byArea,
+    };
   }
 
   private operationalSlots(window: AnalyticsWindow) {
@@ -918,6 +1160,7 @@ export class AnalyticsQueryService {
 
   private publicFilter(filter: NormalizedAnalyticsFilter) {
     return {
+      allTime: filter.allTime,
       dateFrom: filter.dateFrom,
       dateTo: filter.dateTo,
       facilityAreaId: filter.facilityAreaId ?? null,
@@ -1031,6 +1274,18 @@ export class AnalyticsQueryService {
     return new Date(
       `${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000${JAKARTA_OFFSET}`,
     );
+  }
+
+  private dateInJakarta(value: Date) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(value);
+    const part = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((item) => item.type === type)?.value ?? '';
+    return `${part('year')}-${part('month')}-${part('day')}`;
   }
 
   private addDays(date: string, days: number) {
