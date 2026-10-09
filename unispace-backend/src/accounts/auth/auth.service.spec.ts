@@ -148,7 +148,9 @@ describe('AuthService', () => {
     expect(login.refreshToken).toBeTruthy();
     expect(database.user.update).toHaveBeenCalledWith({
       where: { id: activeUser.id },
-      data: { refreshTokenHash: expect.stringMatching(/^\$2[aby]\$\d{2}\$/) },
+      data: {
+        refreshTokenHash: expect.stringMatching(/^sha256:[a-f\d]{64}$/),
+      },
     });
 
     activeUser.refreshTokenHash =
@@ -158,9 +160,11 @@ describe('AuthService', () => {
     expect(database.user.updateMany).toHaveBeenCalledWith({
       where: {
         id: activeUser.id,
-        refreshTokenHash: expect.stringMatching(/^\$2[aby]\$\d{2}\$/),
+        refreshTokenHash: expect.stringMatching(/^sha256:[a-f\d]{64}$/),
       },
-      data: { refreshTokenHash: expect.stringMatching(/^\$2[aby]\$\d{2}\$/) },
+      data: {
+        refreshTokenHash: expect.stringMatching(/^sha256:[a-f\d]{64}$/),
+      },
     });
   });
 
@@ -217,7 +221,7 @@ describe('AuthService', () => {
       where: { id: staff.id },
       data: {
         passwordHash: expect.stringMatching(/^\$2[aby]\$\d{2}\$/),
-        refreshTokenHash: expect.stringMatching(/^\$2[aby]\$\d{2}\$/),
+        refreshTokenHash: expect.stringMatching(/^sha256:[a-f\d]{64}$/),
       },
     });
     expect(database.auditLog.create).toHaveBeenCalledWith({
