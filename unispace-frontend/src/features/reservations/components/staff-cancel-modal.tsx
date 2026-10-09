@@ -85,13 +85,17 @@ export function StaffCancelModal({
       className="reservation-modal-backdrop"
       role="dialog"
     >
-      <div
-        className="reservation-modal-overlay"
-        onClick={handleClose}
-      />
+      <div className="reservation-modal-overlay" onClick={handleClose} />
 
-      <div className="reservation-modal-card" ref={modalRef} style={{ maxWidth: "520px" }}>
-        <div className="reservation-modal-header" style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "1rem" }}>
+      <div
+        className="reservation-modal-card"
+        ref={modalRef}
+        style={{ maxWidth: "520px" }}
+      >
+        <div
+          className="reservation-modal-header"
+          style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "1rem" }}
+        >
           <div
             style={{
               width: "40px",
@@ -106,7 +110,16 @@ export function StaffCancelModal({
             }}
             aria-hidden="true"
           >
-            <svg fill="none" height="20" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="20">
+            <svg
+              fill="none"
+              height="20"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+              width="20"
+            >
               <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
               <line x1="12" x2="12" y1="9" y2="13" />
               <line x1="12" x2="12.01" y1="17" y2="17" />
@@ -114,10 +127,24 @@ export function StaffCancelModal({
           </div>
 
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h2 id="cancel-modal-title" style={{ fontSize: "1.125rem", fontWeight: 700, color: "#0f172a", margin: 0 }}>
+            <h2
+              id="cancel-modal-title"
+              style={{
+                fontSize: "1.125rem",
+                fontWeight: 700,
+                color: "#0f172a",
+                margin: 0,
+              }}
+            >
               Batalkan Reservasi oleh Petugas
             </h2>
-            <p style={{ fontSize: "0.8125rem", color: "#64748b", margin: "2px 0 0" }}>
+            <p
+              style={{
+                fontSize: "0.8125rem",
+                color: "#64748b",
+                margin: "2px 0 0",
+              }}
+            >
               Pembatalan sepihak operasional untuk kendala darurat kampus.
             </p>
           </div>
@@ -126,7 +153,14 @@ export function StaffCancelModal({
             aria-label="Tutup jendela"
             disabled={isSubmitting}
             onClick={handleClose}
-            style={{ background: "none", border: "none", fontSize: "1.5rem", color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}
+            style={{
+              background: "none",
+              border: "none",
+              fontSize: "1.5rem",
+              color: "#94a3b8",
+              cursor: "pointer",
+              lineHeight: 1,
+            }}
             type="button"
           >
             ×
@@ -134,19 +168,70 @@ export function StaffCancelModal({
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div style={{ padding: "1.25rem 0", display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <div style={{ background: "#f8fafc", padding: "0.75rem 1rem", borderRadius: "8px", border: "1px solid #e2e8f0", fontSize: "0.8125rem", color: "#475569" }}>
-              <div><strong>{targetName}</strong> ({dateFormatted}, {timeRange})</div>
-              <div>Pemohon: <strong>{reservation.user.name}</strong> ({reservation.user.identityNumber})</div>
-              <div>Status Saat Ini: <span style={{ fontWeight: 700, color: "#166534" }}>{reservation.status}</span></div>
+          <div
+            style={{
+              padding: "1.25rem 0",
+              display: "flex",
+              flexDirection: "column",
+              gap: "1rem",
+            }}
+          >
+            <div
+              style={{
+                background: "#f8fafc",
+                padding: "0.75rem 1rem",
+                borderRadius: "8px",
+                border: "1px solid #e2e8f0",
+                fontSize: "0.8125rem",
+                color: "#475569",
+              }}
+            >
+              <div>
+                <strong>{targetName}</strong> ({dateFormatted}, {timeRange})
+              </div>
+              <div>
+                Pemohon: <strong>{reservation.user.name}</strong> (
+                {reservation.user.identityNumber})
+              </div>
+              <div>
+                Status Saat Ini:{" "}
+                <span style={{ fontWeight: 700, color: "#166534" }}>
+                  {reservation.status}
+                </span>
+              </div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <label htmlFor="cancellation-reason" style={{ fontSize: "0.875rem", fontWeight: 600, color: "#1e293b" }}>
-                  Alasan Pembatalan Operasional <span style={{ color: "#dc2626" }}>*</span>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.35rem",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <label
+                  htmlFor="cancellation-reason"
+                  style={{
+                    fontSize: "0.875rem",
+                    fontWeight: 600,
+                    color: "#1e293b",
+                  }}
+                >
+                  Alasan Pembatalan Operasional{" "}
+                  <span style={{ color: "#dc2626" }}>*</span>
                 </label>
-                <span style={{ fontSize: "0.75rem", color: reason.trim().length < 5 ? "#dc2626" : "#64748b" }}>
+                <span
+                  style={{
+                    fontSize: "0.75rem",
+                    color: reason.trim().length < 5 ? "#dc2626" : "#64748b",
+                  }}
+                >
                   {reason.length} / 500 karakter
                 </span>
               </div>
@@ -168,22 +253,50 @@ export function StaffCancelModal({
                 value={reason}
               />
               <p style={{ fontSize: "0.75rem", color: "#64748b", margin: 0 }}>
-                Status reservasi akan diubah menjadi <strong>CANCELLED_BY_STAFF</strong> dan unit/slot akan dibebaskan kembali.
+                Status reservasi akan diubah menjadi{" "}
+                <strong>CANCELLED_BY_STAFF</strong> dan unit/slot akan
+                dibebaskan kembali.
               </p>
             </div>
 
             {validationError || error ? (
-              <div style={{ background: "#fef2f2", border: "1px solid #fecaca", padding: "0.6rem 0.85rem", borderRadius: "6px", fontSize: "0.8125rem", color: "#b91c1c" }}>
+              <div
+                style={{
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  padding: "0.6rem 0.85rem",
+                  borderRadius: "6px",
+                  fontSize: "0.8125rem",
+                  color: "#b91c1c",
+                }}
+              >
                 {validationError ?? error}
               </div>
             ) : null}
           </div>
 
-          <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
+          <div
+            style={{
+              borderTop: "1px solid #e2e8f0",
+              paddingTop: "1rem",
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: "0.75rem",
+            }}
+          >
             <button
               disabled={isSubmitting}
               onClick={handleClose}
-              style={{ padding: "0.5rem 1rem", fontSize: "0.875rem", fontWeight: 600, color: "#475569", background: "#f1f5f9", border: "none", borderRadius: "6px", cursor: "pointer" }}
+              style={{
+                padding: "0.5rem 1rem",
+                fontSize: "0.875rem",
+                fontWeight: 600,
+                color: "#475569",
+                background: "#f1f5f9",
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+              }}
               type="button"
             >
               Batal
@@ -207,9 +320,25 @@ export function StaffCancelModal({
             >
               {isSubmitting ? (
                 <>
-                  <svg className="animate-spin" height="14" viewBox="0 0 24 24" width="14" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.25" />
-                    <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  <svg
+                    className="animate-spin"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    width="14"
+                    fill="none"
+                  >
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      opacity="0.25"
+                    />
+                    <path
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
                   </svg>
                   <span>Membatalkan…</span>
                 </>

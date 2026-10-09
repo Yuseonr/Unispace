@@ -20,7 +20,11 @@ export default function UserLayout({ children }: { children: ReactNode }) {
   }, [isReady, pathname, router, user?.role]);
 
   if (!isReady || user?.role !== "USER") {
-    return <main className="user-res-page"><LoadingState label="Memeriksa akses pengguna…" /></main>;
+    return (
+      <main className="user-res-page">
+        <LoadingState label="Memeriksa akses pengguna…" />
+      </main>
+    );
   }
 
   return (

@@ -10,4 +10,8 @@ export type AuthenticatedUser = {
 };
 
 export type AccessTokenPayload = { sub: string; type: 'access' };
-export type RefreshTokenPayload = { sub: string; type: 'refresh' };
+export type RefreshTokenPayload = {
+  sub: string;
+  type: 'refresh';
+  jti: string;
+};

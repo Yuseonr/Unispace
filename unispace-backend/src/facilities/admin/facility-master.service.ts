@@ -3,7 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { FacilityAreaStatus, type Prisma } from '../../generated/prisma/client';
+import {
+  FacilityAreaStatus,
+  FacilityTypeStatus,
+  type Prisma,
+} from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import {
   CreateFacilityAreaDto,
@@ -18,7 +22,10 @@ export class FacilityMasterService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listTypes() {
-    return this.prisma.facilityType.findMany({ orderBy: { name: 'asc' } });
+    return this.prisma.facilityType.findMany({
+      where: { status: FacilityTypeStatus.ACTIVE },
+      orderBy: { name: 'asc' },
+    });
   }
 
   async listActiveAreas() {
@@ -29,14 +36,17 @@ export class FacilityMasterService {
   }
 
   async adminListTypes() {
-    return this.listTypes();
+    return this.prisma.facilityType.findMany({
+      include: { _count: { select: { facilityGroups: true } } },
+      orderBy: { name: 'asc' },
+    });
   }
 
   async adminCreateType(adminId: string, input: CreateFacilityTypeDto) {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const type = await tx.facilityType.create({
-          data: { name: input.name },
+          data: { name: input.name, status: FacilityTypeStatus.ACTIVE },
         });
         await tx.auditLog.create({
           data: {
@@ -96,6 +106,54 @@ export class FacilityMasterService {
     }
   }
 
+  async adminUpdateTypeStatus(
+    adminId: string,
+    typeId: string,
+    status: FacilityTypeStatus,
+  ) {
+    const type = await this.prisma.facilityType.findUnique({
+      where: { id: typeId },
+      include: { _count: { select: { facilityGroups: true } } },
+    });
+    if (!type) {
+      throw new NotFoundException('Tipe fasilitas tidak ditemukan.');
+    }
+    if (type.status === status) {
+      return type;
+    }
+    if (
+      status === FacilityTypeStatus.NONACTIVE &&
+      type._count.facilityGroups > 0
+    ) {
+      throw new ConflictException({
+        code: 'FACILITY_TYPE_STILL_REFERENCED',
+        message:
+          'Tipe fasilitas tidak dapat dinonaktifkan karena masih digunakan oleh grup fasilitas.',
+      });
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.facilityType.update({
+        where: { id: typeId },
+        data: { status },
+        include: { _count: { select: { facilityGroups: true } } },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId: adminId,
+          action:
+            status === FacilityTypeStatus.ACTIVE
+              ? 'FACILITY_TYPE_ACTIVATED'
+              : 'FACILITY_TYPE_DEACTIVATED',
+          entityType: 'FACILITY_TYPE',
+          entityId: typeId,
+          metadata: { fromStatus: type.status, toStatus: status },
+        },
+      });
+      return updated;
+    });
+  }
+
   async adminListAreas() {
     return this.prisma.facilityArea.findMany({
       include: { _count: { select: { facilityGroups: true } } },
@@ -107,7 +165,11 @@ export class FacilityMasterService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const area = await tx.facilityArea.create({
-          data: { code: input.code, name: input.name },
+          data: {
+            code: input.code,
+            name: input.name,
+            status: FacilityAreaStatus.ACTIVE,
+          },
         });
         await tx.auditLog.create({
           data: {

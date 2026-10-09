@@ -490,6 +490,7 @@ describe('ReportsService lifecycle', () => {
         where: expect.objectContaining({ id: 'period-1' }),
         data: expect.objectContaining({
           endAt: expect.any(Date),
+          endedEarly: true,
         }),
       }),
     );

@@ -12,7 +12,8 @@ export function AccountStatus() {
         Pendaftaranmu sudah kami terima.
       </h2>
       <p className="auth-panel__intro">
-        Admin akan memverifikasi data kampusmu. Kamu dapat masuk setelah akun berstatus aktif.
+        Admin akan memverifikasi data kampusmu. Kamu dapat masuk setelah akun
+        berstatus aktif.
       </p>
       <Link className="button-primary auth-status__button" href="/login">
         Kembali ke masuk

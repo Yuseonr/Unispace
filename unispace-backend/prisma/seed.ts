@@ -310,9 +310,16 @@ function required(name: string) {
   return value;
 }
 function toDate(offset: number, hour = 9) {
-  const date = new Date();
-  date.setUTCHours(hour - 7, 0, 0, 0);
+  const jakartaNow = new Date(Date.now() + 7 * 60 * 60 * 1000);
+  const date = new Date(
+    Date.UTC(
+      jakartaNow.getUTCFullYear(),
+      jakartaNow.getUTCMonth(),
+      jakartaNow.getUTCDate(),
+    ),
+  );
   date.setUTCDate(date.getUTCDate() + offset);
+  date.setUTCHours(hour - 7, 0, 0, 0);
   return date;
 }
 function operationalDate(offset: number) {
@@ -323,6 +330,13 @@ function operationalDate(offset: number) {
 }
 function time(value: string) {
   return new Date(`1970-01-01T${value}:00.000Z`);
+}
+function addMinutes(value: string, minutes: number) {
+  const [hour, minute] = value.split(':').map(Number);
+  const totalMinutes = hour * 60 + minute + minutes;
+  const endHour = String(Math.floor(totalMinutes / 60)).padStart(2, '0');
+  const endMinute = String(totalMinutes % 60).padStart(2, '0');
+  return `${endHour}:${endMinute}`;
 }
 function publicImageUrl(fileName: string) {
   return `${API_BASE_URL}/facilities/images/${encodeURIComponent(fileName)}`;
@@ -529,7 +543,7 @@ async function seed() {
             status: FacilityStatus.ACTIVE,
             // Riwayat reservasi demo dimulai jauh sebelum tanggal seed dijalankan.
             // Analytics memakai createdAt sebagai batas kapasitas historis.
-            createdAt: toDate(-120),
+            createdAt: toDate(-120, 7),
           },
         });
         physical.push({
@@ -546,9 +560,19 @@ async function seed() {
     const quantity = physical.filter(
       (item) => item.mode === ReservationMode.QUANTITY,
     );
+    const quantityGroups = Array.from(
+      new Map(quantity.map((item) => [item.groupId, item])).values(),
+    );
     const completed = operationalDate(-21);
     const approved = operationalDate(4);
     const pending = operationalDate(6);
+    const rejected = operationalDate(-7);
+    const nonactiveEffectiveAt = toDate(-3);
+    const dateOffset = (date: Date) =>
+      Math.round((date.getTime() - toDate(0, 12).getTime()) / 86_400_000);
+    const completedOffset = dateOffset(completed);
+    const rejectedOffset = dateOffset(rejected);
+    const nonactiveOffset = dateOffset(nonactiveEffectiveAt);
     const reservations = await Promise.all([
       prisma.reservation.create({
         data: {
@@ -560,6 +584,7 @@ async function seed() {
           endTime: time('11:00'),
           purpose: 'Seminar akademik',
           status: ReservationStatus.COMPLETED,
+          createdAt: toDate(-30),
           decisionDeadline: toDate(-23, 13),
           processedById: staff[0].id,
           decidedAt: toDate(-24),
@@ -576,6 +601,7 @@ async function seed() {
           endTime: time('15:00'),
           purpose: 'Rapat organisasi mahasiswa',
           status: ReservationStatus.APPROVED,
+          createdAt: toDate(-3),
           decisionDeadline: toDate(1, 13),
           processedById: staff[1].id,
           decidedAt: toDate(-1),
@@ -593,6 +619,7 @@ async function seed() {
           endTime: time('12:00'),
           purpose: 'Presentasi proyek akhir',
           status: ReservationStatus.APPROVED,
+          createdAt: toDate(-3),
           decisionDeadline: toDate(1, 13),
           processedById: staff[0].id,
           decidedAt: toDate(-1),
@@ -614,6 +641,7 @@ async function seed() {
           endTime: time('12:00'),
           purpose: 'Diskusi penelitian',
           status: ReservationStatus.PENDING,
+          createdAt: toDate(-1),
           decisionDeadline: toDate(1, 13),
         },
       }),
@@ -628,6 +656,7 @@ async function seed() {
           endTime: time('16:00'),
           purpose: 'Praktikum observasi',
           status: ReservationStatus.PENDING,
+          createdAt: toDate(-1),
           decisionDeadline: toDate(1, 13),
         },
       }),
@@ -636,11 +665,12 @@ async function seed() {
           reservationNumber: 'RSV-DEMO-006',
           userId: users[5].id,
           facilityId: exclusive[3].id,
-          usageDate: operationalDate(-7),
+          usageDate: rejected,
           startTime: time('08:00'),
           endTime: time('10:00'),
           purpose: 'Kelas tambahan',
           status: ReservationStatus.REJECTED,
+          createdAt: toDate(-12),
           decisionDeadline: toDate(-9, 13),
           processedById: staff[2].id,
           decidedAt: toDate(-8),
@@ -657,6 +687,7 @@ async function seed() {
           endTime: time('17:00'),
           purpose: 'Pelatihan internal',
           status: ReservationStatus.CANCELLED_BY_USER,
+          createdAt: toDate(-4),
           decisionDeadline: toDate(2, 13),
           cancelledAt: toDate(-1),
           decisionReason: 'Dibatalkan oleh pengguna.',
@@ -665,74 +696,220 @@ async function seed() {
     ]);
     const historicalStatuses: ReservationStatus[] = [
       ReservationStatus.COMPLETED,
+      ReservationStatus.COMPLETED,
       ReservationStatus.REJECTED,
-      ReservationStatus.CANCELLED_BY_STAFF,
-      ReservationStatus.CANCELLED_BY_SYSTEM,
       ReservationStatus.CANCELLED_BY_USER,
       ReservationStatus.COMPLETED,
-      ReservationStatus.REJECTED,
-      ReservationStatus.COMPLETED,
       ReservationStatus.CANCELLED_BY_STAFF,
       ReservationStatus.COMPLETED,
       ReservationStatus.CANCELLED_BY_SYSTEM,
+      ReservationStatus.REJECTED,
       ReservationStatus.COMPLETED,
+      ReservationStatus.COMPLETED,
+      ReservationStatus.CANCELLED_BY_STAFF,
+    ];
+    const historicalOffsets = Array.from(
+      { length: 30 },
+      (_, index) => index - 30,
+    ).filter((offset) => {
+      const weekday = toDate(offset, 12).getUTCDay();
+      return weekday !== 0 && weekday !== 6;
+    });
+    const timeSlots = [
+      ['07:00', '09:00'],
+      ['09:30', '11:30'],
+      ['11:30', '13:30'],
+      ['13:30', '15:30'],
+      ['16:00', '18:00'],
+    ] as const;
+    const historicalPurposes = [
+      'Kuliah tamu dan diskusi akademik',
+      'Praktikum terjadwal',
+      'Rapat dan koordinasi kegiatan kampus',
+      'Pelatihan organisasi mahasiswa',
+      'Presentasi tugas akhir',
+      'Kegiatan penelitian dosen dan mahasiswa',
     ];
     const historicalReservations = await Promise.all(
-      historicalStatuses.map(async (status, index) => {
-        const target =
-          index % 3 === 0
-            ? quantity[index % quantity.length]
-            : exclusive[index % exclusive.length];
-        const isQuantity = target.mode === ReservationMode.QUANTITY;
-        const date = operationalDate(-60 + index * 3);
-        const allocation = isQuantity
-          ? quantity
-              .filter((item) => item.groupId === target.groupId)
-              .slice(0, 2)
-          : [target];
-        return prisma.reservation.create({
-          data: {
-            reservationNumber: `RSV-HISTORY-${String(index + 1).padStart(3, '0')}`,
-            userId: users[index % 10].id,
-            ...(isQuantity
-              ? { facilityGroupId: target.groupId, requestedQuantity: 2 }
-              : { facilityId: target.id }),
-            usageDate: date,
-            startTime: time(index % 2 === 0 ? '08:00' : '14:00'),
-            endTime: time(index % 2 === 0 ? '10:00' : '16:00'),
-            purpose:
-              index % 4 === 0 ? null : `Kegiatan demo historis ${index + 1}`,
-            status,
-            decisionDeadline: toDate(-65 + index * 3, 13),
-            processedById:
-              status === ReservationStatus.CANCELLED_BY_USER
-                ? null
-                : staff[index % staff.length].id,
-            decidedAt:
-              status === ReservationStatus.CANCELLED_BY_USER
-                ? null
-                : toDate(-64 + index * 3),
-            cancelledAt: status.startsWith('CANCELLED')
-              ? toDate(-63 + index * 3)
-              : null,
-            decisionReason:
-              status === ReservationStatus.REJECTED
-                ? 'Permohonan historis tidak dapat dipenuhi pada waktu tersebut.'
-                : status.startsWith('CANCELLED')
-                  ? 'Pembatalan pada data demo historis.'
+      historicalOffsets.flatMap((offset, dayIndex) =>
+        timeSlots.flatMap(([startTime, endTime], slotIndex) => {
+          // Keep this fixture for equipment only; room occupancy is seeded
+          // separately at a controlled share of each day's room capacity.
+          if (slotIndex % 2 === 0) return [];
+          const index = dayIndex * timeSlots.length + slotIndex;
+          const status = historicalStatuses[index % historicalStatuses.length];
+          const target = quantityGroups[
+            (dayIndex * 2 + Math.floor(slotIndex / 2)) % quantityGroups.length
+          ];
+          const targetUnits = quantity.filter(
+            (item) => item.groupId === target.groupId,
+          );
+          const requestedQuantity = Math.min(
+            1 + (dayIndex % 3),
+            targetUnits.length,
+          );
+          return [
+            prisma.reservation.create({
+              data: {
+                reservationNumber: `RSV-HISTORY-${String(index + 1).padStart(3, '0')}`,
+                userId: users[index % 10].id,
+                facilityGroupId: target.groupId,
+                requestedQuantity,
+                usageDate: toDate(offset, 12),
+                startTime: time(startTime),
+                endTime: time(endTime),
+                purpose: historicalPurposes[index % historicalPurposes.length],
+                status,
+                createdAt: toDate(offset - 6),
+                decisionDeadline: toDate(offset - 4, 13),
+                processedById:
+                  status === ReservationStatus.CANCELLED_BY_USER
+                    ? null
+                    : staff[index % staff.length].id,
+                decidedAt:
+                  status === ReservationStatus.CANCELLED_BY_USER
+                    ? null
+                    : toDate(offset - 5, 11),
+                cancelledAt: status.startsWith('CANCELLED')
+                  ? toDate(offset - 1, 14)
                   : null,
-            ...(status === ReservationStatus.COMPLETED
-              ? {
-                  items: {
-                    create: allocation.map((item) => ({ facilityId: item.id })),
-                  },
-                }
-              : {}),
-          },
-        });
-      }),
+                decisionReason:
+                  status === ReservationStatus.REJECTED
+                    ? 'Permohonan historis tidak dapat dipenuhi pada waktu tersebut.'
+                    : status.startsWith('CANCELLED')
+                      ? 'Pembatalan pada data demo historis.'
+                      : null,
+                ...(status === ReservationStatus.COMPLETED
+                  ? {
+                      items: {
+                        create: targetUnits
+                          .slice(0, requestedQuantity)
+                          .map((item) => ({ facilityId: item.id })),
+                      },
+                    }
+                  : {}),
+              },
+            }),
+          ];
+        }),
+      ),
     );
-    const reportSeeds = [
+    const roomOccupancyOffsets = Array.from(
+      { length: 121 },
+      (_, index) => index - 120,
+    ).filter((offset) => {
+      const weekday = toDate(offset, 12).getUTCDay();
+      return weekday >= 1 && weekday <= 5;
+    });
+    const roomStartTimes = ['07:00', '09:00', '11:30', '13:30', '16:30'];
+    const roomPurposes = [
+      'Perkuliahan dan diskusi kelas',
+      'Praktikum terjadwal',
+      'Rapat dan koordinasi kegiatan kampus',
+      'Bimbingan dan presentasi akademik',
+      'Pelatihan organisasi mahasiswa',
+      'Kegiatan penelitian dosen dan mahasiswa',
+    ];
+    const roomOccupancyRows = roomOccupancyOffsets.flatMap((offset, dayIndex) => {
+      const usageDate = toDate(offset, 12);
+      const operationalFacilities = exclusive.filter(
+        (facility) =>
+          !(offset >= nonactiveOffset && facility.id === exclusive[9].id),
+      );
+      const availableSlots =
+        offset === nonactiveOffset
+          ? operationalFacilities.length * 26 + 4
+          : operationalFacilities.length * 26;
+      const existingBookedSlots = offset === completedOffset ? 4 : 0;
+      const targetBookedSlots = Math.round(availableSlots * 0.2);
+      const slotsToSeed = targetBookedSlots - existingBookedSlots;
+      const baseSlotsPerFacility = Math.floor(
+        slotsToSeed / operationalFacilities.length,
+      );
+      const extraSlots = slotsToSeed % operationalFacilities.length;
+      const firstExtraFacilityIndex = offset === completedOffset ? 1 : 0;
+      const extraFacilityIndices = new Set(
+        Array.from({ length: extraSlots }, (_, index) =>
+          (firstExtraFacilityIndex + index) % operationalFacilities.length,
+        ),
+      );
+
+      return operationalFacilities.map((facility, facilityIndex) => {
+        const durationSlots =
+          baseSlotsPerFacility + Number(extraFacilityIndices.has(facilityIndex));
+        const durationMinutes = durationSlots * 30;
+        let startTime =
+          offset === -120
+            ? '09:00'
+            : roomStartTimes[
+                ((dayIndex + facilityIndex) % roomStartTimes.length +
+                  roomStartTimes.length) %
+                  roomStartTimes.length
+              ];
+        if (offset === completedOffset && facility.id === exclusive[0].id) {
+          startTime = '11:30';
+        }
+        if (offset === rejectedOffset && facility.id === exclusive[3].id) {
+          startTime = '10:00';
+        }
+        const isToday = offset === 0;
+        const dateCode = usageDate.toISOString().slice(0, 10).replaceAll('-', '');
+        const sequence = String(facilityIndex + 1).padStart(3, '0');
+
+        return {
+          reservationNumber: `RSV-OCC-${dateCode}-${sequence}`,
+          data: {
+            userId: users[(dayIndex + facilityIndex) % users.length].id,
+            facilityId: facility.id,
+            usageDate,
+            startTime: time(startTime),
+            endTime: time(addMinutes(startTime, durationMinutes)),
+            purpose: roomPurposes[(dayIndex + facilityIndex) % roomPurposes.length],
+            status: isToday
+              ? ReservationStatus.APPROVED
+              : ReservationStatus.COMPLETED,
+            createdAt:
+              offset === -120
+                ? toDate(offset, 8)
+                : isToday
+                  ? toDate(-1, 9)
+                  : toDate(offset - 6),
+            decisionDeadline: isToday
+              ? toDate(1, 13)
+              : toDate(offset - 4, 13),
+            processedById: staff[(dayIndex + facilityIndex) % staff.length].id,
+            decidedAt:
+              offset === -120
+                ? toDate(offset, 8)
+                : isToday
+                  ? toDate(-1, 11)
+                  : toDate(offset - 5, 11),
+            items: { create: { facilityId: facility.id } },
+          },
+        };
+      });
+    });
+    const roomOccupancyReservations: Awaited<
+      ReturnType<typeof prisma.reservation.create>
+    >[] = [];
+    for (let index = 0; index < roomOccupancyRows.length; index += 50) {
+      const batch = await Promise.all(
+        roomOccupancyRows
+          .slice(index, index + 50)
+          .map(({ reservationNumber, data }) =>
+            prisma.reservation.create({ data: { reservationNumber, ...data } }),
+          ),
+      );
+      roomOccupancyReservations.push(...batch);
+    }
+    type ReportSeed = readonly [
+      ReportCategory,
+      (typeof physical)[number],
+      (typeof users)[number],
+      ReportStatus,
+      string,
+    ];
+    const reportSeeds: ReportSeed[] = [
       [
         ReportCategory.ELECTRICAL_ELECTRONICS,
         exclusive[5],
@@ -817,11 +994,45 @@ async function seed() {
         ReportStatus.RESOLVED,
         'Kursi ruang sidang telah diperbaiki oleh petugas.',
       ],
-    ] as const;
+    ];
+    const reportCategories = Object.values(ReportCategory);
+    const additionalReportStatuses = [
+      ReportStatus.NEW,
+      ReportStatus.IN_PROGRESS,
+      ReportStatus.RESOLVED,
+      ReportStatus.REJECTED,
+      ReportStatus.IN_PROGRESS,
+      ReportStatus.RESOLVED,
+    ];
+    const additionalReportDescriptions = [
+      'Kabel daya terlihat longgar dan perlu diperiksa sebelum digunakan kembali.',
+      'Permukaan meja mengalami kerusakan ringan setelah kegiatan praktikum.',
+      'Area fasilitas perlu dibersihkan setelah digunakan untuk kegiatan kampus.',
+      'Perangkat tidak merespons saat diuji pada awal kegiatan.',
+      'Kelengkapan alat perlu diperiksa karena ada bagian yang belum ditemukan.',
+      'Lampu indikator fasilitas berkedip ketika perangkat dinyalakan.',
+      'Kunci pintu terasa macet dan perlu dijadwalkan untuk perbaikan.',
+      'Kondisi kursi dan meja perlu ditinjau sebelum jadwal penggunaan berikutnya.',
+    ];
+    const additionalReportSeeds: ReportSeed[] = Array.from(
+      { length: 8 },
+      (_, index) => [
+        reportCategories[index % reportCategories.length],
+        physical[(index * 7 + 3) % physical.length],
+        users[(index + 4) % 12],
+        additionalReportStatuses[index % additionalReportStatuses.length],
+        additionalReportDescriptions[
+          index % additionalReportDescriptions.length
+        ],
+      ],
+    );
+    const allReportSeeds = [...reportSeeds, ...additionalReportSeeds];
     for (const [
       index,
       [category, facility, reporter, status, description],
-    ] of reportSeeds.entries()) {
+    ] of allReportSeeds.entries()) {
+      const reportOffset =
+        -30 + Math.floor((index * 29) / (allReportSeeds.length - 1));
       const report = await prisma.facilityReport.create({
         data: {
           reportNumber: `RPT-DEMO-${String(index + 1).padStart(3, '0')}`,
@@ -830,16 +1041,17 @@ async function seed() {
           category,
           description,
           status,
-          createdAt: toDate(-12 + index),
+          createdAt: toDate(reportOffset, 9),
           acceptedById:
             status !== ReportStatus.NEW ? staff[index % staff.length].id : null,
-          acceptedAt: status !== ReportStatus.NEW ? toDate(-11 + index) : null,
+          acceptedAt:
+            status !== ReportStatus.NEW ? toDate(reportOffset, 11) : null,
           resolvedById:
             status === ReportStatus.RESOLVED
               ? staff[index % staff.length].id
               : null,
           resolvedAt:
-            status === ReportStatus.RESOLVED ? toDate(-5 + index) : null,
+            status === ReportStatus.RESOLVED ? toDate(reportOffset, 16) : null,
           processedById:
             status !== ReportStatus.NEW ? staff[index % staff.length].id : null,
           decisionReason:
@@ -900,9 +1112,14 @@ async function seed() {
         facilityId: exclusive[9].id,
         status: FacilityStatus.NONACTIVE,
         changedById: admin.id,
-        effectiveAt: toDate(-3),
+        effectiveAt: nonactiveEffectiveAt,
       },
     });
+    const allReservations = [
+      ...reservations,
+      ...historicalReservations,
+      ...roomOccupancyReservations,
+    ];
     await prisma.auditLog.createMany({
       data: [
         {
@@ -913,13 +1130,13 @@ async function seed() {
           metadata: {
             facilityGroups: FACILITIES.length,
             physicalUnits: physical.length,
-            reservations: reservations.length + historicalReservations.length,
+            reservations: allReservations.length,
             users: users.length,
             staff: staff.length,
-            reports: reportSeeds.length,
+            reports: allReportSeeds.length,
           },
         },
-        ...[...reservations, ...historicalReservations].map((reservation) => ({
+        ...allReservations.map((reservation) => ({
           actorId: reservation.processedById,
           action: `RESERVATION_${reservation.status}`,
           entityType: 'RESERVATION',
@@ -929,7 +1146,7 @@ async function seed() {
       ],
     });
     console.log(
-      `Demo seed complete: ${FACILITIES.length} facility groups, ${physical.length} physical units, ${users.length} users, ${staff.length} staff, ${reservations.length + historicalReservations.length} reservations, and ${reportSeeds.length} reports.`,
+      `Demo seed complete: ${FACILITIES.length} facility groups, ${physical.length} physical units, ${users.length} users, ${staff.length} staff, ${allReservations.length} reservations, and ${allReportSeeds.length} reports.`,
     );
     console.log(
       'Demo user and staff passwords use DEFAULT_USER_PASSWORD; admin uses ADMIN_SEED_PASSWORD when configured.',

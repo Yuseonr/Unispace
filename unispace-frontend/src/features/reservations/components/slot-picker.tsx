@@ -21,8 +21,14 @@ export type SlotPickerProps = {
   initialDate?: string;
   mode?: "select" | "view";
   onDateChange?: (date: string) => void;
-  onAvailabilityChange?: (availability: FacilityAvailabilityData | null) => void;
-  onSlotSelect?: (startTime: string | null, endTime: string | null, slotCount: number) => void;
+  onAvailabilityChange?: (
+    availability: FacilityAvailabilityData | null,
+  ) => void;
+  onSlotSelect?: (
+    startTime: string | null,
+    endTime: string | null,
+    slotCount: number,
+  ) => void;
   requestedQuantity?: number;
   reservationMode?: ReservationMode;
   selectedEndTime?: string | null;
@@ -71,7 +77,10 @@ export function SlotPicker({
     if (!isDropdownOpen) return;
 
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         setIsDropdownOpen(false);
       }
     }
@@ -109,7 +118,11 @@ export function SlotPicker({
   const [prevInitialDateProp, setPrevInitialDateProp] = useState(initialDate);
   if (initialDate !== prevInitialDateProp) {
     setPrevInitialDateProp(initialDate);
-    if (initialDate && availableDates.some((d) => d.value === initialDate) && initialDate !== currentDate) {
+    if (
+      initialDate &&
+      availableDates.some((d) => d.value === initialDate) &&
+      initialDate !== currentDate
+    ) {
       setCurrentDate(initialDate);
       setInternalStartIdx(null);
       setInternalEndIdx(null);
@@ -136,17 +149,27 @@ export function SlotPicker({
       return { endIdx: internalEndIdx, startIdx: internalStartIdx };
     }
     if (selectedStartTime) {
-      const s = data.slots.findIndex((slot) => slot.startTime === selectedStartTime);
+      const s = data.slots.findIndex(
+        (slot) => slot.startTime === selectedStartTime,
+      );
       if (s !== -1) {
         if (selectedEndTime) {
-          const e = data.slots.findIndex((slot) => slot.endTime === selectedEndTime);
+          const e = data.slots.findIndex(
+            (slot) => slot.endTime === selectedEndTime,
+          );
           return { endIdx: e !== -1 ? e : s, startIdx: s };
         }
         return { endIdx: s, startIdx: s };
       }
     }
     return { endIdx: null, startIdx: null };
-  }, [data, internalEndIdx, internalStartIdx, selectedEndTime, selectedStartTime]);
+  }, [
+    data,
+    internalEndIdx,
+    internalStartIdx,
+    selectedEndTime,
+    selectedStartTime,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -165,7 +188,9 @@ export function SlotPicker({
       })
       .catch(() => {
         if (isMounted) {
-          setError("Gagal memuat ketersediaan slot. Silakan periksa koneksi atau coba tanggal lain.");
+          setError(
+            "Gagal memuat ketersediaan slot. Silakan periksa koneksi atau coba tanggal lain.",
+          );
         }
       })
       .finally(() => {
@@ -190,7 +215,10 @@ export function SlotPicker({
 
   function isSlotAvailable(slot: SlotItem): boolean {
     if (!slot.available) return false;
-    if (reservationMode === "QUANTITY" && typeof slot.availableUnits === "number") {
+    if (
+      reservationMode === "QUANTITY" &&
+      typeof slot.availableUnits === "number"
+    ) {
       return slot.availableUnits >= requestedQuantity;
     }
     return true;
@@ -211,7 +239,11 @@ export function SlotPicker({
         // Klik slot END -> Batalkan slot end saja, kembali ke pemilihan end
         setInternalEndIdx(null);
         setIsLocked(false);
-        onSlotSelect?.(data.slots[startIdx].startTime, data.slots[startIdx].endTime, 1);
+        onSlotSelect?.(
+          data.slots[startIdx].startTime,
+          data.slots[startIdx].endTime,
+          1,
+        );
         return;
       }
       // Slot lainnya saat terkunci tidak dapat diklik (abaikan)
@@ -297,11 +329,16 @@ export function SlotPicker({
     <div className="slot-picker">
       <div className="slot-picker__header">
         <div className="slot-picker__title-group">
-          <h2 className="slot-picker__heading">Jadwal & ketersediaan slot waktu</h2>
+          <h2 className="slot-picker__heading">
+            Jadwal & ketersediaan slot waktu
+          </h2>
         </div>
 
         <div className="slot-picker__date-select-wrap" ref={dropdownRef}>
-          <span className="slot-picker__date-select-label" id={`${dateInputId}-label`}>
+          <span
+            className="slot-picker__date-select-label"
+            id={`${dateInputId}-label`}
+          >
             Pilih Tanggal Penggunaan
           </span>
           <div className="slot-picker__dropdown">
@@ -316,7 +353,16 @@ export function SlotPicker({
             >
               <div className="slot-picker__dropdown-trigger-left">
                 <span className="slot-picker__dropdown-icon" aria-hidden="true">
-                  <svg fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="18">
+                  <svg
+                    fill="none"
+                    height="18"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                    width="18"
+                  >
                     <rect height="18" rx="3" width="18" x="3" y="4" />
                     <line x1="16" x2="16" y1="2" y2="6" />
                     <line x1="8" x2="8" y1="2" y2="6" />
@@ -331,8 +377,20 @@ export function SlotPicker({
               </div>
 
               <div className="slot-picker__dropdown-trigger-right">
-                <span className={`slot-picker__dropdown-arrow ${isDropdownOpen ? "is-open" : ""}`} aria-hidden="true">
-                  <svg fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" viewBox="0 0 24 24" width="16">
+                <span
+                  className={`slot-picker__dropdown-arrow ${isDropdownOpen ? "is-open" : ""}`}
+                  aria-hidden="true"
+                >
+                  <svg
+                    fill="none"
+                    height="16"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2.2"
+                    viewBox="0 0 24 24"
+                    width="16"
+                  >
                     <polyline points="6 9 12 15 18 9" />
                   </svg>
                 </span>
@@ -346,8 +404,12 @@ export function SlotPicker({
                 role="listbox"
               >
                 <div className="slot-picker__dropdown-menu-hint">
-                  <span className="slot-picker__dropdown-hint-title">Pilihan Hari Operasional Kampus</span>
-                  <span className="slot-picker__dropdown-hint-sub">Senin – Jumat · 07.00 – 20.00 WIB</span>
+                  <span className="slot-picker__dropdown-hint-title">
+                    Pilihan Hari Operasional Kampus
+                  </span>
+                  <span className="slot-picker__dropdown-hint-sub">
+                    Senin–Jumat, 07.00–20.00 WIB
+                  </span>
                 </div>
 
                 <div className="slot-picker__dropdown-list">
@@ -381,8 +443,20 @@ export function SlotPicker({
 
                         <div className="slot-picker__dropdown-item-aside">
                           {isSelected ? (
-                            <span className="slot-picker__dropdown-check" aria-hidden="true">
-                              <svg fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" viewBox="0 0 24 24" width="16">
+                            <span
+                              className="slot-picker__dropdown-check"
+                              aria-hidden="true"
+                            >
+                              <svg
+                                fill="none"
+                                height="16"
+                                stroke="currentColor"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="2.5"
+                                viewBox="0 0 24 24"
+                                width="16"
+                              >
                                 <polyline points="20 6 9 17 4 12" />
                               </svg>
                             </span>
@@ -400,7 +474,9 @@ export function SlotPicker({
 
       {!isCurrentOperDay ? (
         <div className="slot-picker__alert slot-picker__alert--warning">
-          <strong>Hari Libur Operasional:</strong> Fasilitas kampus hanya beroperasi pada hari kerja (Senin s.d. Jumat). Silakan pilih tanggal kerja berikutnya.
+          <strong>Hari Libur Operasional:</strong> Fasilitas kampus hanya
+          beroperasi pada hari kerja (Senin s.d. Jumat). Silakan pilih tanggal
+          kerja berikutnya.
         </div>
       ) : null}
 
@@ -412,11 +488,12 @@ export function SlotPicker({
               {isLocked ? "Slot Terkunci" : "Pilih Jam Selesai"}
             </span>
             <strong>
-              {selectedRangeSummary.startStr} – {selectedRangeSummary.endStr} WIB
+              {selectedRangeSummary.startStr} – {selectedRangeSummary.endStr}{" "}
+              WIB
             </strong>
             {!isLocked ? (
               <span className="slot-picker__summary-hint">
-                · Klik slot akhir atau pesan slot ini saja
+                Klik slot akhir atau pesan slot ini saja
               </span>
             ) : null}
           </div>
@@ -468,7 +545,11 @@ export function SlotPicker({
                   setData(availability);
                   onAvailabilityChange?.(availability);
                 })
-                .catch(() => setError("Gagal memuat ketersediaan slot. Silakan coba lagi."))
+                .catch(() =>
+                  setError(
+                    "Gagal memuat ketersediaan slot. Silakan coba lagi.",
+                  ),
+                )
                 .finally(() => setLoading(false));
             }}
             type="button"
@@ -477,7 +558,10 @@ export function SlotPicker({
           </button>
         </div>
       ) : (
-        <div className="slot-picker__grid" role={mode === "select" ? "group" : undefined}>
+        <div
+          className="slot-picker__grid"
+          role={mode === "select" ? "group" : undefined}
+        >
           {data?.slots?.map((slot, index) => {
             const available = isSlotAvailable(slot);
             const isStart = startIdx === index;
@@ -495,7 +579,8 @@ export function SlotPicker({
             const isLockedOut =
               mode === "select" &&
               startIdx !== null &&
-              ((isLocked && (index < startIdx || (endIdx !== null && index > endIdx))) ||
+              ((isLocked &&
+                (index < startIdx || (endIdx !== null && index > endIdx))) ||
                 (!isLocked && index < startIdx));
 
             let stateClass = "is-available";
@@ -523,8 +608,12 @@ export function SlotPicker({
             let statusText = "Tersedia";
             if (slot.reason === "MAINTENANCE") statusText = "Pemeliharaan";
             else if (slot.reason === "BOOKED") statusText = "Tidak Tersedia";
-            else if (slot.reason === "NON_OPERATIONAL_DAY") statusText = "Libur";
-            else if (reservationMode === "QUANTITY" && typeof slot.availableUnits === "number") {
+            else if (slot.reason === "NON_OPERATIONAL_DAY")
+              statusText = "Libur";
+            else if (
+              reservationMode === "QUANTITY" &&
+              typeof slot.availableUnits === "number"
+            ) {
               statusText = `${slot.availableUnits} unit`;
             }
 
@@ -540,9 +629,11 @@ export function SlotPicker({
 
             let ariaActionHint = "";
             if (isStart && endIdx !== null) {
-              ariaActionHint = " (Mulai - Klik untuk membatalkan seluruh pilihan)";
+              ariaActionHint =
+                " (Mulai - Klik untuk membatalkan seluruh pilihan)";
             } else if (isEnd && endIdx !== null && startIdx !== endIdx) {
-              ariaActionHint = " (Selesai - Klik untuk membatalkan jam selesai)";
+              ariaActionHint =
+                " (Selesai - Klik untuk membatalkan jam selesai)";
             } else if (isStart || isSingleSelected) {
               ariaActionHint = " (Mulai - Klik lagi untuk membatalkan)";
             }
@@ -550,7 +641,11 @@ export function SlotPicker({
             return (
               <button
                 aria-label={`Slot ${slotLabel}: ${statusText}${ariaActionHint}`}
-                aria-pressed={mode === "select" ? isStart || isEnd || isSingleSelected || isInRange : undefined}
+                aria-pressed={
+                  mode === "select"
+                    ? isStart || isEnd || isSingleSelected || isInRange
+                    : undefined
+                }
                 className={`slot-card ${stateClass}`}
                 disabled={isDisabled}
                 key={slot.slotIndex}

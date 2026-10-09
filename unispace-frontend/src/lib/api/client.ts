@@ -16,7 +16,9 @@ export class ApiError extends Error {
   status: number;
 
   constructor(status: number, error?: ApiErrorPayload) {
-    super(error?.message ?? "Terjadi kendala saat menghubungi layanan Unispace.");
+    super(
+      error?.message ?? "Terjadi kendala saat menghubungi layanan Unispace.",
+    );
     this.name = "ApiError";
     this.status = status;
     this.code = error?.code;
@@ -35,13 +37,23 @@ export type ApiFile = {
   filename: string | null;
 };
 
-const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001").replace(/\/$/, "");
+const apiBaseUrl = (
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"
+).replace(/\/$/, "");
 
 function isBodyInit(value: ApiRequestOptions["body"]): value is BodyInit {
-  return value instanceof FormData || value instanceof URLSearchParams || typeof value === "string" || value instanceof Blob;
+  return (
+    value instanceof FormData ||
+    value instanceof URLSearchParams ||
+    typeof value === "string" ||
+    value instanceof Blob
+  );
 }
 
-export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+export async function apiRequest<T>(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<T> {
   const { accessToken, body, headers, ...requestOptions } = options;
   const nextHeaders = new Headers(headers);
   let requestBody: BodyInit | undefined;
@@ -63,7 +75,9 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     credentials: "include",
     headers: nextHeaders,
   });
-  const payload = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
+  const payload = (await response
+    .json()
+    .catch(() => null)) as ApiEnvelope<T> | null;
 
   if (!response.ok || !payload?.success) {
     throw new ApiError(response.status, payload?.error);
@@ -72,7 +86,10 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
   return payload.data as T;
 }
 
-export async function fetchApiFile(path: string, options: ApiRequestOptions = {}): Promise<ApiFile> {
+export async function fetchApiFile(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<ApiFile> {
   const { accessToken, body, headers, ...requestOptions } = options;
   const nextHeaders = new Headers(headers);
   let requestBody: BodyInit | undefined;
@@ -92,7 +109,9 @@ export async function fetchApiFile(path: string, options: ApiRequestOptions = {}
     headers: nextHeaders,
   });
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as ApiEnvelope<never> | null;
+    const payload = (await response
+      .json()
+      .catch(() => null)) as ApiEnvelope<never> | null;
     throw new ApiError(response.status, payload?.error);
   }
   const disposition = response.headers.get("Content-Disposition");
@@ -100,12 +119,17 @@ export async function fetchApiFile(path: string, options: ApiRequestOptions = {}
   const fallbackName = disposition?.match(/filename="?([^";]+)"?/i)?.[1];
   return {
     blob: await response.blob(),
-    filename: encodedName ? decodeURIComponent(encodedName) : fallbackName ?? null,
+    filename: encodedName
+      ? decodeURIComponent(encodedName)
+      : (fallbackName ?? null),
   };
 }
 
 /** Mengunduh file API terautentikasi dan selalu membebaskan object URL browser. */
-export async function downloadApiFile(path: string, options: ApiRequestOptions = {}) {
+export async function downloadApiFile(
+  path: string,
+  options: ApiRequestOptions = {},
+) {
   const file = await fetchApiFile(path, options);
   const objectUrl = URL.createObjectURL(file.blob);
   const anchor = document.createElement("a");

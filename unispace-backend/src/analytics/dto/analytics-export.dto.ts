@@ -21,21 +21,12 @@ export enum AnalyticsExportFormat {
   PDF = 'pdf',
 }
 
-export enum AnalyticsExportOrientation {
-  PORTRAIT = 'portrait',
-  LANDSCAPE = 'landscape',
-}
-
 export class AnalyticsExportDto extends AnalyticsFilterDto {
   @IsEnum(AnalyticsExportReport)
   report: AnalyticsExportReport;
 
   @IsEnum(AnalyticsExportFormat)
   format: AnalyticsExportFormat;
-
-  @IsOptional()
-  @IsEnum(AnalyticsExportOrientation)
-  orientation?: AnalyticsExportOrientation;
 
   @IsOptional()
   @IsEnum(AnalyticsTrendMetric)

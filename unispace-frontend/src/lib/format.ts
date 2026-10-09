@@ -13,7 +13,7 @@ const dateTimeFormatter = new Intl.DateTimeFormat("id-ID", {
 
 /** Date-only API values must stay on the same calendar day in Jakarta. */
 export function formatJakartaDate(value: string | null | undefined) {
-  if (!value) return "—";
+  if (!value) return "-";
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     const [year, month, day] = value.split("-").map(Number);
     return new Intl.DateTimeFormat("id-ID", {
@@ -28,9 +28,11 @@ export function formatJakartaDate(value: string | null | undefined) {
 }
 
 export function formatJakartaDateTime(value: string | null | undefined) {
-  if (!value) return "—";
+  if (!value) return "-";
   const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : `${dateTimeFormatter.format(parsed)} WIB`;
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : `${dateTimeFormatter.format(parsed)} WIB`;
 }
 
 export function formatNumber(value: number | null | undefined) {
@@ -38,15 +40,20 @@ export function formatNumber(value: number | null | undefined) {
 }
 
 export function formatPercent(value: number | null | undefined) {
-  if (value == null) return "—";
-  return new Intl.NumberFormat("id-ID", {
-    maximumFractionDigits: 1,
-    minimumFractionDigits: 0,
-  }).format(value) + "%";
+  if (value == null) return "-";
+  return (
+    new Intl.NumberFormat("id-ID", {
+      maximumFractionDigits: 1,
+      minimumFractionDigits: 0,
+    }).format(value) + "%"
+  );
 }
 
 /** Presents an optional text value consistently, including legacy literal NULL seed data. */
-export function displayOptionalText(value: string | null | undefined, fallback = "Tidak diisi") {
+export function displayOptionalText(
+  value: string | null | undefined,
+  fallback = "Tidak diisi",
+) {
   const trimmed = value?.trim();
   return !trimmed || trimmed.toUpperCase() === "NULL" ? fallback : trimmed;
 }
@@ -58,7 +65,8 @@ export function todayJakarta() {
     timeZone: JAKARTA_TIME_ZONE,
     year: "numeric",
   }).formatToParts(new Date());
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value;
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value;
 
   return `${part("year")}-${part("month")}-${part("day")}`;
 }

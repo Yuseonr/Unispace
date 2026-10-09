@@ -1,5 +1,12 @@
 import { Transform } from 'class-transformer';
-import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
+import { FacilityTypeStatus } from '../../../generated/prisma/client';
 
 const normalizeName = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value;
@@ -19,4 +26,11 @@ export class UpdateFacilityTypeDto {
   @IsNotEmpty()
   @MaxLength(100)
   name?: string;
+}
+
+export class UpdateFacilityTypeStatusDto {
+  @IsEnum(FacilityTypeStatus, {
+    message: 'status harus berupa ACTIVE atau NONACTIVE',
+  })
+  status!: FacilityTypeStatus;
 }

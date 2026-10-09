@@ -26,7 +26,11 @@ export function SiteHeader() {
   return (
     <header className="site-header">
       <div className="site-header__inner">
-        <Link className="brand" href="/" aria-label="Unispace, kembali ke beranda">
+        <Link
+          className="brand"
+          href="/"
+          aria-label="Unispace, kembali ke beranda"
+        >
           <Image
             alt="Unispace"
             className="brand__logo"
@@ -38,10 +42,18 @@ export function SiteHeader() {
         </Link>
 
         <nav className="site-nav" aria-label="Navigasi utama">
-          <Link className={`site-nav__link${isHome ? " is-active" : ""}`} href="/" aria-current={isHome ? "page" : undefined}>
+          <Link
+            className={`site-nav__link${isHome ? " is-active" : ""}`}
+            href="/"
+            aria-current={isHome ? "page" : undefined}
+          >
             Beranda
           </Link>
-          <Link className={`site-nav__link${isFacilities ? " is-active" : ""}`} href="/facilities" aria-current={isFacilities ? "page" : undefined}>
+          <Link
+            className={`site-nav__link${isFacilities ? " is-active" : ""}`}
+            href="/facilities"
+            aria-current={isFacilities ? "page" : undefined}
+          >
             Katalog fasilitas
           </Link>
           {isReady && user?.role === "USER" ? (
@@ -79,7 +91,9 @@ export function SiteHeader() {
                 onClick={() => setIsProfileOpen((open) => !open)}
                 type="button"
               >
-                <span className="header-profile__avatar">{user.name.slice(0, 1).toUpperCase()}</span>
+                <span className="header-profile__avatar">
+                  {user.name.slice(0, 1).toUpperCase()}
+                </span>
                 <span className="header-profile__copy">
                   <strong>{user.name}</strong>
                   <small>{user.email}</small>
@@ -136,13 +150,23 @@ export function SiteHeader() {
                   ) : null}
                   <Link
                     className="header-profile__item"
-                    href={user.role === "ADMIN" ? "/admin/profile" : user.role === "STAFF" ? "/staff/profile" : "/profile"}
+                    href={
+                      user.role === "ADMIN"
+                        ? "/admin/profile"
+                        : user.role === "STAFF"
+                          ? "/staff/profile"
+                          : "/profile"
+                    }
                     onClick={() => setIsProfileOpen(false)}
                     role="menuitem"
                   >
                     Profil & kata sandi
                   </Link>
-                  <button onClick={() => void handleLogout()} role="menuitem" type="button">
+                  <button
+                    onClick={() => void handleLogout()}
+                    role="menuitem"
+                    type="button"
+                  >
                     Keluar
                   </button>
                 </div>
@@ -150,8 +174,12 @@ export function SiteHeader() {
             </div>
           ) : (
             <>
-              <Link className="header-link" href="/login">Masuk</Link>
-              <Link className="header-button" href="/register">Daftar</Link>
+              <Link className="header-link" href="/login">
+                Masuk
+              </Link>
+              <Link className="header-button" href="/register">
+                Daftar
+              </Link>
             </>
           )}
         </div>

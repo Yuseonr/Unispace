@@ -12,8 +12,13 @@ export function AuthShell({ children, titleId, variant }: AuthShellProps) {
   const isRegister = variant === "register";
 
   return (
-    <main className={`auth-page auth-page--login${isRegister ? " auth-page--register" : ""}`}>
-      <section className="auth-showcase auth-showcase--login" aria-hidden="true">
+    <main
+      className={`auth-page auth-page--login${isRegister ? " auth-page--register" : ""}`}
+    >
+      <section
+        className="auth-showcase auth-showcase--login"
+        aria-hidden="true"
+      >
         <Image
           alt=""
           className="auth-showcase__photo"
@@ -24,8 +29,15 @@ export function AuthShell({ children, titleId, variant }: AuthShellProps) {
         />
       </section>
 
-      <section className="auth-panel auth-panel--login" aria-labelledby={titleId}>
-        <Link className="auth-panel__logo" href="/" aria-label="Kembali ke Unispace">
+      <section
+        className="auth-panel auth-panel--login"
+        aria-labelledby={titleId}
+      >
+        <Link
+          className="auth-panel__logo"
+          href="/"
+          aria-label="Kembali ke Unispace"
+        >
           <Image
             alt="Unispace"
             height={360}

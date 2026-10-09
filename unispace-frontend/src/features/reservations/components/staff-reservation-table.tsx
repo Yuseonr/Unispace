@@ -53,23 +53,109 @@ export function StaffReservationTable({
   if (isLoading && reservations.length === 0) {
     return (
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 8px", minWidth: "1000px", tableLayout: "fixed" }}>
+        <table
+          style={{
+            width: "100%",
+            borderCollapse: "separate",
+            borderSpacing: "0 8px",
+            minWidth: "1000px",
+            tableLayout: "fixed",
+          }}
+        >
           <thead>
-            <tr style={{ color: "#64748b", textTransform: "uppercase", fontSize: "0.6875rem", letterSpacing: "0.04em" }}>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center", width: "160px" }}>Pemohon</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center", width: "220px" }}>Fasilitas</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center", width: "140px" }}>Waktu</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>Tujuan</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center", width: "125px" }}>Batas SLA</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center", width: "145px" }}>Status</th>
-              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center", width: "180px" }}>Aksi</th>
+            <tr
+              style={{
+                color: "#64748b",
+                textTransform: "uppercase",
+                fontSize: "0.6875rem",
+                letterSpacing: "0.04em",
+              }}
+            >
+              <th
+                style={{
+                  padding: "0.5rem 0.85rem",
+                  textAlign: "center",
+                  width: "160px",
+                }}
+              >
+                Pemohon
+              </th>
+              <th
+                style={{
+                  padding: "0.5rem 0.85rem",
+                  textAlign: "center",
+                  width: "220px",
+                }}
+              >
+                Fasilitas
+              </th>
+              <th
+                style={{
+                  padding: "0.5rem 0.85rem",
+                  textAlign: "center",
+                  width: "140px",
+                }}
+              >
+                Waktu
+              </th>
+              <th style={{ padding: "0.5rem 0.85rem", textAlign: "center" }}>
+                Tujuan
+              </th>
+              <th
+                style={{
+                  padding: "0.5rem 0.85rem",
+                  textAlign: "center",
+                  width: "125px",
+                }}
+              >
+                Batas SLA
+              </th>
+              <th
+                style={{
+                  padding: "0.5rem 0.85rem",
+                  textAlign: "center",
+                  width: "145px",
+                }}
+              >
+                Status
+              </th>
+              <th
+                style={{
+                  padding: "0.5rem 0.85rem",
+                  textAlign: "center",
+                  width: "180px",
+                }}
+              >
+                Aksi
+              </th>
             </tr>
           </thead>
           <tbody>
             {[1, 2, 3, 4, 5].map((i) => (
-              <tr key={i} style={{ background: "#ffffff", borderRadius: "8px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-                <td colSpan={7} style={{ padding: "1rem", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-                  <div style={{ height: "18px", background: "#f1f5f9", borderRadius: "4px", width: "100%" }} />
+              <tr
+                key={i}
+                style={{
+                  background: "#ffffff",
+                  borderRadius: "8px",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                }}
+              >
+                <td
+                  colSpan={7}
+                  style={{
+                    padding: "1rem",
+                    borderRadius: "8px",
+                    border: "1px solid #e2e8f0",
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "18px",
+                      background: "#f1f5f9",
+                      borderRadius: "4px",
+                      width: "100%",
+                    }}
+                  />
                 </td>
               </tr>
             ))}
@@ -81,20 +167,58 @@ export function StaffReservationTable({
 
   if (reservations.length === 0) {
     return (
-      <div style={{ textAlign: "center", padding: "3.5rem 2rem", background: "#ffffff", borderRadius: "10px", border: "1px dashed #cbd5e1", boxShadow: "0 1px 3px rgba(0,0,0,0.03)" }}>
-        <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 0.85rem", color: "#94a3b8" }}>
-          <svg fill="none" height="22" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="22">
+      <div
+        style={{
+          textAlign: "center",
+          padding: "3.5rem 2rem",
+          background: "#ffffff",
+          borderRadius: "10px",
+          border: "1px dashed #cbd5e1",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+        }}
+      >
+        <div
+          style={{
+            width: "48px",
+            height: "48px",
+            borderRadius: "50%",
+            background: "#f1f5f9",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 0.85rem",
+            color: "#94a3b8",
+          }}
+        >
+          <svg
+            fill="none"
+            height="22"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            viewBox="0 0 24 24"
+            width="22"
+          >
             <rect height="18" rx="2" ry="2" width="18" x="3" y="4" />
             <line x1="16" x2="16" y1="2" y2="6" />
             <line x1="8" x2="8" y1="2" y2="6" />
             <line x1="3" x2="21" y1="10" y2="10" />
           </svg>
         </div>
-        <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "#1e293b", margin: "0 0 0.25rem" }}>
+        <h3
+          style={{
+            fontSize: "1rem",
+            fontWeight: 700,
+            color: "#1e293b",
+            margin: "0 0 0.25rem",
+          }}
+        >
           Tidak Ada Data Antrean
         </h3>
         <p style={{ color: "#64748b", margin: 0, fontSize: "0.8125rem" }}>
-          Tidak ada permohonan reservasi yang sesuai dengan kriteria filter saat ini.
+          Tidak ada permohonan reservasi yang sesuai dengan kriteria filter saat
+          ini.
         </p>
       </div>
     );
@@ -102,24 +226,95 @@ export function StaffReservationTable({
 
   return (
     <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 8px", minWidth: "1000px", tableLayout: "fixed", fontSize: "0.8125rem" }}>
+      <table
+        style={{
+          width: "100%",
+          borderCollapse: "separate",
+          borderSpacing: "0 8px",
+          minWidth: "1000px",
+          tableLayout: "fixed",
+          fontSize: "0.8125rem",
+        }}
+      >
         <thead>
-          <tr style={{ color: "#64748b", textTransform: "uppercase", fontSize: "0.6875rem", letterSpacing: "0.04em" }}>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "160px" }}>Pemohon</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "220px" }}>Fasilitas</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "140px" }}>Waktu</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center" }}>Tujuan</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "125px" }}>Batas SLA</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "145px" }}>Status</th>
-            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center", width: "180px" }}>Aksi</th>
+          <tr
+            style={{
+              color: "#64748b",
+              textTransform: "uppercase",
+              fontSize: "0.6875rem",
+              letterSpacing: "0.04em",
+            }}
+          >
+            <th
+              style={{
+                padding: "0.4rem 0.85rem",
+                textAlign: "center",
+                width: "160px",
+              }}
+            >
+              Pemohon
+            </th>
+            <th
+              style={{
+                padding: "0.4rem 0.85rem",
+                textAlign: "center",
+                width: "220px",
+              }}
+            >
+              Fasilitas
+            </th>
+            <th
+              style={{
+                padding: "0.4rem 0.85rem",
+                textAlign: "center",
+                width: "140px",
+              }}
+            >
+              Waktu
+            </th>
+            <th style={{ padding: "0.4rem 0.85rem", textAlign: "center" }}>
+              Tujuan
+            </th>
+            <th
+              style={{
+                padding: "0.4rem 0.85rem",
+                textAlign: "center",
+                width: "125px",
+              }}
+            >
+              Batas SLA
+            </th>
+            <th
+              style={{
+                padding: "0.4rem 0.85rem",
+                textAlign: "center",
+                width: "145px",
+              }}
+            >
+              Status
+            </th>
+            <th
+              style={{
+                padding: "0.4rem 0.85rem",
+                textAlign: "center",
+                width: "180px",
+              }}
+            >
+              Aksi
+            </th>
           </tr>
         </thead>
         <tbody>
           {reservations.map((item) => {
             const statusConfig = getReservationStatusConfig(item.status);
-            const targetName = item.facility?.name ?? item.facilityGroup?.name ?? "Fasilitas Kampus";
+            const targetName =
+              item.facility?.name ??
+              item.facilityGroup?.name ??
+              "Fasilitas Kampus";
             const isExclusive = Boolean(item.facilityId);
-            const dateFormatted = formatDateOnlyIndonesian(item.usageDate.split("T")[0] ?? "");
+            const dateFormatted = formatDateOnlyIndonesian(
+              item.usageDate.split("T")[0] ?? "",
+            );
             const timeRange = `${formatSlotTime(item.startTime)} – ${formatSlotTime(item.endTime)} WIB`;
             const sla = getSlaUrgencyStatus(item.decisionDeadline);
 
@@ -129,18 +324,22 @@ export function StaffReservationTable({
                 onClick={() => onDetail?.(item)}
                 style={{
                   background: "#ffffff",
-                  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03)",
+                  boxShadow:
+                    "0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03)",
                   cursor: "pointer",
-                  transition: "transform 140ms ease, box-shadow 140ms ease, background-color 140ms ease",
+                  transition:
+                    "transform 140ms ease, box-shadow 140ms ease, background-color 140ms ease",
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.transform = "translateY(-1px)";
-                  e.currentTarget.style.boxShadow = "0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.04)";
+                  e.currentTarget.style.boxShadow =
+                    "0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.04)";
                   e.currentTarget.style.backgroundColor = "#f8fafc";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.transform = "translateY(0)";
-                  e.currentTarget.style.boxShadow = "0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03)";
+                  e.currentTarget.style.boxShadow =
+                    "0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03)";
                   e.currentTarget.style.backgroundColor = "#ffffff";
                 }}
               >
@@ -156,7 +355,13 @@ export function StaffReservationTable({
                     borderRadius: "8px 0 0 8px",
                   }}
                 >
-                  <strong style={{ color: "#0f172a", fontSize: "0.8125rem", whiteSpace: "nowrap" }}>
+                  <strong
+                    style={{
+                      color: "#0f172a",
+                      fontSize: "0.8125rem",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
                     {item.user.name}
                   </strong>
                 </td>
@@ -171,8 +376,22 @@ export function StaffReservationTable({
                     borderBottom: "1px solid #e2e8f0",
                   }}
                 >
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0", alignItems: "center", justifyContent: "center" }}>
-                    <strong style={{ color: "#1e293b", fontSize: "0.8125rem", whiteSpace: "nowrap" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <strong
+                      style={{
+                        color: "#1e293b",
+                        fontSize: "0.8125rem",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
                       {targetName}
                     </strong>
                     <span
@@ -186,7 +405,9 @@ export function StaffReservationTable({
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {isExclusive ? "Ruang Eksklusif" : `Kelompok Alat (${item.requestedQuantity} Unit)`}
+                      {isExclusive
+                        ? "Ruang Eksklusif"
+                        : `Kelompok Alat (${item.requestedQuantity} Unit)`}
                     </span>
                   </div>
                 </td>
@@ -202,10 +423,24 @@ export function StaffReservationTable({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  <strong style={{ display: "block", color: "#0f172a", fontSize: "0.8125rem" }}>
+                  <strong
+                    style={{
+                      display: "block",
+                      color: "#0f172a",
+                      fontSize: "0.8125rem",
+                    }}
+                  >
                     {dateFormatted}
                   </strong>
-                  <span style={{ display: "block", color: "#0284c7", fontWeight: 600, fontSize: "0.75rem", marginTop: "1px" }}>
+                  <span
+                    style={{
+                      display: "block",
+                      color: "#0284c7",
+                      fontWeight: 600,
+                      fontSize: "0.75rem",
+                      marginTop: "1px",
+                    }}
+                  >
                     {timeRange}
                   </span>
                 </td>
@@ -221,7 +456,10 @@ export function StaffReservationTable({
                     color: "#475569",
                   }}
                 >
-                  <span title={item.purpose ?? "Tidak diisi"} style={{ fontSize: "0.8125rem" }}>
+                  <span
+                    title={item.purpose ?? "Tidak diisi"}
+                    style={{ fontSize: "0.8125rem" }}
+                  >
                     {truncatePurpose(item.purpose ?? "Tidak diisi", 32)}
                   </span>
                 </td>
@@ -267,7 +505,9 @@ export function StaffReservationTable({
                       {formatSlaTime(item.decisionDeadline)}
                     </span>
                   ) : (
-                    <span style={{ color: "#94a3b8", fontSize: "0.75rem" }}>-</span>
+                    <span style={{ color: "#94a3b8", fontSize: "0.75rem" }}>
+                      -
+                    </span>
                   )}
                 </td>
 
@@ -283,7 +523,12 @@ export function StaffReservationTable({
                 >
                   <span
                     className={`user-res-badge ${statusConfig.badgeClass}`}
-                    style={{ fontSize: "0.75rem", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                    style={{
+                      fontSize: "0.75rem",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
                   >
                     <span className="user-res-badge__dot" aria-hidden="true" />
                     <span>{statusConfig.label}</span>

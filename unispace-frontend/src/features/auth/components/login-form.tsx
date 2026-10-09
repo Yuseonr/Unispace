@@ -37,11 +37,17 @@ export function LoginForm() {
     setIsSubmitting(true);
 
     try {
-      const user = await login(String(formData.get("email") ?? ""), String(formData.get("password") ?? ""));
+      const user = await login(
+        String(formData.get("email") ?? ""),
+        String(formData.get("password") ?? ""),
+      );
       if (redirectTarget && redirectTarget.startsWith("/")) {
         if (user.role === "ADMIN" && !redirectTarget.startsWith("/admin")) {
           router.replace("/admin");
-        } else if (user.role === "STAFF" && !redirectTarget.startsWith("/staff")) {
+        } else if (
+          user.role === "STAFF" &&
+          !redirectTarget.startsWith("/staff")
+        ) {
           router.replace("/staff/reservations");
         } else {
           router.replace(redirectTarget);
@@ -54,7 +60,10 @@ export function LoginForm() {
         router.replace("/facilities");
       }
     } catch (caughtError) {
-      const message = caughtError instanceof ApiError ? caughtError.message : "Masuk belum berhasil. Coba lagi beberapa saat.";
+      const message =
+        caughtError instanceof ApiError
+          ? caughtError.message
+          : "Masuk belum berhasil. Coba lagi beberapa saat.";
       setError(message);
     } finally {
       setIsSubmitting(false);
@@ -89,13 +98,20 @@ export function LoginForm() {
           required
           type="password"
         />
-        <button className="button-primary" disabled={isSubmitting} type="submit">
+        <button
+          className="button-primary"
+          disabled={isSubmitting}
+          type="submit"
+        >
           {isSubmitting ? "Memeriksa akun…" : "Masuk"}
         </button>
       </form>
 
       {error ? (
-        <p className="auth-form__feedback auth-form__feedback--error" role="alert">
+        <p
+          className="auth-form__feedback auth-form__feedback--error"
+          role="alert"
+        >
           {error}
         </p>
       ) : null}

@@ -68,7 +68,16 @@ export function CancelReservationModal({
       <div className="reservation-modal-card" ref={modalRef}>
         <div className="reservation-modal-header">
           <div className="reservation-modal-header__icon" aria-hidden="true">
-            <svg fill="none" height="22" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="22">
+            <svg
+              fill="none"
+              height="22"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+              width="22"
+            >
               <circle cx="12" cy="12" r="10" />
               <line x1="15" x2="9" y1="9" y2="15" />
               <line x1="9" x2="15" y1="9" y2="15" />
@@ -98,8 +107,12 @@ export function CancelReservationModal({
         <div className="reservation-modal-body">
           <div className="reservation-modal-summary">
             <div className="reservation-modal-summary__row">
-              <span className="reservation-modal-summary__label">Fasilitas:</span>
-              <strong className="reservation-modal-summary__value">{targetName}</strong>
+              <span className="reservation-modal-summary__label">
+                Fasilitas:
+              </span>
+              <strong className="reservation-modal-summary__value">
+                {targetName}
+              </strong>
             </div>
 
             <div className="reservation-modal-summary__row">
@@ -109,9 +122,12 @@ export function CancelReservationModal({
               </span>
             </div>
 
-            {reservation.facilityGroupId && reservation.requestedQuantity > 1 ? (
+            {reservation.facilityGroupId &&
+            reservation.requestedQuantity > 1 ? (
               <div className="reservation-modal-summary__row">
-                <span className="reservation-modal-summary__label">Jumlah Unit:</span>
+                <span className="reservation-modal-summary__label">
+                  Jumlah Unit:
+                </span>
                 <span className="reservation-modal-summary__value">
                   {reservation.requestedQuantity} unit
                 </span>
@@ -120,9 +136,14 @@ export function CancelReservationModal({
           </div>
 
           <div className="reservation-modal-notice">
-            <span className="reservation-modal-notice__icon" aria-hidden="true">ℹ</span>
+            <span className="reservation-modal-notice__icon" aria-hidden="true">
+              ℹ
+            </span>
             <p className="reservation-modal-notice__text">
-              Pembatalan mandiri hanya berlaku sebelum <strong>pukul 20.00 WIB pada H-1 hari kerja operasional</strong>. Setelah dibatalkan, slot waktu akan langsung tersedia kembali untuk pemohon lain.
+              Pembatalan mandiri hanya berlaku sebelum{" "}
+              <strong>pukul 20.00 WIB pada H-1 hari kerja operasional</strong>.
+              Setelah dibatalkan, slot waktu akan langsung tersedia kembali
+              untuk pemohon lain.
             </p>
           </div>
 

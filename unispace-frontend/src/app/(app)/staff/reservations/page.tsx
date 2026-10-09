@@ -4,7 +4,13 @@
 import { Suspense, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { EmptyState, ErrorState, LoadingState, PageHeader, Pagination } from "@/components/ui/page-primitives";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PageHeader,
+  Pagination,
+} from "@/components/ui/page-primitives";
 import { useAuth } from "@/features/auth/auth-provider";
 import { readableApiError } from "@/lib/api/error-message";
 import {
@@ -20,17 +26,33 @@ import { StaffDetailModal } from "@/features/reservations/components/staff-detai
 import { StaffRejectModal } from "@/features/reservations/components/staff-reject-modal";
 import { StaffReservationCard } from "@/features/reservations/components/staff-reservation-card";
 import { StaffReservationTable } from "@/features/reservations/components/staff-reservation-table";
-import type { ReservationStatus, StaffReservationItem, StaffReservationsResponse } from "@/features/reservations/types";
+import type {
+  ReservationStatus,
+  StaffReservationItem,
+  StaffReservationsResponse,
+} from "@/features/reservations/types";
 
-type QueueTab = "ALL" | "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "COMPLETED";
+type QueueTab =
+  "ALL" | "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "COMPLETED";
 type Area = { id: string; name: string };
 
 const tabs: Array<{ label: string; value: QueueTab }> = [
-  { label: "Menunggu", value: "PENDING" }, { label: "Disetujui", value: "APPROVED" }, { label: "Ditolak", value: "REJECTED" }, { label: "Dibatalkan", value: "CANCELLED" }, { label: "Selesai", value: "COMPLETED" }, { label: "Semua", value: "ALL" },
+  { label: "Menunggu", value: "PENDING" },
+  { label: "Disetujui", value: "APPROVED" },
+  { label: "Ditolak", value: "REJECTED" },
+  { label: "Dibatalkan", value: "CANCELLED" },
+  { label: "Selesai", value: "COMPLETED" },
+  { label: "Semua", value: "ALL" },
 ];
 
 function queueTab(value: string | null): QueueTab {
-  return value === "PENDING" || value === "APPROVED" || value === "REJECTED" || value === "CANCELLED" || value === "COMPLETED" ? value : "ALL";
+  return value === "PENDING" ||
+    value === "APPROVED" ||
+    value === "REJECTED" ||
+    value === "CANCELLED" ||
+    value === "COMPLETED"
+    ? value
+    : "ALL";
 }
 
 function StaffReservationsContent() {
@@ -54,14 +76,20 @@ function StaffReservationsContent() {
   const [viewing, setViewing] = useState<StaffReservationItem | null>(null);
   const [approving, setApproving] = useState<StaffReservationItem | null>(null);
   const [rejecting, setRejecting] = useState<StaffReservationItem | null>(null);
-  const [cancelling, setCancelling] = useState<StaffReservationItem | null>(null);
+  const [cancelling, setCancelling] = useState<StaffReservationItem | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => setSearchDraft(search), [search]);
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      if (searchDraft.trim() !== search) updateQuery({ page: undefined, search: searchDraft.trim() || undefined });
+      if (searchDraft.trim() !== search)
+        updateQuery({
+          page: undefined,
+          search: searchDraft.trim() || undefined,
+        });
     }, 300);
     return () => window.clearTimeout(timeout);
     // The text box debounces into the URL; query state remains shareable.
@@ -70,18 +98,39 @@ function StaffReservationsContent() {
 
   useEffect(() => {
     if (!isReady || user?.role !== "STAFF") return;
-    request<Area[]>("/facilities/areas").then(setAreas).catch(() => undefined);
+    request<Area[]>("/facilities/areas")
+      .then(setAreas)
+      .catch(() => undefined);
   }, [isReady, request, user?.role]);
 
   const load = async () => {
     setLoading(true);
-    const status: ReservationStatus | undefined = tab === "PENDING" || tab === "APPROVED" || tab === "REJECTED" || tab === "COMPLETED" ? tab : undefined;
+    const status: ReservationStatus | undefined =
+      tab === "PENDING" ||
+      tab === "APPROVED" ||
+      tab === "REJECTED" ||
+      tab === "COMPLETED"
+        ? tab
+        : undefined;
     try {
-      const result = await fetchStaffReservations({ facilityAreaId: areaId || undefined, limit: 20, page, search: search || undefined, status, usageDate: date || undefined, view: tab === "CANCELLED" ? "CANCELLED" : undefined }, request);
+      const result = await fetchStaffReservations(
+        {
+          facilityAreaId: areaId || undefined,
+          limit: 20,
+          page,
+          search: search || undefined,
+          status,
+          usageDate: date || undefined,
+          view: tab === "CANCELLED" ? "CANCELLED" : undefined,
+        },
+        request,
+      );
       setData(result);
       setError(null);
     } catch (reason) {
-      setError(readableApiError(reason, "Antrean reservasi belum dapat dimuat."));
+      setError(
+        readableApiError(reason, "Antrean reservasi belum dapat dimuat."),
+      );
     } finally {
       setLoading(false);
     }
@@ -96,60 +145,315 @@ function StaffReservationsContent() {
   function updateQuery(updates: Record<string, string | undefined>) {
     const next = new URLSearchParams(searchParams.toString());
     Object.entries(updates).forEach(([key, value]) => {
-      if (value) next.set(key, value); else next.delete(key);
+      if (value) next.set(key, value);
+      else next.delete(key);
     });
     const query = next.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
   }
 
   function resetAction() {
-    setApproving(null); setRejecting(null); setCancelling(null); setActionError(null);
+    setApproving(null);
+    setRejecting(null);
+    setCancelling(null);
+    setActionError(null);
   }
 
   async function approve() {
     if (!approving) return;
-    setBusy(true); setActionError(null);
+    setBusy(true);
+    setActionError(null);
     try {
       await approveStaffReservation(approving.id, {}, request);
-      resetAction(); setNotice("Reservasi disetujui. Backend telah memeriksa ketersediaan dan alokasi ulang."); setRefresh((current) => current + 1); window.dispatchEvent(new Event("unispace:staff-queue-updated"));
-    } catch (reason) { setActionError(readableApiError(reason, "Reservasi belum dapat disetujui.")); }
-    finally { setBusy(false); }
+      resetAction();
+      setNotice(
+        "Reservasi disetujui. Backend telah memeriksa ketersediaan dan alokasi ulang.",
+      );
+      setRefresh((current) => current + 1);
+      window.dispatchEvent(new Event("unispace:staff-queue-updated"));
+    } catch (reason) {
+      setActionError(
+        readableApiError(reason, "Reservasi belum dapat disetujui."),
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function reject(reason: string) {
     if (!rejecting) return;
-    setBusy(true); setActionError(null);
+    setBusy(true);
+    setActionError(null);
     try {
       await rejectStaffReservation(rejecting.id, { reason }, request);
-      resetAction(); setNotice("Reservasi ditolak dan alasannya dicatat."); setRefresh((current) => current + 1); window.dispatchEvent(new Event("unispace:staff-queue-updated"));
-    } catch (reason) { setActionError(readableApiError(reason, "Reservasi belum dapat ditolak.")); }
-    finally { setBusy(false); }
+      resetAction();
+      setNotice("Reservasi ditolak dan alasannya dicatat.");
+      setRefresh((current) => current + 1);
+      window.dispatchEvent(new Event("unispace:staff-queue-updated"));
+    } catch (reason) {
+      setActionError(
+        readableApiError(reason, "Reservasi belum dapat ditolak."),
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function cancel(reason: string) {
     if (!cancelling) return;
-    setBusy(true); setActionError(null);
+    setBusy(true);
+    setActionError(null);
     try {
       await cancelStaffReservation(cancelling.id, { reason }, request);
-      resetAction(); setNotice("Reservasi dibatalkan oleh petugas dan slot dilepas."); setRefresh((current) => current + 1); window.dispatchEvent(new Event("unispace:staff-queue-updated"));
-    } catch (reason) { setActionError(readableApiError(reason, "Reservasi belum dapat dibatalkan.")); }
-    finally { setBusy(false); }
+      resetAction();
+      setNotice("Reservasi dibatalkan oleh petugas dan slot dilepas.");
+      setRefresh((current) => current + 1);
+      window.dispatchEvent(new Event("unispace:staff-queue-updated"));
+    } catch (reason) {
+      setActionError(
+        readableApiError(reason, "Reservasi belum dapat dibatalkan."),
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function runSlaCheck() {
-    setTriggeringSla(true); setNotice(null);
+    setTriggeringSla(true);
+    setNotice(null);
     try {
       const result = await triggerAutoRejectExpired(request);
-      setNotice(`${result.processedCount} pengajuan melewati SLA diproses oleh backend.`); setRefresh((current) => current + 1); window.dispatchEvent(new Event("unispace:staff-queue-updated"));
-    } catch (reason) { setError(readableApiError(reason, "Evaluasi SLA belum dapat dijalankan.")); }
-    finally { setTriggeringSla(false); }
+      setNotice(
+        `${result.processedCount} pengajuan melewati SLA diproses oleh backend.`,
+      );
+      setRefresh((current) => current + 1);
+      window.dispatchEvent(new Event("unispace:staff-queue-updated"));
+    } catch (reason) {
+      setError(
+        readableApiError(reason, "Evaluasi SLA belum dapat dijalankan."),
+      );
+    } finally {
+      setTriggeringSla(false);
+    }
   }
 
-  if (!isReady || user?.role !== "STAFF") return <main className="admin-page"><LoadingState label="Memeriksa akses petugas…" /></main>;
+  if (!isReady || user?.role !== "STAFF")
+    return (
+      <main className="admin-page">
+        <LoadingState label="Memeriksa akses petugas…" />
+      </main>
+    );
 
-  return <section className="admin-page"><PageHeader action={<button className="admin-secondary-button" disabled={triggeringSla} onClick={() => void runSlaCheck()} type="button">{triggeringSla ? "Mengevaluasi…" : "Periksa SLA kedaluwarsa"}</button>} eyebrow="Operasional" title="Antrean Reservasi">Evaluasi pengajuan berdasarkan tujuan, jadwal, dan batas keputusan. Ketersediaan selalu diperiksa ulang oleh backend saat aksi dilakukan.</PageHeader>{notice ? <p className="ui-form-feedback" role="status">{notice}</p> : null}{error ? <p className="ui-form-feedback ui-form-feedback--error" role="alert">{error}</p> : null}<section className="ui-surface"><div aria-label="Filter status reservasi" className="report-status-tabs">{tabs.map((item) => <button className={tab === item.value ? "is-active" : ""} key={item.value} onClick={() => updateQuery({ page: undefined, status: item.value === "ALL" ? undefined : item.value })} type="button">{item.label}</button>)}</div><div className="ui-toolbar"><div className="ui-toolbar__filters"><label className="ui-field ui-field--search"><span>Cari</span><input onChange={(event) => setSearchDraft(event.target.value)} placeholder="Pemohon, fasilitas, atau tujuan" type="search" value={searchDraft} /></label><label className="ui-field"><span>Tanggal pemakaian</span><input onChange={(event) => updateQuery({ date: event.target.value || undefined, page: undefined })} type="date" value={date} /></label><label className="ui-field"><span>Area kampus</span><select onChange={(event) => updateQuery({ areaId: event.target.value || undefined, page: undefined })} value={areaId}><option value="">Semua area</option>{areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label></div></div>{loading ? <LoadingState label="Memuat antrean reservasi…" /> : error && !data ? <ErrorState error={error} onRetry={() => void load()} /> : !data?.data.length ? <EmptyState description="Ubah filter atau periksa kembali nanti." title="Tidak ada reservasi" /> : <><div className="desktop-only"><StaffReservationTable reservations={data.data} onApprove={(res) => { setApproving(res); setActionError(null); }} onReject={(res) => { setRejecting(res); setActionError(null); }} onCancel={(res) => { setCancelling(res); setActionError(null); }} onDetail={(res) => setViewing(res)} /></div><div className="mobile-only">{data.data.map((res) => <StaffReservationCard key={res.id} reservation={res} onApprove={(r) => { setApproving(r); setActionError(null); }} onReject={(r) => { setRejecting(r); setActionError(null); }} onCancel={(r) => { setCancelling(r); setActionError(null); }} onDetail={(r) => setViewing(r)} />)}</div><Pagination onPageChange={(nextPage) => updateQuery({ page: String(nextPage) })} page={data.meta.page} total={data.meta.total} totalPages={data.meta.totalPages} /></>}</section><StaffDetailModal isOpen={Boolean(viewing)} onClose={() => setViewing(null)} reservation={viewing} onApprove={(res) => { setViewing(null); setApproving(res); setActionError(null); }} onReject={(res) => { setViewing(null); setRejecting(res); setActionError(null); }} onCancel={(res) => { setViewing(null); setCancelling(res); setActionError(null); }} /><StaffApproveModal error={actionError} isOpen={Boolean(approving)} isSubmitting={busy} onClose={() => !busy && resetAction()} onConfirm={approve} reservation={approving} /><StaffRejectModal error={actionError} isOpen={Boolean(rejecting)} isSubmitting={busy} onClose={() => !busy && resetAction()} onConfirm={reject} reservation={rejecting} /><StaffCancelModal error={actionError} isOpen={Boolean(cancelling)} isSubmitting={busy} onClose={() => !busy && resetAction()} onConfirm={cancel} reservation={cancelling} /></section>;
+  return (
+    <section className="admin-page">
+      <PageHeader
+        action={
+          <button
+            className="admin-secondary-button"
+            disabled={triggeringSla}
+            onClick={() => void runSlaCheck()}
+            type="button"
+          >
+            {triggeringSla ? "Mengevaluasi…" : "Periksa SLA kedaluwarsa"}
+          </button>
+        }
+        eyebrow="Operasional"
+        title="Antrean Reservasi"
+      >
+        Evaluasi pengajuan berdasarkan tujuan, jadwal, dan batas keputusan.
+        Ketersediaan selalu diperiksa ulang oleh backend saat aksi dilakukan.
+      </PageHeader>
+      {notice ? (
+        <p className="ui-form-feedback" role="status">
+          {notice}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="ui-form-feedback ui-form-feedback--error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <section className="ui-surface">
+        <div
+          aria-label="Filter status reservasi"
+          className="report-status-tabs"
+        >
+          {tabs.map((item) => (
+            <button
+              className={tab === item.value ? "is-active" : ""}
+              key={item.value}
+              onClick={() =>
+                updateQuery({
+                  page: undefined,
+                  status: item.value === "ALL" ? undefined : item.value,
+                })
+              }
+              type="button"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <div className="ui-toolbar">
+          <div className="ui-toolbar__filters">
+            <label className="ui-field ui-field--search">
+              <span>Cari</span>
+              <input
+                onChange={(event) => setSearchDraft(event.target.value)}
+                placeholder="Pemohon, fasilitas, atau tujuan"
+                type="search"
+                value={searchDraft}
+              />
+            </label>
+            <label className="ui-field">
+              <span>Tanggal pemakaian</span>
+              <input
+                onChange={(event) =>
+                  updateQuery({
+                    date: event.target.value || undefined,
+                    page: undefined,
+                  })
+                }
+                type="date"
+                value={date}
+              />
+            </label>
+            <label className="ui-field">
+              <span>Area kampus</span>
+              <select
+                onChange={(event) =>
+                  updateQuery({
+                    areaId: event.target.value || undefined,
+                    page: undefined,
+                  })
+                }
+                value={areaId}
+              >
+                <option value="">Semua area</option>
+                {areas.map((area) => (
+                  <option key={area.id} value={area.id}>
+                    {area.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+        {loading ? (
+          <LoadingState label="Memuat antrean reservasi…" />
+        ) : error && !data ? (
+          <ErrorState error={error} onRetry={() => void load()} />
+        ) : !data?.data.length ? (
+          <EmptyState
+            description="Ubah filter atau periksa kembali nanti."
+            title="Tidak ada reservasi"
+          />
+        ) : (
+          <>
+            <div className="desktop-only">
+              <StaffReservationTable
+                reservations={data.data}
+                onApprove={(res) => {
+                  setApproving(res);
+                  setActionError(null);
+                }}
+                onReject={(res) => {
+                  setRejecting(res);
+                  setActionError(null);
+                }}
+                onCancel={(res) => {
+                  setCancelling(res);
+                  setActionError(null);
+                }}
+                onDetail={(res) => setViewing(res)}
+              />
+            </div>
+            <div className="mobile-only">
+              {data.data.map((res) => (
+                <StaffReservationCard
+                  key={res.id}
+                  reservation={res}
+                  onApprove={(r) => {
+                    setApproving(r);
+                    setActionError(null);
+                  }}
+                  onReject={(r) => {
+                    setRejecting(r);
+                    setActionError(null);
+                  }}
+                  onCancel={(r) => {
+                    setCancelling(r);
+                    setActionError(null);
+                  }}
+                  onDetail={(r) => setViewing(r)}
+                />
+              ))}
+            </div>
+            <Pagination
+              onPageChange={(nextPage) =>
+                updateQuery({ page: String(nextPage) })
+              }
+              page={data.meta.page}
+              total={data.meta.total}
+              totalPages={data.meta.totalPages}
+            />
+          </>
+        )}
+      </section>
+      <StaffDetailModal
+        isOpen={Boolean(viewing)}
+        onClose={() => setViewing(null)}
+        reservation={viewing}
+        onApprove={(res) => {
+          setViewing(null);
+          setApproving(res);
+          setActionError(null);
+        }}
+        onReject={(res) => {
+          setViewing(null);
+          setRejecting(res);
+          setActionError(null);
+        }}
+        onCancel={(res) => {
+          setViewing(null);
+          setCancelling(res);
+          setActionError(null);
+        }}
+      />
+      <StaffApproveModal
+        error={actionError}
+        isOpen={Boolean(approving)}
+        isSubmitting={busy}
+        onClose={() => !busy && resetAction()}
+        onConfirm={approve}
+        reservation={approving}
+      />
+      <StaffRejectModal
+        error={actionError}
+        isOpen={Boolean(rejecting)}
+        isSubmitting={busy}
+        onClose={() => !busy && resetAction()}
+        onConfirm={reject}
+        reservation={rejecting}
+      />
+      <StaffCancelModal
+        error={actionError}
+        isOpen={Boolean(cancelling)}
+        isSubmitting={busy}
+        onClose={() => !busy && resetAction()}
+        onConfirm={cancel}
+        reservation={cancelling}
+      />
+    </section>
+  );
 }
 
 export default function StaffReservationsPage() {
-  return <Suspense><StaffReservationsContent /></Suspense>;
+  return (
+    <Suspense>
+      <StaffReservationsContent />
+    </Suspense>
+  );
 }

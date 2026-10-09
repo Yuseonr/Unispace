@@ -40,6 +40,37 @@ const managedUserSelect = {
   },
 } satisfies Prisma.UserSelect;
 
+const deactivationReservationSelect = {
+  id: true,
+  reservationNumber: true,
+  usageDate: true,
+  startTime: true,
+  endTime: true,
+  requestedQuantity: true,
+  facility: {
+    select: {
+      assetCode: true,
+      name: true,
+      facilityGroup: {
+        select: {
+          name: true,
+          facilityArea: { select: { name: true } },
+        },
+      },
+    },
+  },
+  facilityGroup: {
+    select: {
+      name: true,
+      facilityArea: { select: { name: true } },
+    },
+  },
+} satisfies Prisma.ReservationSelect;
+
+type DeactivationReservation = Prisma.ReservationGetPayload<{
+  select: typeof deactivationReservationSelect;
+}>;
+
 type ManagedUser = Prisma.UserGetPayload<{
   select: typeof managedUserSelect;
 }>;
@@ -110,6 +141,50 @@ export class AdminUsersService {
       });
     }
     return this.toResponse(user);
+  }
+
+  async deactivationPreview(userId: string) {
+    const user = await this.getManagedUser(this.prisma, userId);
+    this.assertStatus(user.accountStatus, AccountStatus.ACTIVE);
+
+    const boundary = jakartaReservationBoundary();
+    const [pendingReservations, approvedReservations] = await Promise.all([
+      this.prisma.reservation.findMany({
+        where: { userId: user.id, status: ReservationStatus.PENDING },
+        select: deactivationReservationSelect,
+        orderBy: [{ usageDate: 'asc' }, { startTime: 'asc' }],
+      }),
+      this.prisma.reservation.findMany({
+        where: {
+          userId: user.id,
+          status: ReservationStatus.APPROVED,
+          OR: [
+            { usageDate: { gt: boundary.usageDate } },
+            {
+              usageDate: boundary.usageDate,
+              endTime: { gte: boundary.endTime },
+            },
+          ],
+        },
+        select: deactivationReservationSelect,
+        orderBy: [{ usageDate: 'asc' }, { startTime: 'asc' }],
+      }),
+    ]);
+
+    return {
+      account: {
+        id: user.id,
+        name: user.name,
+        identityNumber: user.identityNumber,
+        email: user.email,
+      },
+      pendingReservations: pendingReservations.map((reservation) =>
+        this.toDeactivationReservation(reservation),
+      ),
+      approvedReservations: approvedReservations.map((reservation) =>
+        this.toDeactivationReservation(reservation),
+      ),
+    };
   }
 
   async create(adminId: string, input: CreateManagedUserDto) {
@@ -391,6 +466,27 @@ export class AdminUsersService {
       }
     }
     return changed;
+  }
+
+  private toDeactivationReservation(reservation: DeactivationReservation) {
+    const facilityGroup =
+      reservation.facilityGroup ?? reservation.facility?.facilityGroup;
+    return {
+      id: reservation.id,
+      reservationNumber: reservation.reservationNumber,
+      usageDate: reservation.usageDate.toISOString().slice(0, 10),
+      startTime: this.formatReservationTime(reservation.startTime),
+      endTime: this.formatReservationTime(reservation.endTime),
+      facilityName:
+        reservation.facility?.name ?? facilityGroup?.name ?? 'Fasilitas',
+      assetCode: reservation.facility?.assetCode ?? null,
+      areaName: facilityGroup?.facilityArea.name ?? null,
+      requestedQuantity: reservation.requestedQuantity,
+    };
+  }
+
+  private formatReservationTime(value: Date) {
+    return `${String(value.getUTCHours()).padStart(2, '0')}:${String(value.getUTCMinutes()).padStart(2, '0')}`;
   }
 
   private recordAudit(

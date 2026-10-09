@@ -4,6 +4,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { StringValue } from 'ms';
@@ -23,6 +24,8 @@ type Session = {
   refreshToken: string;
   user: AuthenticatedUser;
 };
+
+const REFRESH_TOKEN_HASH_PREFIX = 'sha256:';
 
 @Injectable()
 export class AuthService {
@@ -75,7 +78,10 @@ export class AuthService {
     const user = await this.getActiveUser(token.sub);
     if (
       !user.refreshTokenHash ||
-      !(await this.passwords.verify(refreshToken, user.refreshTokenHash))
+      !(await this.matchesRefreshTokenHash(
+        refreshToken,
+        user.refreshTokenHash,
+      ))
     ) {
       throw this.sessionEnded();
     }
@@ -95,7 +101,10 @@ export class AuthService {
       });
       if (
         user?.refreshTokenHash &&
-        (await this.passwords.verify(refreshToken, user.refreshTokenHash))
+        (await this.matchesRefreshTokenHash(
+          refreshToken,
+          user.refreshTokenHash,
+        ))
       ) {
         const result = await this.prisma.user.updateMany({
           where: { id: user.id, refreshTokenHash: user.refreshTokenHash },
@@ -128,7 +137,7 @@ export class AuthService {
       where: { id: user.id },
       data: {
         passwordHash: await this.passwords.hash(newPassword),
-        refreshTokenHash: await this.passwords.hash(session.refreshToken),
+        refreshTokenHash: this.hashRefreshToken(session.refreshToken),
       },
     });
     await this.recordAudit(user.id, 'PASSWORD_CHANGED');
@@ -168,7 +177,7 @@ export class AuthService {
     previousRefreshHash?: string,
   ): Promise<Session> {
     const session = await this.signTokens(user);
-    const refreshTokenHash = await this.passwords.hash(session.refreshToken);
+    const refreshTokenHash = this.hashRefreshToken(session.refreshToken);
 
     if (!previousRefreshHash) {
       await this.prisma.user.update({
@@ -195,7 +204,11 @@ export class AuthService {
         { secret: this.accessSecret, expiresIn: this.accessExpiresIn },
       ),
       this.jwt.signAsync(
-        { sub: user.id, type: 'refresh' satisfies RefreshTokenPayload['type'] },
+        {
+          sub: user.id,
+          type: 'refresh' satisfies RefreshTokenPayload['type'],
+          jti: randomUUID(),
+        },
         { secret: this.refreshSecret, expiresIn: this.refreshExpiresIn },
       ),
     ]).then(([accessToken, refreshToken]) => ({ accessToken, refreshToken }));
@@ -209,7 +222,7 @@ export class AuthService {
           secret: this.refreshSecret,
         },
       );
-      if (token.type !== 'refresh' || !token.sub) {
+      if (token.type !== 'refresh' || !token.sub || !token.jti) {
         throw new Error();
       }
       return token;
@@ -219,6 +232,37 @@ export class AuthService {
         message: 'Refresh token is invalid or expired.',
       });
     }
+  }
+
+  private hashRefreshToken(refreshToken: string) {
+    return `${REFRESH_TOKEN_HASH_PREFIX}${createHash('sha256')
+      .update(refreshToken)
+      .digest('hex')}`;
+  }
+
+  private async matchesRefreshTokenHash(
+    refreshToken: string,
+    storedHash: string,
+  ) {
+    if (!storedHash.startsWith(REFRESH_TOKEN_HASH_PREFIX)) {
+      // Legacy bcrypt hashes cannot distinguish JWTs that share bcrypt's
+      // 72-byte input prefix, so fail closed and require a fresh login.
+      return false;
+    }
+
+    const expectedHex = storedHash.slice(REFRESH_TOKEN_HASH_PREFIX.length);
+    if (!/^[a-f\d]{64}$/i.test(expectedHex)) {
+      return false;
+    }
+
+    const actualDigest = Buffer.from(
+      this.hashRefreshToken(refreshToken).slice(
+        REFRESH_TOKEN_HASH_PREFIX.length,
+      ),
+      'hex',
+    );
+    const expectedDigest = Buffer.from(expectedHex, 'hex');
+    return timingSafeEqual(actualDigest, expectedDigest);
   }
 
   private async getActiveUser(id: string) {

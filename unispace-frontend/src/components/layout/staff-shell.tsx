@@ -72,7 +72,8 @@ export function StaffShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { isReady, logout, request, user } = useAuth();
   const [loggingOut, setLoggingOut] = useState(false);
-  const [pendingReservationsCount, setPendingReservationsCount] = useState<number>(0);
+  const [pendingReservationsCount, setPendingReservationsCount] =
+    useState<number>(0);
   const [pendingReportsCount, setPendingReportsCount] = useState<number>(0);
 
   useEffect(() => {
@@ -139,7 +140,11 @@ export function StaffShell({ children }: { children: ReactNode }) {
       label: "Laporan Kendala",
     },
     { href: "/staff/facilities", icon: "facility", label: "Katalog Fasilitas" },
-    { href: "/staff/maintenance", icon: "maintenance", label: "Jadwal Perbaikan" },
+    {
+      href: "/staff/maintenance",
+      icon: "maintenance",
+      label: "Jadwal Perbaikan",
+    },
     { href: "/staff/profile", icon: "profile", label: "Profil Akun" },
   ];
 
@@ -156,9 +161,27 @@ export function StaffShell({ children }: { children: ReactNode }) {
   return (
     <div className="admin-app">
       <aside className="admin-sidebar">
-        <Link className="admin-brand" href="/staff/reservations" aria-label="Unispace Petugas">
-          <Image alt="Unispace" height={360} src="/Unispace_Logo_Trademark.svg" width={1450} priority />
-          <span style={{ color: "#166534", fontWeight: 700, letterSpacing: "0.02em" }}>Portal Petugas</span>
+        <Link
+          className="admin-brand"
+          href="/staff/reservations"
+          aria-label="Unispace Petugas"
+        >
+          <Image
+            alt="Unispace"
+            height={360}
+            src="/Unispace_Logo_Trademark.svg"
+            width={1450}
+            priority
+          />
+          <span
+            style={{
+              color: "#166534",
+              fontWeight: 700,
+              letterSpacing: "0.02em",
+            }}
+          >
+            Portal Petugas
+          </span>
         </Link>
 
         <nav className="admin-navigation" aria-label="Navigasi Petugas">
@@ -182,7 +205,11 @@ export function StaffShell({ children }: { children: ReactNode }) {
                 {content}
               </Link>
             ) : (
-              <button className="admin-navigation__item" key={item.label} type="button">
+              <button
+                className="admin-navigation__item"
+                key={item.label}
+                type="button"
+              >
                 {content}
               </button>
             );
@@ -190,14 +217,50 @@ export function StaffShell({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="admin-sidebar__bottom">
-          <div style={{ marginBottom: "1rem", padding: "0.75rem", background: "rgba(255,255,255,0.8)", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-            <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div
+            style={{
+              marginBottom: "1rem",
+              padding: "0.75rem",
+              background: "rgba(255,255,255,0.8)",
+              borderRadius: "8px",
+              border: "1px solid #e2e8f0",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "0.8125rem",
+                fontWeight: 600,
+                color: "#1e293b",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
               {user.name}
             </div>
-            <div style={{ fontSize: "0.75rem", color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <div
+              style={{
+                fontSize: "0.75rem",
+                color: "#64748b",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
               {user.email}
             </div>
-            <div style={{ marginTop: "0.35rem", display: "inline-block", fontSize: "0.6875rem", fontWeight: 700, padding: "2px 6px", borderRadius: "4px", background: "#dcfce7", color: "#15803d" }}>
+            <div
+              style={{
+                marginTop: "0.35rem",
+                display: "inline-block",
+                fontSize: "0.6875rem",
+                fontWeight: 700,
+                padding: "2px 6px",
+                borderRadius: "4px",
+                background: "#dcfce7",
+                color: "#15803d",
+              }}
+            >
               PETUGAS OPERASIONAL
             </div>
           </div>
@@ -238,7 +301,17 @@ export function StaffShell({ children }: { children: ReactNode }) {
             }}
             type="button"
           >
-            <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="16">
+            <svg
+              aria-hidden="true"
+              fill="none"
+              height="16"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+              width="16"
+            >
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
               <polyline points="16 17 21 12 16 7" />
               <line x1="21" x2="9" y1="12" y2="12" />
@@ -248,7 +321,14 @@ export function StaffShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <main style={{ minWidth: 0, overflowY: "scroll", display: "flex", flexDirection: "column" }}>
+      <main
+        style={{
+          minWidth: 0,
+          overflowY: "scroll",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
         {children}
       </main>
     </div>
