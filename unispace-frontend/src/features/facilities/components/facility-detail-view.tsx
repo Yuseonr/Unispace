@@ -279,7 +279,7 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
                 <div>
                   <h3 className="facility-inpage-success__title">Reservasi Berhasil Diajukan!</h3>
                   <p className="facility-inpage-success__meta">
-                    No. {submitSuccess.reservationNumber ?? submitSuccess.id.slice(0, 8).toUpperCase()} · Menunggu verifikasi petugas
+                    No. {submitSuccess.reservationNumber ?? submitSuccess.id.slice(0, 8).toUpperCase()}, menunggu verifikasi petugas
                   </p>
                 </div>
               </div>

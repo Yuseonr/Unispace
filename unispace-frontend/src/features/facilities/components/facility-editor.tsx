@@ -151,7 +151,7 @@ export function FacilityEditor({ facilityId }: { facilityId?: string }) {
         facilityId ? request<AdminFacilityGroup[]>("/admin/facilities") : Promise.resolve<AdminFacilityGroup[]>([]),
       ]);
       setAreas(nextAreas.filter((area) => area.status === "ACTIVE"));
-      setTypes(nextTypes);
+      setTypes(nextTypes.filter((type) => type.status === "ACTIVE"));
 
       if (!facilityId) return;
       const found = allFacilities.find((item) => item.id === facilityId);
@@ -377,7 +377,7 @@ export function FacilityEditor({ facilityId }: { facilityId?: string }) {
           <section className="admin-editor-photo-panel">
             <div className="admin-editor-photo">{imageUrl ? <img alt={`Foto ${form.name || "fasilitas"}`} src={imageUrl} /> : <div className="admin-editor-photo__empty"><PhotoPlaceholder /><span>Belum ada foto</span></div>}</div>
             <label className="admin-image-upload"><UploadIcon /><span>{imageUrl ? "Ganti foto utama" : "Unggah foto utama"}</span><input accept="image/jpeg,image/png,image/webp" onChange={(event) => changeImage(event.target.files?.[0] ?? null)} type="file" /></label>
-            <p>JPEG, PNG, atau WebP · maksimal 5 MB</p>
+                <p>JPEG, PNG, atau WebP, maksimal 5 MB</p>
           </section>
 
           <section className="admin-editor-form-panel">

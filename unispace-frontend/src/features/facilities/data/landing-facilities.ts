@@ -9,7 +9,7 @@ export const landingFacilities: CatalogFacility[] = [
     capacity: 300,
     facilityArea: { code: "REKTORAT", name: "Rektorat" },
     id: "aula-muladi",
-    locationDetail: "Gedung Prof. Soedarto, Lt. 1 · Tembalang",
+    locationDetail: "Gedung Prof. Soedarto, Lt. 1, Tembalang",
     name: "Aula Muladi",
     status: "ACTIVE",
     type: "Aula",

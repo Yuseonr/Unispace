@@ -92,13 +92,13 @@ export function AdminFacilities() {
               {!isLoading && visibleFacilities.length === 0 ? <tr><td className="admin-facilities-empty" colSpan={6}>{query ? "Fasilitas tidak ditemukan." : "Belum ada fasilitas. Buat fasilitas pertama untuk memulai katalog."}</td></tr> : null}
               {!isLoading ? visibleFacilities.map((facility) => {
                 const status = groupStatus(facility);
-                const assetText = facility.reservationMode === "EXCLUSIVE" ? facility.facilities[0]?.assetCode ?? "—" : `${facility.facilities.length} unit aset`;
+                const assetText = facility.reservationMode === "EXCLUSIVE" ? facility.facilities[0]?.assetCode ?? "-" : `${facility.facilities.length} unit aset`;
                 return <tr key={facility.id}>
-                  <td><div className="admin-facility-identity"><div className="admin-facility-thumb">{facility.primaryImageUrl ? <img alt="" src={facility.primaryImageUrl} /> : <FacilityPlaceholder />}</div><div><strong>{facility.name}</strong><small>{facility.facilityType.name} · {assetText}</small></div></div></td>
+                  <td><div className="admin-facility-identity"><div className="admin-facility-thumb">{facility.primaryImageUrl ? <img alt="" src={facility.primaryImageUrl} /> : <FacilityPlaceholder />}</div><div><strong>{facility.name}</strong><small>{facility.facilityType.name}, {assetText}</small></div></div></td>
                   <td><span className={`admin-mode-pill admin-mode-pill--${facility.reservationMode.toLowerCase()}`}>{modeLabel(facility)}</span></td>
                   <td><div className="admin-facility-location"><strong>{facility.facilityArea.name}</strong><span>{facility.locationDetail}</span></div></td>
-                  <td>{facility.capacity === null ? "—" : `${facility.capacity} orang`}</td>
-                  <td><span className={`admin-status-pill admin-status-pill--${status.status.toLowerCase()}`}>{status.label}{facility.reservationMode === "QUANTITY" ? ` · ${status.active} unit` : ""}</span></td>
+                  <td>{facility.capacity === null ? "-" : `${facility.capacity} orang`}</td>
+                  <td><span className={`admin-status-pill admin-status-pill--${status.status.toLowerCase()}`}>{status.label}{facility.reservationMode === "QUANTITY" ? ` (${status.active} unit)` : ""}</span></td>
                   <td><Link aria-label={`Ubah ${facility.name}`} className="admin-icon-button" href={`/admin/facilities/${facility.id}`}><EditIcon /></Link></td>
                 </tr>;
               }) : null}
