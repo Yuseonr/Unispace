@@ -28,7 +28,8 @@ export function CreateReportPage() {
   const [facilities, setFacilities] = useState<ReportableFacility[]>([]);
   const [facilityPage, setFacilityPage] = useState(1);
   const [facilityMeta, setFacilityMeta] = useState({ total: 0, totalPages: 1 });
-  const [selectedFacility, setSelectedFacility] = useState<ReportableFacility | null>(null);
+  const [selectedFacility, setSelectedFacility] =
+    useState<ReportableFacility | null>(null);
   const [category, setCategory] = useState<ReportCategory>("PHYSICAL_DAMAGE");
   const [description, setDescription] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
@@ -43,11 +44,17 @@ export function CreateReportPage() {
     () => photos.map((file) => ({ file, url: URL.createObjectURL(file) })),
     [photos],
   );
-  useEffect(() => () => previews.forEach((preview) => URL.revokeObjectURL(preview.url)), [previews]);
+  useEffect(
+    () => () => previews.forEach((preview) => URL.revokeObjectURL(preview.url)),
+    [previews],
+  );
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         setShowSuggestions(false);
       }
     }
@@ -71,9 +78,14 @@ export function CreateReportPage() {
         .then((result) => {
           setFacilities(result.items);
           setFacilityPage(result.page);
-          setFacilityMeta({ total: result.total, totalPages: result.totalPages });
+          setFacilityMeta({
+            total: result.total,
+            totalPages: result.totalPages,
+          });
         })
-        .catch((reason) => setError(readableApiError(reason, "Fasilitas belum dapat dicari.")))
+        .catch((reason) =>
+          setError(readableApiError(reason, "Fasilitas belum dapat dicari.")),
+        )
         .finally(() => setLoadingFacilities(false));
     }, 300);
     return () => window.clearTimeout(timeout);
@@ -83,7 +95,11 @@ export function CreateReportPage() {
     const nextPage = facilityPage + 1;
     setLoadingFacilities(true);
     try {
-      const result = await listReportableFacilities(request, { limit: 12, page: nextPage, search: search.trim() || undefined });
+      const result = await listReportableFacilities(request, {
+        limit: 12,
+        page: nextPage,
+        search: search.trim() || undefined,
+      });
       setFacilities((current) => [...current, ...result.items]);
       setFacilityPage(result.page);
       setFacilityMeta({ total: result.total, totalPages: result.totalPages });
@@ -95,9 +111,14 @@ export function CreateReportPage() {
   }
 
   function addPhotos(files: File[]) {
-    const invalid = files.find((file) => !SUPPORTED_IMAGE_TYPES.includes(file.type) || file.size > MAX_BYTES);
+    const invalid = files.find(
+      (file) =>
+        !SUPPORTED_IMAGE_TYPES.includes(file.type) || file.size > MAX_BYTES,
+    );
     if (invalid) {
-      setError("Setiap foto harus JPEG, PNG, atau WebP dengan ukuran maksimal 5 MB.");
+      setError(
+        "Setiap foto harus JPEG, PNG, atau WebP dengan ukuran maksimal 5 MB.",
+      );
       return;
     }
     const next = [...photos, ...files];
@@ -112,9 +133,11 @@ export function CreateReportPage() {
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    if (!selectedFacility) return setError("Pilih unit fasilitas yang dilaporkan.");
+    if (!selectedFacility)
+      return setError("Pilih unit fasilitas yang dilaporkan.");
     if (!description.trim()) return setError("Deskripsi kendala wajib diisi.");
-    if (photos.length < 1 || photos.length > 3) return setError("Unggah 1–3 foto bukti.");
+    if (photos.length < 1 || photos.length > 3)
+      return setError("Unggah 1–3 foto bukti.");
     const form = new FormData();
     form.set("facilityId", selectedFacility.facilityId);
     form.set("category", category);
@@ -134,109 +157,221 @@ export function CreateReportPage() {
   }
 
   if (!isReady || user?.role !== "USER") {
-    return <main className="user-res-page"><LoadingState label="Memeriksa akses laporan…" /></main>;
+    return (
+      <main className="user-res-page">
+        <LoadingState label="Memeriksa akses laporan…" />
+      </main>
+    );
   }
 
-  return <main className="user-res-page">
-    <PageHeader eyebrow="Pelaporan fasilitas" title="Laporkan Kendala"><Link href="/reports">← Kembali ke laporan saya</Link></PageHeader>
-    <form className="report-create-form" onSubmit={submit}>
-      <section>
-        <h2>1. Pilih unit fasilitas</h2>
-        <div className="report-facility-picker" ref={dropdownRef}>
-          <label className="ui-form-field">
-            <span>Ketik nama unit atau kode aset fasilitas</span>
-            <input
-              autoComplete="off"
-              onChange={(event) => {
-                setSearch(event.target.value);
-                setShowSuggestions(true);
-                if (selectedFacility) {
-                  setSelectedFacility(null);
-                }
-              }}
-              onFocus={() => {
-                if (search.trim().length > 0) {
+  return (
+    <main className="user-res-page">
+      <PageHeader eyebrow="Pelaporan fasilitas" title="Laporkan Kendala">
+        <Link href="/reports">← Kembali ke laporan saya</Link>
+      </PageHeader>
+      <form className="report-create-form" onSubmit={submit}>
+        <section>
+          <h2>1. Pilih unit fasilitas</h2>
+          <div className="report-facility-picker" ref={dropdownRef}>
+            <label className="ui-form-field">
+              <span>Ketik nama unit atau kode aset fasilitas</span>
+              <input
+                autoComplete="off"
+                onChange={(event) => {
+                  setSearch(event.target.value);
                   setShowSuggestions(true);
-                }
-              }}
-              placeholder="Contoh: PRJ-001 atau Laboratorium Jaringan"
-              ref={inputRef}
-              type="search"
-              value={search}
+                  if (selectedFacility) {
+                    setSelectedFacility(null);
+                  }
+                }}
+                onFocus={() => {
+                  if (search.trim().length > 0) {
+                    setShowSuggestions(true);
+                  }
+                }}
+                placeholder="Contoh: PRJ-001 atau Laboratorium Jaringan"
+                ref={inputRef}
+                type="search"
+                value={search}
+              />
+            </label>
+
+            {showSuggestions && search.trim().length > 0 ? (
+              <div
+                aria-label="Hasil fasilitas yang dapat dilaporkan"
+                className="report-facility-suggestions"
+              >
+                {loadingFacilities ? (
+                  <div style={{ padding: "0.85rem", textAlign: "center" }}>
+                    <LoadingState compact label="Mencari unit fasilitas…" />
+                  </div>
+                ) : facilities.length ? (
+                  <div className="report-facility-suggestions__list">
+                    {facilities.map((facility) => (
+                      <button
+                        className="report-facility-suggestion-item"
+                        key={facility.facilityId}
+                        onClick={() => {
+                          setSelectedFacility(facility);
+                          setSearch(facility.assetCode);
+                          setShowSuggestions(false);
+                        }}
+                        type="button"
+                      >
+                        <strong>
+                          {facility.assetCode}
+                          <br />
+                          {facility.name}
+                        </strong>
+                        <small>
+                          {facility.facilityGroup.name},{" "}
+                          {facility.facilityArea.name},{" "}
+                          {facility.locationDetail}
+                        </small>
+                      </button>
+                    ))}
+                    {facilityPage < facilityMeta.totalPages ? (
+                      <button
+                        className="report-facility-suggestions__more"
+                        disabled={loadingFacilities}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void loadMore();
+                        }}
+                        type="button"
+                      >
+                        {loadingFacilities ? "Memuat…" : "Muat lebih banyak"}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      color: "#6b8577",
+                      fontSize: "0.76rem",
+                      padding: "0.85rem",
+                      textAlign: "center",
+                    }}
+                  >
+                    Tidak ada unit fasilitas yang cocok dengan &quot;{search}
+                    &quot;.
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {selectedFacility ? (
+              <div className="report-selected-facility">
+                <div className="report-selected-facility__info">
+                  <span className="report-selected-facility__badge">
+                    Unit Terpilih
+                  </span>
+                  <strong>
+                    {selectedFacility.assetCode}
+                    <br />
+                    {selectedFacility.name}
+                  </strong>
+                  <small>
+                    {selectedFacility.facilityGroup.name},{" "}
+                    {selectedFacility.facilityArea.name},{" "}
+                    {selectedFacility.locationDetail}
+                  </small>
+                </div>
+                <button
+                  className="report-selected-facility__remove"
+                  onClick={() => {
+                    setSelectedFacility(null);
+                    setSearch("");
+                    setShowSuggestions(false);
+                    inputRef.current?.focus();
+                  }}
+                  type="button"
+                >
+                  Ganti
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </section>
+        <section>
+          <h2>2. Jelaskan kendala dan unggah bukti</h2>
+          <label className="ui-form-field">
+            <span>Kategori</span>
+            <select
+              onChange={(event) =>
+                setCategory(event.target.value as ReportCategory)
+              }
+              value={category}
+            >
+              {REPORT_CATEGORIES.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="ui-form-field">
+            <span>Deskripsi kendala</span>
+            <textarea
+              maxLength={5000}
+              onChange={(event) => setDescription(event.target.value)}
+              required
+              value={description}
             />
           </label>
-
-          {showSuggestions && search.trim().length > 0 ? (
-            <div aria-label="Hasil fasilitas yang dapat dilaporkan" className="report-facility-suggestions">
-              {loadingFacilities ? (
-                <div style={{ padding: "0.85rem", textAlign: "center" }}>
-                  <LoadingState compact label="Mencari unit fasilitas…" />
-                </div>
-              ) : facilities.length ? (
-                <div className="report-facility-suggestions__list">
-                  {facilities.map((facility) => (
-                    <button
-                      className="report-facility-suggestion-item"
-                      key={facility.facilityId}
-                      onClick={() => {
-                        setSelectedFacility(facility);
-                        setSearch(facility.assetCode);
-                        setShowSuggestions(false);
-                      }}
-                      type="button"
-                    >
-                      <strong>{facility.assetCode}<br />{facility.name}</strong>
-                      <small>{facility.facilityGroup.name}, {facility.facilityArea.name}, {facility.locationDetail}</small>
-                    </button>
-                  ))}
-                  {facilityPage < facilityMeta.totalPages ? (
-                    <button
-                      className="report-facility-suggestions__more"
-                      disabled={loadingFacilities}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void loadMore();
-                      }}
-                      type="button"
-                    >
-                      {loadingFacilities ? "Memuat…" : "Muat lebih banyak"}
-                    </button>
-                  ) : null}
-                </div>
-              ) : (
-                <div style={{ color: "#6b8577", fontSize: "0.76rem", padding: "0.85rem", textAlign: "center" }}>
-                  Tidak ada unit fasilitas yang cocok dengan &quot;{search}&quot;.
-                </div>
-              )}
-            </div>
-          ) : null}
-
-          {selectedFacility ? (
-            <div className="report-selected-facility">
-              <div className="report-selected-facility__info">
-                <span className="report-selected-facility__badge">Unit Terpilih</span>
-                <strong>{selectedFacility.assetCode}<br />{selectedFacility.name}</strong>
-                <small>{selectedFacility.facilityGroup.name}, {selectedFacility.facilityArea.name}, {selectedFacility.locationDetail}</small>
-              </div>
-              <button
-                className="report-selected-facility__remove"
-                onClick={() => {
-                  setSelectedFacility(null);
-                  setSearch("");
-                  setShowSuggestions(false);
-                  inputRef.current?.focus();
-                }}
-                type="button"
-              >
-                Ganti
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </section>
-      <section><h2>2. Jelaskan kendala dan unggah bukti</h2><label className="ui-form-field"><span>Kategori</span><select onChange={(event) => setCategory(event.target.value as ReportCategory)} value={category}>{REPORT_CATEGORIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label className="ui-form-field"><span>Deskripsi kendala</span><textarea maxLength={5000} onChange={(event) => setDescription(event.target.value)} required value={description} /></label><label className="report-upload"><span>Foto bukti: JPEG, PNG, WebP. 1–3 file, maksimum 5 MB/file</span><input accept="image/jpeg,image/png,image/webp" disabled={photos.length >= 3} multiple onChange={(event) => { addPhotos(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} type="file" /></label><div className="report-upload-preview">{previews.map(({ file, url }) => <figure key={`${file.name}-${file.lastModified}`}><img alt={`Preview ${file.name}`} src={url} /><button aria-label={`Hapus ${file.name}`} onClick={() => setPhotos((current) => current.filter((item) => item !== file))} type="button">×</button><figcaption>{file.name}</figcaption></figure>)}</div></section>
-      {error ? <p className="ui-form-feedback ui-form-feedback--error" role="alert">{error}</p> : null}
-      <footer><Link className="admin-secondary-button" href="/reports">Batal</Link><button className="admin-primary-button" disabled={busy} type="submit">{busy ? "Mengirim…" : "Kirim laporan"}</button></footer>
-    </form>
-  </main>;
+          <label className="report-upload">
+            <span>
+              Foto bukti: JPEG, PNG, WebP. 1–3 file, maksimum 5 MB/file
+            </span>
+            <input
+              accept="image/jpeg,image/png,image/webp"
+              disabled={photos.length >= 3}
+              multiple
+              onChange={(event) => {
+                addPhotos(Array.from(event.target.files ?? []));
+                event.currentTarget.value = "";
+              }}
+              type="file"
+            />
+          </label>
+          <div className="report-upload-preview">
+            {previews.map(({ file, url }) => (
+              <figure key={`${file.name}-${file.lastModified}`}>
+                <img alt={`Preview ${file.name}`} src={url} />
+                <button
+                  aria-label={`Hapus ${file.name}`}
+                  onClick={() =>
+                    setPhotos((current) =>
+                      current.filter((item) => item !== file),
+                    )
+                  }
+                  type="button"
+                >
+                  ×
+                </button>
+                <figcaption>{file.name}</figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
+        {error ? (
+          <p className="ui-form-feedback ui-form-feedback--error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <footer>
+          <Link className="admin-secondary-button" href="/reports">
+            Batal
+          </Link>
+          <button
+            className="admin-primary-button"
+            disabled={busy}
+            type="submit"
+          >
+            {busy ? "Mengirim…" : "Kirim laporan"}
+          </button>
+        </footer>
+      </form>
+    </main>
+  );
 }

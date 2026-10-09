@@ -85,13 +85,17 @@ export function StaffRejectModal({
       className="reservation-modal-backdrop"
       role="dialog"
     >
-      <div
-        className="reservation-modal-overlay"
-        onClick={handleClose}
-      />
+      <div className="reservation-modal-overlay" onClick={handleClose} />
 
-      <div className="reservation-modal-card" ref={modalRef} style={{ maxWidth: "520px" }}>
-        <div className="reservation-modal-header" style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "1rem" }}>
+      <div
+        className="reservation-modal-card"
+        ref={modalRef}
+        style={{ maxWidth: "520px" }}
+      >
+        <div
+          className="reservation-modal-header"
+          style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "1rem" }}
+        >
           <div
             style={{
               width: "40px",
@@ -106,7 +110,16 @@ export function StaffRejectModal({
             }}
             aria-hidden="true"
           >
-            <svg fill="none" height="20" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="20">
+            <svg
+              fill="none"
+              height="20"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+              width="20"
+            >
               <circle cx="12" cy="12" r="10" />
               <line x1="15" x2="9" y1="9" y2="15" />
               <line x1="9" x2="15" y1="9" y2="15" />
@@ -114,10 +127,24 @@ export function StaffRejectModal({
           </div>
 
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h2 id="reject-modal-title" style={{ fontSize: "1.125rem", fontWeight: 700, color: "#0f172a", margin: 0 }}>
+            <h2
+              id="reject-modal-title"
+              style={{
+                fontSize: "1.125rem",
+                fontWeight: 700,
+                color: "#0f172a",
+                margin: 0,
+              }}
+            >
               Tolak Permohonan Reservasi
             </h2>
-            <p style={{ fontSize: "0.8125rem", color: "#64748b", margin: "2px 0 0" }}>
+            <p
+              style={{
+                fontSize: "0.8125rem",
+                color: "#64748b",
+                margin: "2px 0 0",
+              }}
+            >
               Berikan alasan penolakan yang transparan untuk pemohon.
             </p>
           </div>
@@ -126,7 +153,14 @@ export function StaffRejectModal({
             aria-label="Tutup jendela"
             disabled={isSubmitting}
             onClick={handleClose}
-            style={{ background: "none", border: "none", fontSize: "1.5rem", color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}
+            style={{
+              background: "none",
+              border: "none",
+              fontSize: "1.5rem",
+              color: "#94a3b8",
+              cursor: "pointer",
+              lineHeight: 1,
+            }}
             type="button"
           >
             ×
@@ -134,18 +168,63 @@ export function StaffRejectModal({
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div style={{ padding: "1.25rem 0", display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <div style={{ background: "#f8fafc", padding: "0.75rem 1rem", borderRadius: "8px", border: "1px solid #e2e8f0", fontSize: "0.8125rem", color: "#475569" }}>
-              <div><strong>{targetName}</strong> ({dateFormatted}, {timeRange})</div>
-              <div>Pemohon: <strong>{reservation.user.name}</strong> ({reservation.user.identityNumber})</div>
+          <div
+            style={{
+              padding: "1.25rem 0",
+              display: "flex",
+              flexDirection: "column",
+              gap: "1rem",
+            }}
+          >
+            <div
+              style={{
+                background: "#f8fafc",
+                padding: "0.75rem 1rem",
+                borderRadius: "8px",
+                border: "1px solid #e2e8f0",
+                fontSize: "0.8125rem",
+                color: "#475569",
+              }}
+            >
+              <div>
+                <strong>{targetName}</strong> ({dateFormatted}, {timeRange})
+              </div>
+              <div>
+                Pemohon: <strong>{reservation.user.name}</strong> (
+                {reservation.user.identityNumber})
+              </div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <label htmlFor="rejection-reason" style={{ fontSize: "0.875rem", fontWeight: 600, color: "#1e293b" }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.35rem",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <label
+                  htmlFor="rejection-reason"
+                  style={{
+                    fontSize: "0.875rem",
+                    fontWeight: 600,
+                    color: "#1e293b",
+                  }}
+                >
                   Alasan Penolakan <span style={{ color: "#dc2626" }}>*</span>
                 </label>
-                <span style={{ fontSize: "0.75rem", color: reason.trim().length < 5 ? "#dc2626" : "#64748b" }}>
+                <span
+                  style={{
+                    fontSize: "0.75rem",
+                    color: reason.trim().length < 5 ? "#dc2626" : "#64748b",
+                  }}
+                >
                   {reason.length} / 500 karakter
                 </span>
               </div>
@@ -167,22 +246,49 @@ export function StaffRejectModal({
                 value={reason}
               />
               <p style={{ fontSize: "0.75rem", color: "#64748b", margin: 0 }}>
-                Catatan alasan penolakan ini akan dicatat ke dalam audit log dan dapat dibaca oleh pemohon.
+                Catatan alasan penolakan ini akan dicatat ke dalam audit log dan
+                dapat dibaca oleh pemohon.
               </p>
             </div>
 
             {validationError || error ? (
-              <div style={{ background: "#fef2f2", border: "1px solid #fecaca", padding: "0.6rem 0.85rem", borderRadius: "6px", fontSize: "0.8125rem", color: "#b91c1c" }}>
+              <div
+                style={{
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  padding: "0.6rem 0.85rem",
+                  borderRadius: "6px",
+                  fontSize: "0.8125rem",
+                  color: "#b91c1c",
+                }}
+              >
                 {validationError ?? error}
               </div>
             ) : null}
           </div>
 
-          <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
+          <div
+            style={{
+              borderTop: "1px solid #e2e8f0",
+              paddingTop: "1rem",
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: "0.75rem",
+            }}
+          >
             <button
               disabled={isSubmitting}
               onClick={handleClose}
-              style={{ padding: "0.5rem 1rem", fontSize: "0.875rem", fontWeight: 600, color: "#475569", background: "#f1f5f9", border: "none", borderRadius: "6px", cursor: "pointer" }}
+              style={{
+                padding: "0.5rem 1rem",
+                fontSize: "0.875rem",
+                fontWeight: 600,
+                color: "#475569",
+                background: "#f1f5f9",
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+              }}
               type="button"
             >
               Batal
@@ -206,9 +312,25 @@ export function StaffRejectModal({
             >
               {isSubmitting ? (
                 <>
-                  <svg className="animate-spin" height="14" viewBox="0 0 24 24" width="14" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.25" />
-                    <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  <svg
+                    className="animate-spin"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    width="14"
+                    fill="none"
+                  >
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      opacity="0.25"
+                    />
+                    <path
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
                   </svg>
                   <span>Menolak…</span>
                 </>

@@ -13,7 +13,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="id" className="h-full antialiased" data-scroll-behavior="smooth">
+    <html
+      lang="id"
+      className="h-full antialiased"
+      data-scroll-behavior="smooth"
+    >
       <body className="min-h-full flex flex-col">
         <AuthProvider>{children}</AuthProvider>
       </body>

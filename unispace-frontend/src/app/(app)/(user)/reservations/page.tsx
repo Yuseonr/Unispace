@@ -5,7 +5,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { useAuth } from "@/features/auth/auth-provider";
-import { cancelMyReservation, fetchMyReservations } from "@/features/reservations/api";
+import {
+  cancelMyReservation,
+  fetchMyReservations,
+} from "@/features/reservations/api";
 import { CancelReservationModal } from "@/features/reservations/components/cancel-reservation-modal";
 import { ReservationCard } from "@/features/reservations/components/reservation-card";
 import type {
@@ -24,7 +27,10 @@ function UserReservationsContent() {
   const { isReady, request, user } = useAuth();
 
   const tabParam = searchParams.get("tab");
-  const activeTab: TabKey = tabParam === "PENDING" || tabParam === "APPROVED" || tabParam === "HISTORY" ? tabParam : "ALL";
+  const activeTab: TabKey =
+    tabParam === "PENDING" || tabParam === "APPROVED" || tabParam === "HISTORY"
+      ? tabParam
+      : "ALL";
   const filterDate = searchParams.get("date") ?? "";
   const page = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
   const [reservations, setReservations] = useState<UserReservationItem[]>([]);
@@ -37,7 +43,8 @@ function UserReservationsContent() {
 
   // State Modal Pembatalan Mandiri
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
-  const [selectedForCancel, setSelectedForCancel] = useState<UserReservationItem | null>(null);
+  const [selectedForCancel, setSelectedForCancel] =
+    useState<UserReservationItem | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
@@ -58,7 +65,9 @@ function UserReservationsContent() {
       else next.delete(key);
     });
     const query = next.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
   }
 
   function handleTabChange(tab: TabKey) {
@@ -147,7 +156,9 @@ function UserReservationsContent() {
 
       // Perbarui state lokal secara reaktif
       setReservations((prev) =>
-        prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)),
+        prev.map((item) =>
+          item.id === updated.id ? { ...item, ...updated } : item,
+        ),
       );
 
       setIsCancelModalOpen(false);
@@ -187,7 +198,10 @@ function UserReservationsContent() {
       {/* Header Halaman */}
       <div className="user-res-header">
         <div className="user-res-header__text">
-          <nav aria-label="Breadcrumb" className="facility-breadcrumb user-res-breadcrumb">
+          <nav
+            aria-label="Breadcrumb"
+            className="facility-breadcrumb user-res-breadcrumb"
+          >
             <Link href="/">Beranda</Link>
             <span aria-hidden="true">/</span>
             <span aria-current="page">Reservasi Saya</span>
@@ -205,7 +219,9 @@ function UserReservationsContent() {
       {/* Pesan Feedback Sukses */}
       {feedbackMessage ? (
         <div className="user-res-feedback-banner" role="status">
-          <span className="user-res-feedback-banner__icon" aria-hidden="true">✓</span>
+          <span className="user-res-feedback-banner__icon" aria-hidden="true">
+            ✓
+          </span>
           <span>{feedbackMessage}</span>
           <button
             aria-label="Tutup pesan"
@@ -220,7 +236,11 @@ function UserReservationsContent() {
 
       {/* Navigasi Tab Status & Filter */}
       <div className="user-res-controls">
-        <div aria-label="Filter status reservasi" className="user-res-tabs" role="tablist">
+        <div
+          aria-label="Filter status reservasi"
+          className="user-res-tabs"
+          role="tablist"
+        >
           <button
             aria-selected={activeTab === "ALL"}
             className={`user-res-tab ${activeTab === "ALL" ? "is-active" : ""}`}
@@ -264,7 +284,10 @@ function UserReservationsContent() {
 
         {/* Filter Tanggal Pemakaian */}
         <div className="user-res-date-filter">
-          <label className="user-res-date-filter__label" htmlFor="res-filter-date">
+          <label
+            className="user-res-date-filter__label"
+            htmlFor="res-filter-date"
+          >
             Cari Tanggal:
           </label>
           <input
@@ -307,7 +330,16 @@ function UserReservationsContent() {
       ) : reservations.length === 0 ? (
         <div className="user-res-empty-state">
           <div className="user-res-empty-state__icon" aria-hidden="true">
-            <svg fill="none" height="48" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" viewBox="0 0 24 24" width="48">
+            <svg
+              fill="none"
+              height="48"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.5"
+              viewBox="0 0 24 24"
+              width="48"
+            >
               <rect height="18" rx="2" ry="2" width="18" x="3" y="4" />
               <line x1="16" x2="16" y1="2" y2="6" />
               <line x1="8" x2="8" y1="2" y2="6" />
@@ -324,7 +356,10 @@ function UserReservationsContent() {
                   ? "Belum ada jadwal fasilitas yang disetujui."
                   : "Anda belum memiliki riwayat reservasi fasilitas atau alat kampus."}
           </p>
-          <Link className="button-primary user-res-empty-state__btn" href="/facilities">
+          <Link
+            className="button-primary user-res-empty-state__btn"
+            href="/facilities"
+          >
             Jelajahi Katalog Fasilitas
           </Link>
         </div>
@@ -346,7 +381,27 @@ function UserReservationsContent() {
               />
             ))}
           </div>
-          {meta && meta.totalPages > 1 ? <div className="user-res-pagination"><button disabled={page <= 1} onClick={() => updateQuery({ page: String(page - 1) })} type="button">Sebelumnya</button><span>Halaman {meta.page} dari {meta.totalPages}</span><button disabled={page >= meta.totalPages} onClick={() => updateQuery({ page: String(page + 1) })} type="button">Berikutnya</button></div> : null}
+          {meta && meta.totalPages > 1 ? (
+            <div className="user-res-pagination">
+              <button
+                disabled={page <= 1}
+                onClick={() => updateQuery({ page: String(page - 1) })}
+                type="button"
+              >
+                Sebelumnya
+              </button>
+              <span>
+                Halaman {meta.page} dari {meta.totalPages}
+              </span>
+              <button
+                disabled={page >= meta.totalPages}
+                onClick={() => updateQuery({ page: String(page + 1) })}
+                type="button"
+              >
+                Berikutnya
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -364,5 +419,9 @@ function UserReservationsContent() {
 }
 
 export default function UserReservationsPage() {
-  return <Suspense><UserReservationsContent /></Suspense>;
+  return (
+    <Suspense>
+      <UserReservationsContent />
+    </Suspense>
+  );
 }

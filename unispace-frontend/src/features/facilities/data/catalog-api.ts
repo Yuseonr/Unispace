@@ -58,7 +58,8 @@ function queryString(input: CatalogQuery) {
 function visualThemeFor(typeName: string): FacilityVisualTheme {
   const normalized = typeName.toLocaleLowerCase("id-ID");
   if (normalized.includes("lapangan")) return "forest";
-  if (normalized.includes("alat") || normalized.includes("peralatan")) return "sun";
+  if (normalized.includes("alat") || normalized.includes("peralatan"))
+    return "sun";
   if (normalized.includes("laboratorium")) return "mint";
   return "sage";
 }

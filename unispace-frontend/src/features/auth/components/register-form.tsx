@@ -9,30 +9,38 @@ import { AuthShell } from "@/features/auth/components/auth-shell";
 import { useAuth } from "@/features/auth/auth-provider";
 import { ApiError } from "@/lib/api/client";
 
-type RegisterField = "name" | "identityNumber" | "email" | "password" | "passwordConfirmation";
+type RegisterField =
+  "name" | "identityNumber" | "email" | "password" | "passwordConfirmation";
 
 export function RegisterForm() {
   const router = useRouter();
   const { register } = useAuth();
-  const [errors, setErrors] = useState<Partial<Record<RegisterField, string>>>({});
+  const [errors, setErrors] = useState<Partial<Record<RegisterField, string>>>(
+    {},
+  );
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   function getFieldError(field: RegisterField, value: string, password = "") {
     if (field === "name") {
       const normalizedName = value.trim().replace(/\s+/g, " ");
-      return !/^[\p{L}][\p{L}\p{M}' .-]*$/u.test(normalizedName) || normalizedName.length < 2 || normalizedName.length > 120
+      return !/^[\p{L}][\p{L}\p{M}' .-]*$/u.test(normalizedName) ||
+        normalizedName.length < 2 ||
+        normalizedName.length > 120
         ? "Nama harus 2–120 karakter dan hanya berisi huruf, spasi, apostrof, titik, atau tanda hubung."
         : undefined;
     }
 
     if (field === "identityNumber") {
-      return !/^\d{8,30}$/.test(value.trim()) ? "NIM/NIP harus terdiri dari 8–30 digit." : undefined;
+      return !/^\d{8,30}$/.test(value.trim())
+        ? "NIM/NIP harus terdiri dari 8–30 digit."
+        : undefined;
     }
 
     if (field === "email") {
       const normalizedEmail = value.trim();
-      return !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || normalizedEmail.length > 320
+      return !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) ||
+        normalizedEmail.length > 320
         ? "Masukkan alamat email kampus yang valid."
         : undefined;
     }
@@ -60,11 +68,15 @@ export function RegisterForm() {
   async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    const name = String(formData.get("name") ?? "").trim().replace(/\s+/g, " ");
+    const name = String(formData.get("name") ?? "")
+      .trim()
+      .replace(/\s+/g, " ");
     const identityNumber = String(formData.get("identityNumber") ?? "").trim();
     const email = String(formData.get("email") ?? "").trim();
     const password = String(formData.get("password") ?? "");
-    const passwordConfirmation = String(formData.get("passwordConfirmation") ?? "");
+    const passwordConfirmation = String(
+      formData.get("passwordConfirmation") ?? "",
+    );
     const nextErrors: Partial<Record<RegisterField, string>> = {};
 
     const nameError = getFieldError("name", name);
@@ -81,7 +93,8 @@ export function RegisterForm() {
     if (identityNumberError) nextErrors.identityNumber = identityNumberError;
     if (emailError) nextErrors.email = emailError;
     if (passwordError) nextErrors.password = passwordError;
-    if (passwordConfirmationError) nextErrors.passwordConfirmation = passwordConfirmationError;
+    if (passwordConfirmationError)
+      nextErrors.passwordConfirmation = passwordConfirmationError;
 
     setErrors(nextErrors);
     setFormError(null);
@@ -95,9 +108,12 @@ export function RegisterForm() {
       const user = await register({ name, identityNumber, email, password });
       router.replace(`/account-status?status=${user.accountStatus}`);
     } catch (caughtError) {
-      const message = caughtError instanceof ApiError
-        ? caughtError.code === "ACCOUNT_ALREADY_EXISTS" ? "Akun ini sudah terdaftar" : caughtError.message
-        : "Pendaftaran belum berhasil. Coba lagi beberapa saat.";
+      const message =
+        caughtError instanceof ApiError
+          ? caughtError.code === "ACCOUNT_ALREADY_EXISTS"
+            ? "Akun ini sudah terdaftar"
+            : caughtError.message
+          : "Pendaftaran belum berhasil. Coba lagi beberapa saat.";
       setFormError(message);
     } finally {
       setIsSubmitting(false);
@@ -110,7 +126,8 @@ export function RegisterForm() {
         Buat akun Unispace.
       </h2>
       <p className="auth-panel__intro">
-        Isi data singkat di bawah untuk mulai melakukan reservasi dan pelaporan fasilitas kampus.
+        Isi data singkat di bawah untuk mulai melakukan reservasi dan pelaporan
+        fasilitas kampus.
       </p>
 
       <form className="auth-form" noValidate onSubmit={handleSubmit}>
@@ -135,7 +152,9 @@ export function RegisterForm() {
         ) : null}
         <label htmlFor="identity-number">NIM/NIP</label>
         <input
-          aria-describedby={errors.identityNumber ? "identity-number-error" : undefined}
+          aria-describedby={
+            errors.identityNumber ? "identity-number-error" : undefined
+          }
           aria-invalid={Boolean(errors.identityNumber)}
           autoComplete="off"
           id="identity-number"
@@ -143,7 +162,9 @@ export function RegisterForm() {
           maxLength={30}
           minLength={8}
           name="identityNumber"
-          onInput={(event) => validateField("identityNumber", event.currentTarget.value)}
+          onInput={(event) =>
+            validateField("identityNumber", event.currentTarget.value)
+          }
           pattern="\d{8,30}"
           placeholder="Contoh: 24060123123456"
           required
@@ -183,7 +204,9 @@ export function RegisterForm() {
           name="password"
           onInput={(event) => {
             validateField("password", event.currentTarget.value);
-            const confirmation = event.currentTarget.form?.elements.namedItem("passwordConfirmation");
+            const confirmation = event.currentTarget.form?.elements.namedItem(
+              "passwordConfirmation",
+            );
 
             if (confirmation instanceof HTMLInputElement) {
               validateField(
@@ -204,7 +227,11 @@ export function RegisterForm() {
         ) : null}
         <label htmlFor="password-confirmation">Konfirmasi kata sandi</label>
         <input
-          aria-describedby={errors.passwordConfirmation ? "password-confirmation-error" : undefined}
+          aria-describedby={
+            errors.passwordConfirmation
+              ? "password-confirmation-error"
+              : undefined
+          }
           aria-invalid={Boolean(errors.passwordConfirmation)}
           autoComplete="new-password"
           id="password-confirmation"
@@ -212,7 +239,8 @@ export function RegisterForm() {
           minLength={12}
           name="passwordConfirmation"
           onInput={(event) => {
-            const password = event.currentTarget.form?.elements.namedItem("password");
+            const password =
+              event.currentTarget.form?.elements.namedItem("password");
             validateField(
               "passwordConfirmation",
               event.currentTarget.value,
@@ -224,17 +252,27 @@ export function RegisterForm() {
           type="password"
         />
         {errors.passwordConfirmation ? (
-          <p className="auth-form__field-error" id="password-confirmation-error">
+          <p
+            className="auth-form__field-error"
+            id="password-confirmation-error"
+          >
             {errors.passwordConfirmation}
           </p>
         ) : null}
-        <button className="button-primary" disabled={isSubmitting} type="submit">
+        <button
+          className="button-primary"
+          disabled={isSubmitting}
+          type="submit"
+        >
           {isSubmitting ? "Mendaftarkan…" : "Buat akun"}
         </button>
       </form>
 
       {formError ? (
-        <p className="auth-form__feedback auth-form__feedback--error" role="alert">
+        <p
+          className="auth-form__feedback auth-form__feedback--error"
+          role="alert"
+        >
           {formError}
         </p>
       ) : null}

@@ -8,11 +8,21 @@ export type StaffMaintenancePeriod = {
     assetCode: string;
     id: string;
     name: string | null;
-    facilityGroup: { id: string; name: string; reservationMode: "EXCLUSIVE" | "QUANTITY"; facilityArea: { id: string; name: string } };
+    facilityGroup: {
+      id: string;
+      name: string;
+      reservationMode: "EXCLUSIVE" | "QUANTITY";
+      facilityArea: { id: string; name: string };
+    };
   };
   id: string;
   note: string | null;
-  report: { categoryLabel: string; id: string; reportNumber: string; status: string } | null;
+  report: {
+    categoryLabel: string;
+    id: string;
+    reportNumber: string;
+    status: string;
+  } | null;
   startAt: string;
   state: StaffMaintenanceState;
 };
@@ -57,19 +67,40 @@ export type MaintenanceImpactResponse = {
   }>;
 };
 
-export function listStaffMaintenance(request: AuthenticatedRequestFn, input: { page?: number; state?: "ALL" | StaffMaintenanceState }) {
-  const query = new URLSearchParams({ limit: "20", page: String(input.page ?? 1), state: input.state ?? "ALL" });
-  return request<StaffMaintenanceResponse>(`/staff/facilities/maintenance?${query.toString()}`);
-}
-
-export function previewDirectFacilityMaintenance(request: AuthenticatedRequestFn, facilityId: string, payload: DirectMaintenanceWindowPayload) {
-  return request<MaintenanceImpactResponse>(`/staff/facilities/${facilityId}/maintenance/preview`, {
-    method: "POST",
-    body: payload,
+export function listStaffMaintenance(
+  request: AuthenticatedRequestFn,
+  input: { page?: number; state?: "ALL" | StaffMaintenanceState },
+) {
+  const query = new URLSearchParams({
+    limit: "20",
+    page: String(input.page ?? 1),
+    state: input.state ?? "ALL",
   });
+  return request<StaffMaintenanceResponse>(
+    `/staff/facilities/maintenance?${query.toString()}`,
+  );
 }
 
-export function createDirectFacilityMaintenance(request: AuthenticatedRequestFn, facilityId: string, payload: CreateDirectMaintenancePayload, idempotencyKey: string) {
+export function previewDirectFacilityMaintenance(
+  request: AuthenticatedRequestFn,
+  facilityId: string,
+  payload: DirectMaintenanceWindowPayload,
+) {
+  return request<MaintenanceImpactResponse>(
+    `/staff/facilities/${facilityId}/maintenance/preview`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
+export function createDirectFacilityMaintenance(
+  request: AuthenticatedRequestFn,
+  facilityId: string,
+  payload: CreateDirectMaintenancePayload,
+  idempotencyKey: string,
+) {
   return request<void>(`/staff/facilities/${facilityId}/maintenance`, {
     method: "POST",
     body: payload,

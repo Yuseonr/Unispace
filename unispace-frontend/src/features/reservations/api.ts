@@ -64,7 +64,10 @@ export function isOperationalDay(dateStr: string): boolean {
 /**
  * Tambahkan sejumlah hari kerja operasional (melewati Sabtu dan Minggu)
  */
-export function addOperationalDays(startDateStr: string, daysToAdd: number): string {
+export function addOperationalDays(
+  startDateStr: string,
+  daysToAdd: number,
+): string {
   const currentDate = new Date(`${startDateStr}T12:00:00+07:00`);
   let added = 0;
 
@@ -82,7 +85,10 @@ export function addOperationalDays(startDateStr: string, daysToAdd: number): str
 /**
  * Tambahkan sejumlah hari kalender biasa
  */
-export function addCalendarDays(startDateStr: string, daysToAdd: number): string {
+export function addCalendarDays(
+  startDateStr: string,
+  daysToAdd: number,
+): string {
   const currentDate = new Date(`${startDateStr}T12:00:00+07:00`);
   currentDate.setDate(currentDate.getDate() + daysToAdd);
   return formatJakartaDate(currentDate);
@@ -159,7 +165,9 @@ export function formatDateIndonesian(dateStr: string): string {
  * Dapatkan daftar seluruh tanggal hari kerja operasional yang valid dipilih
  * (mulai dari minimal H-2 hari kerja s.d. 14 hari kalender ke depan)
  */
-export function getAvailableOperationalDates(referenceDate = new Date()): OperationalDateOption[] {
+export function getAvailableOperationalDates(
+  referenceDate = new Date(),
+): OperationalDateOption[] {
   const { maxDate, minDate } = getReservationDateBounds(referenceDate);
   const dates: OperationalDateOption[] = [];
 
@@ -170,7 +178,10 @@ export function getAvailableOperationalDates(referenceDate = new Date()): Operat
     const dateStr = formatJakartaDate(cur);
     if (isOperationalDay(dateStr)) {
       const dayNum = getJakartaDayOfWeek(dateStr);
-      const dayInfo = OPERATIONAL_DAY_NAMES[dayNum] ?? { full: "Hari Kerja", short: "HK" };
+      const dayInfo = OPERATIONAL_DAY_NAMES[dayNum] ?? {
+        full: "Hari Kerja",
+        short: "HK",
+      };
 
       dates.push({
         dayName: dayInfo.full,
@@ -186,7 +197,6 @@ export function getAvailableOperationalDates(referenceDate = new Date()): Operat
   return dates;
 }
 
-
 /**
  * Fetch ketersediaan 26 slot 30 menit (07.00-20.00 WIB) untuk fasilitas tertentu
  */
@@ -197,7 +207,8 @@ export async function fetchSlotAvailability(params: {
 }): Promise<FacilityAvailabilityData> {
   const searchParams = new URLSearchParams();
   if (params.facilityId) searchParams.set("facilityId", params.facilityId);
-  if (params.facilityGroupId) searchParams.set("facilityGroupId", params.facilityGroupId);
+  if (params.facilityGroupId)
+    searchParams.set("facilityGroupId", params.facilityGroupId);
   searchParams.set("usageDate", params.usageDate);
 
   return apiRequest<FacilityAvailabilityData>(
@@ -242,7 +253,9 @@ export async function fetchMyReservations(
   if (query.limit) searchParams.set("limit", String(query.limit));
 
   const qs = searchParams.toString();
-  return requestFn<MyReservationsResponse>(`/reservations/my${qs ? `?${qs}` : ""}`);
+  return requestFn<MyReservationsResponse>(
+    `/reservations/my${qs ? `?${qs}` : ""}`,
+  );
 }
 
 /**
@@ -269,14 +282,18 @@ export async function fetchStaffReservations(
   if (query.view) searchParams.set("view", query.view);
   if (query.usageDate) searchParams.set("usageDate", query.usageDate);
   if (query.facilityId) searchParams.set("facilityId", query.facilityId);
-  if (query.facilityGroupId) searchParams.set("facilityGroupId", query.facilityGroupId);
-  if (query.facilityAreaId) searchParams.set("facilityAreaId", query.facilityAreaId);
+  if (query.facilityGroupId)
+    searchParams.set("facilityGroupId", query.facilityGroupId);
+  if (query.facilityAreaId)
+    searchParams.set("facilityAreaId", query.facilityAreaId);
   if (query.search) searchParams.set("search", query.search);
   if (query.page) searchParams.set("page", String(query.page));
   if (query.limit) searchParams.set("limit", String(query.limit));
 
   const qs = searchParams.toString();
-  return requestFn<StaffReservationsResponse>(`/staff/reservations${qs ? `?${qs}` : ""}`);
+  return requestFn<StaffReservationsResponse>(
+    `/staff/reservations${qs ? `?${qs}` : ""}`,
+  );
 }
 
 /**
@@ -339,9 +356,12 @@ export async function cancelStaffReservation(
 export async function triggerAutoRejectExpired(
   requestFn: AuthenticatedRequestFn,
 ): Promise<AutoRejectExpiredResponse> {
-  return requestFn<AutoRejectExpiredResponse>("/staff/reservations/auto-reject-expired", {
-    method: "POST",
-  });
+  return requestFn<AutoRejectExpiredResponse>(
+    "/staff/reservations/auto-reject-expired",
+    {
+      method: "POST",
+    },
+  );
 }
 
 /**
@@ -454,7 +474,8 @@ export function getReservationStatusConfig(status: ReservationStatus): {
     case "APPROVED":
       return {
         badgeClass: "badge--approved",
-        description: "Permohonan telah disetujui. Fasilitas siap digunakan sesuai jadwal.",
+        description:
+          "Permohonan telah disetujui. Fasilitas siap digunakan sesuai jadwal.",
         label: "Disetujui",
       };
     case "REJECTED":
@@ -478,7 +499,8 @@ export function getReservationStatusConfig(status: ReservationStatus): {
     case "CANCELLED_BY_SYSTEM":
       return {
         badgeClass: "badge--cancelled",
-        description: "Reservasi dibatalkan otomatis oleh sistem karena melewati tenggat waktu keputusan.",
+        description:
+          "Reservasi dibatalkan otomatis oleh sistem karena melewati tenggat waktu keputusan.",
         label: "Dibatalkan Sistem",
       };
     case "COMPLETED":
