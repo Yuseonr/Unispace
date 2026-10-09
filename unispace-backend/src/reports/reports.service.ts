@@ -1203,7 +1203,7 @@ export class ReportsService {
       );
       const changed = await tx.maintenancePeriod.updateMany({
         where: { id: periodId, endAt: { gt: endAt } },
-        data: { endAt },
+        data: { endAt, endedEarly: true },
       });
       if (changed.count !== 1) {
         throw new ConflictException(

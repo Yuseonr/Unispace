@@ -320,6 +320,7 @@ model MaintenancePeriod {
   createdById String?  @map("created_by_id") @db.Uuid
   startAt     DateTime @map("start_at") @db.Timestamptz(3)
   endAt       DateTime @map("end_at") @db.Timestamptz(3)
+  endedEarly  Boolean  @default(false) @map("ended_early")
   note        String?  @db.Text
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
