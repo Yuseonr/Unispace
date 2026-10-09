@@ -180,13 +180,13 @@ export function CreateReportPage() {
                       key={facility.facilityId}
                       onClick={() => {
                         setSelectedFacility(facility);
-                        setSearch(`${facility.assetCode} · ${facility.name}`);
+                        setSearch(facility.assetCode);
                         setShowSuggestions(false);
                       }}
                       type="button"
                     >
-                      <strong>{facility.assetCode} · {facility.name}</strong>
-                      <small>{facility.facilityGroup.name} · {facility.facilityArea.name} · {facility.locationDetail}</small>
+                      <strong>{facility.assetCode}<br />{facility.name}</strong>
+                      <small>{facility.facilityGroup.name}, {facility.facilityArea.name}, {facility.locationDetail}</small>
                     </button>
                   ))}
                   {facilityPage < facilityMeta.totalPages ? (
@@ -215,8 +215,8 @@ export function CreateReportPage() {
             <div className="report-selected-facility">
               <div className="report-selected-facility__info">
                 <span className="report-selected-facility__badge">Unit Terpilih</span>
-                <strong>{selectedFacility.assetCode} · {selectedFacility.name}</strong>
-                <small>{selectedFacility.facilityGroup.name} · {selectedFacility.facilityArea.name} · {selectedFacility.locationDetail}</small>
+                <strong>{selectedFacility.assetCode}<br />{selectedFacility.name}</strong>
+                <small>{selectedFacility.facilityGroup.name}, {selectedFacility.facilityArea.name}, {selectedFacility.locationDetail}</small>
               </div>
               <button
                 className="report-selected-facility__remove"
@@ -234,7 +234,7 @@ export function CreateReportPage() {
           ) : null}
         </div>
       </section>
-      <section><h2>2. Jelaskan kendala dan unggah bukti</h2><label className="ui-form-field"><span>Kategori</span><select onChange={(event) => setCategory(event.target.value as ReportCategory)} value={category}>{REPORT_CATEGORIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label className="ui-form-field"><span>Deskripsi kendala</span><textarea maxLength={5000} onChange={(event) => setDescription(event.target.value)} required value={description} /></label><label className="report-upload"><span>Foto bukti · JPEG, PNG, WebP · 1–3 file · maksimum 5 MB/file</span><input accept="image/jpeg,image/png,image/webp" disabled={photos.length >= 3} multiple onChange={(event) => { addPhotos(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} type="file" /></label><div className="report-upload-preview">{previews.map(({ file, url }) => <figure key={`${file.name}-${file.lastModified}`}><img alt={`Preview ${file.name}`} src={url} /><button aria-label={`Hapus ${file.name}`} onClick={() => setPhotos((current) => current.filter((item) => item !== file))} type="button">×</button><figcaption>{file.name}</figcaption></figure>)}</div></section>
+      <section><h2>2. Jelaskan kendala dan unggah bukti</h2><label className="ui-form-field"><span>Kategori</span><select onChange={(event) => setCategory(event.target.value as ReportCategory)} value={category}>{REPORT_CATEGORIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label className="ui-form-field"><span>Deskripsi kendala</span><textarea maxLength={5000} onChange={(event) => setDescription(event.target.value)} required value={description} /></label><label className="report-upload"><span>Foto bukti: JPEG, PNG, WebP. 1–3 file, maksimum 5 MB/file</span><input accept="image/jpeg,image/png,image/webp" disabled={photos.length >= 3} multiple onChange={(event) => { addPhotos(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} type="file" /></label><div className="report-upload-preview">{previews.map(({ file, url }) => <figure key={`${file.name}-${file.lastModified}`}><img alt={`Preview ${file.name}`} src={url} /><button aria-label={`Hapus ${file.name}`} onClick={() => setPhotos((current) => current.filter((item) => item !== file))} type="button">×</button><figcaption>{file.name}</figcaption></figure>)}</div></section>
       {error ? <p className="ui-form-feedback ui-form-feedback--error" role="alert">{error}</p> : null}
       <footer><Link className="admin-secondary-button" href="/reports">Batal</Link><button className="admin-primary-button" disabled={busy} type="submit">{busy ? "Mengirim…" : "Kirim laporan"}</button></footer>
     </form>

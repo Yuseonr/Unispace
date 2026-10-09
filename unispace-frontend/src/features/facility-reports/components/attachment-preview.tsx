@@ -16,13 +16,22 @@ export function AttachmentPreview({ attachment }: { attachment: ReportAttachment
     if (!isOpen) return;
     let active = true;
     let objectUrl: string | null = null;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsOpen(false);
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
     fetchFile(attachment.downloadUrl)
       .then((file) => {
         objectUrl = URL.createObjectURL(file.blob);
         if (active) setUrl(objectUrl);
       })
       .catch(() => { if (active) setError("Foto tidak dapat dimuat."); });
-    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+    return () => {
+      active = false;
+      document.removeEventListener("keydown", handleKeyDown);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
   }, [attachment.downloadUrl, fetchFile, isOpen]);
 
   return <>

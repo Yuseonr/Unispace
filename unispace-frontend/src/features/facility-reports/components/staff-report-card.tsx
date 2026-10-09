@@ -49,7 +49,7 @@ export function StaffReportCard({
             Pelapor
           </span>
           <span style={{ fontSize: "0.875rem", color: "#1e293b", fontWeight: 600 }}>
-            {report.reporter?.name ?? "—"}
+            {report.reporter?.name ?? "-"}
           </span>
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
