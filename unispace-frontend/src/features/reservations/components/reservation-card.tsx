@@ -32,7 +32,7 @@ export function ReservationCard({
     reservation.facilityGroup?.locationDetail;
   const locationText =
     areaName && locationDetail
-      ? `${areaName} · ${locationDetail}`
+      ? `${areaName}, ${locationDetail}`
       : areaName ?? locationDetail ?? "Kampus Unispace";
 
   const usageDateOnly = reservation.usageDate.split("T")[0] ?? "";
@@ -87,7 +87,7 @@ export function ReservationCard({
             </svg>
           </span>
           <strong className="user-res-card__date-strong">{dateFormatted}</strong>
-          <span className="user-res-card__time-span">· {timeRange}</span>
+          <span className="user-res-card__time-span">Waktu: {timeRange}</span>
         </div>
 
         <div className="user-res-card__detail-item">
@@ -108,7 +108,7 @@ export function ReservationCard({
             }`}
           >
             {isQuantity
-              ? `Kelompok alat · ${reservation.requestedQuantity} unit`
+              ? `Kelompok alat (${reservation.requestedQuantity} unit)`
               : "Ruang Eksklusif"}
           </span>
         </div>

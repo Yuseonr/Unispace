@@ -62,6 +62,7 @@ function UserReservationsContent() {
   }
 
   function handleTabChange(tab: TabKey) {
+    if (tab === activeTab) return;
     setLoading(true);
     updateQuery({ page: undefined, tab: tab === "ALL" ? undefined : tab });
   }
@@ -122,9 +123,6 @@ function UserReservationsContent() {
       isMounted = false;
     };
   }, [activeTab, filterDate, isReady, page, refreshTrigger, request, user]);
-
-  // Angka badge akurat saat tab Menunggu aktif; tab lain tetap tidak mengubah hasil query utama.
-  const pendingCount = activeTab === "PENDING" ? meta?.total ?? 0 : 0;
 
   function handleOpenCancelModal(res: UserReservationItem) {
     setSelectedForCancel(res);
@@ -195,9 +193,6 @@ function UserReservationsContent() {
             <span aria-current="page">Reservasi Saya</span>
           </nav>
           <h1 className="user-res-title">Reservasi Saya</h1>
-          <p className="user-res-subtitle">
-            Pantau status verifikasi, jadwal pemakaian fasilitas, serta kelola permohonan reservasi Anda.
-          </p>
         </div>
 
         <div className="user-res-header__actions">
@@ -244,9 +239,6 @@ function UserReservationsContent() {
             type="button"
           >
             <span>Menunggu</span>
-            {pendingCount > 0 ? (
-              <span className="user-res-tab__badge">{pendingCount}</span>
-            ) : null}
           </button>
 
           <button

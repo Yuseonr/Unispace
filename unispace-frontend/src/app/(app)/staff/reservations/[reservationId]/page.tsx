@@ -208,7 +208,7 @@ export default function StaffReservationDetailPage({
               {targetName}
             </h1>
             <p style={{ color: "#64748b", margin: "0.25rem 0 0", fontSize: "0.875rem" }}>
-              {areaName ?? "-"} {locationDetail ? `· ${locationDetail}` : ""}
+              {areaName ?? "-"}{locationDetail ? `, ${locationDetail}` : ""}
             </p>
           </div>
 

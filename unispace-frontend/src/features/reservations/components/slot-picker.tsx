@@ -347,7 +347,7 @@ export function SlotPicker({
               >
                 <div className="slot-picker__dropdown-menu-hint">
                   <span className="slot-picker__dropdown-hint-title">Pilihan Hari Operasional Kampus</span>
-                  <span className="slot-picker__dropdown-hint-sub">Senin – Jumat · 07.00 – 20.00 WIB</span>
+                  <span className="slot-picker__dropdown-hint-sub">Senin–Jumat, 07.00–20.00 WIB</span>
                 </div>
 
                 <div className="slot-picker__dropdown-list">
@@ -416,7 +416,7 @@ export function SlotPicker({
             </strong>
             {!isLocked ? (
               <span className="slot-picker__summary-hint">
-                · Klik slot akhir atau pesan slot ini saja
+                Klik slot akhir atau pesan slot ini saja
               </span>
             ) : null}
           </div>

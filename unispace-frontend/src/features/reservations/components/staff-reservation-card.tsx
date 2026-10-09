@@ -43,7 +43,7 @@ export function StaffReservationCard({
     reservation.facilityGroup?.locationDetail;
   const locationText =
     areaName && locationDetail
-      ? `${areaName} · ${locationDetail}`
+      ? `${areaName}, ${locationDetail}`
       : areaName ?? locationDetail ?? "Area Kampus";
 
   const usageDateOnly = reservation.usageDate.split("T")[0] ?? "";
