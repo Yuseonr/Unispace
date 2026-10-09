@@ -1,6 +1,16 @@
 # Unispace
 Tugas Projek PPK 2026 C - 02.
 
+## Akun demo
+- user1@unispace.local<br>
+UnispaceDevPass2026!abcd
+
+- staff1@unispace.local<br>
+UnispaceDevPass2026!abcd
+
+- admin@unispace.com<br>
+UCpSoldfXOeBFWL2XJ5D
+
 ## Development
 
 Prerequisite: Node.js dan Docker Desktop.
