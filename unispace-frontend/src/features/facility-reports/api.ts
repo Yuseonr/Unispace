@@ -272,16 +272,6 @@ export function confirmMaintenance(
     method: "POST",
   });
 }
-export function endMaintenance(
-  request: AuthenticatedRequestFn,
-  periodId: string,
-) {
-  return request<MaintenancePeriod>(
-    `/staff/reports/maintenance/${periodId}/end`,
-    { method: "PATCH" },
-  );
-}
-
 export function createInternalReport(
   request: AuthenticatedRequestFn,
   facilityId: string,

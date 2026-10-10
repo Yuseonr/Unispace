@@ -81,6 +81,16 @@ export function listStaffMaintenance(
   );
 }
 
+export function endMaintenance(
+  request: AuthenticatedRequestFn,
+  periodId: string,
+) {
+  return request<{ id: string; endAt: string }>(
+    `/staff/reports/maintenance/${periodId}/end`,
+    { method: "PATCH" },
+  );
+}
+
 export function previewDirectFacilityMaintenance(
   request: AuthenticatedRequestFn,
   facilityId: string,
