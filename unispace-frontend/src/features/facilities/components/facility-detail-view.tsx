@@ -207,7 +207,7 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
   const isAccountUnverified = Boolean(
     isReady && user && user.accountStatus !== "ACTIVE",
   );
-  const isInteractiveMode = isUserActive && !isMaintenance;
+  const isInteractiveMode = isUserActive;
   return (
     <main className="landing facility-detail-page">
       {/* Breadcrumb Navigation */}
@@ -398,7 +398,7 @@ export function FacilityDetailView({ facilityId }: { facilityId: string }) {
                 Cek Status Akun
               </Link>
             </div>
-          ) : isUserActive && !isMaintenance ? (
+          ) : isUserActive ? (
             selectedStartTime && selectedEndTime ? (
               <form
                 className="facility-inpage-form"
