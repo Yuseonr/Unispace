@@ -16,6 +16,7 @@ import {
 import { useAuth } from "@/features/auth/auth-provider";
 import { readableApiError } from "@/lib/api/error-message";
 import { formatJakartaDateTime, todayJakarta } from "@/lib/format";
+import { endMaintenance } from "@/features/facilities/data/staff-maintenance-api";
 
 import {
   type FacilityReport,
@@ -26,7 +27,6 @@ import {
   type ReportStatus,
   acceptStaffReport,
   confirmMaintenance,
-  endMaintenance,
   getStaffReport,
   listReportAudit,
   listStaffReports,

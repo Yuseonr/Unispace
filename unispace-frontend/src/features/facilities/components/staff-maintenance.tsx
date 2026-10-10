@@ -13,11 +13,13 @@ import {
   Pagination,
   StatusBadge,
 } from "@/components/ui/page-primitives";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/features/auth/auth-provider";
 import { readableApiError } from "@/lib/api/error-message";
 import { formatJakartaDateTime } from "@/lib/format";
 
 import {
+  endMaintenance,
   type StaffMaintenanceResponse,
   listStaffMaintenance,
 } from "../data/staff-maintenance-api";
@@ -30,6 +32,9 @@ export function StaffMaintenance() {
   const [data, setData] = useState<StaffMaintenanceResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dialogPeriodId, setDialogPeriodId] = useState<string | null>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+  const [ending, setEnding] = useState(false);
   const stateParam = searchParams.get("state");
   const state: "ALL" | "ACTIVE" | "SCHEDULED" =
     stateParam === "ACTIVE" || stateParam === "SCHEDULED" ? stateParam : "ALL";
@@ -63,6 +68,23 @@ export function StaffMaintenance() {
     else query.set("page", String(nextPage));
     const text = query.toString();
     router.replace(text ? `${pathname}?${text}` : pathname, { scroll: false });
+  }
+
+  async function endMaintenanceEarly() {
+    if (!dialogPeriodId) return;
+    setEnding(true);
+    setDialogError(null);
+    try {
+      await endMaintenance(request, dialogPeriodId);
+      setDialogPeriodId(null);
+      await load();
+    } catch (reason) {
+      setDialogError(
+        readableApiError(reason, "Perbaikan belum dapat diakhiri."),
+      );
+    } finally {
+      setEnding(false);
+    }
   }
 
   if (!isReady || user?.role !== "STAFF")
@@ -126,6 +148,7 @@ export function StaffMaintenance() {
                     <th>Jadwal</th>
                     <th>Status</th>
                     <th>Laporan asal</th>
+                    <th>Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -179,6 +202,22 @@ export function StaffMaintenance() {
                           </span>
                         )}
                       </td>
+                      <td>
+                        {period.state === "ACTIVE" ? (
+                          <button
+                            className="report-action-link"
+                            onClick={() => {
+                              setDialogError(null);
+                              setDialogPeriodId(period.id);
+                            }}
+                            type="button"
+                          >
+                            Akhiri sekarang
+                          </button>
+                        ) : (
+                          <span className="ui-secondary-text">-</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -193,6 +232,26 @@ export function StaffMaintenance() {
           </>
         )}
       </section>
+      <ConfirmDialog
+        busy={ending}
+        confirmLabel="Akhiri perbaikan"
+        destructive
+        error={dialogError}
+        isOpen={Boolean(dialogPeriodId)}
+        onClose={() => {
+          if (!ending) {
+            setDialogPeriodId(null);
+            setDialogError(null);
+          }
+        }}
+        onConfirm={() => void endMaintenanceEarly()}
+        title="Akhiri perbaikan lebih awal?"
+      >
+        <p>
+          Waktu selesai akan disimpan sebagai waktu aktual. Slot mulai dan
+          jadwal maintenance biasa tetap mengikuti aturan 30 menit.
+        </p>
+      </ConfirmDialog>
     </section>
   );
 }
