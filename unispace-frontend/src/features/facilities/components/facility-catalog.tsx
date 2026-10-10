@@ -293,7 +293,7 @@ export function FacilityCatalog() {
                 <h2 id="catalog-list-title">
                   {isLoading
                     ? "Memperbarui katalog…"
-                    : `${meta.total} fasilitas ditemukan`}
+                    : `${meta.total} Fasilitas ditemukan`}
                 </h2>
               </div>
             </div>

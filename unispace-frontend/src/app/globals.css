@@ -1883,8 +1883,10 @@ button {
 .site-header {
   background: var(--paper);
   border-bottom: 1px solid rgb(223 232 223 / 88%);
-  position: relative;
-  z-index: 30;
+  position: sticky;
+  top: 0;
+  width: 100%;
+  z-index: 1000;
 }
 
 .site-header__inner {
@@ -2903,7 +2905,7 @@ button {
 }
 
 .catalog-page {
-  padding-top: 0.75rem;
+  padding-top: 0.75reml;
 }
 
 .catalog-directory {
@@ -2912,10 +2914,10 @@ button {
 
 .catalog-search {
   background: var(--paper);
-  margin: 0 0 1.5rem;
-  padding: 0.55rem 0 0.8rem;
+  /* margin: 0 0 1.5rem; */
+  padding: 1rem 0 1rem;
   position: sticky;
-  top: 0;
+  top: 82px;
   z-index: 25;
 }
 
@@ -3021,7 +3023,7 @@ button {
   max-height: calc(100vh - 8rem);
   overflow-y: auto;
   position: sticky;
-  top: 7rem;
+  top: 182px;
 }
 
 .catalog-results {
@@ -3086,10 +3088,10 @@ button {
 
 .catalog-results__meta h2 {
   color: var(--ink);
-  font-family: var(--font-sans);
+  font-family: Outfit;
   font-size: clamp(1.55rem, 2.2vw, 2.25rem);
   font-weight: 500;
-  letter-spacing: -0.055em;
+  /* letter-spacing: -0.055em; */
   line-height: 1;
   margin: 0;
 }
