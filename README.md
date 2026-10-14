@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="unispace-frontend/public/Unispace_Logo_Trademark.svg" alt="Banner Unispace" width="360">
+  <img src="docs/Unispace_Logo_Trademark_Readme.svg" alt="Banner Unispace" width="360">
 </p>
 
 **Aplikasi web untuk reservasi dan pelaporan fasilitas kampus.**
